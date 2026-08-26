@@ -45,6 +45,12 @@ const ub = rto.find(r => r.area === 'Sec-D/Ub');
 assert(ub && /manpower/i.test(ub.remark), 'RTO Ub manpower line captured in remark');
 assert(rto.every(r => r.date === '2026-08-05'), 'all RTO dates -> 2026-08-05');
 
+console.log('\nArea group mapping:');
+assert(mb && mb.areaGroup === 'Area 2', 'Sec-C/Mb -> Area 2');
+assert(ub && ub.areaGroup === 'Area 3', 'Sec-D/Ub -> Area 3');
+assert(rto.find(r => r.area === 'Sec-C/Ld').areaGroup === 'Area 2', 'Sec-C/Ld -> Area 2');
+assert(sam.find(r => r.area === 'Sec-D/Ua').areaGroup === 'Area 3', 'Sec-D/Ua -> Area 3');
+
 console.log('\nComparison:');
 const cmp = compareRecords(rto, sam);
 const byKey = {};

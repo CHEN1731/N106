@@ -50,10 +50,22 @@ var PARSER_CONFIG = {
       'Le', 'Ld', 'Mb', 'Ma', 'P5', 'FB', 'Ja', 'Jb', 'Ka', 'Kb',
       'Qa', 'Qb', 'Qc', 'Qd', 'N', 'P', 'R', 'Sa', 'Sb', 'Ta', 'Tb', 'Tc', 'Ua', 'Ub'
     ],
-    // Optional: map each segment to its Area group (1-4) for the dashboard's
-    // higher-level filter. Fill from the site plan; unmapped -> areaGroup ''.
-    // e.g. { 'Mb': 'Area 2', 'Ub': 'Area 4', 'Ld': 'Area 2' }
-    segmentArea: {}
+    // Map each segment to its Area group (1-4) for the dashboard's higher-level
+    // filter. From the N106 site plan; unmapped segments -> areaGroup ''.
+    segmentArea: {
+      // Area 1
+      'Ja': 'Area 1', 'Jb': 'Area 1', 'Ka': 'Area 1', 'Kb': 'Area 1',
+      'Qa': 'Area 1', 'Qb': 'Area 1', 'N': 'Area 1',
+      // Area 2
+      'P': 'Area 2', 'Qc': 'Area 2', 'Qd': 'Area 2', 'R': 'Area 2', 'Sa': 'Area 2',
+      'Ma': 'Area 2', 'Mb': 'Area 2', 'Ld': 'Area 2', 'Le': 'Area 2', 'Wb': 'Area 2',
+      // Area 3
+      'Sb': 'Area 3', 'Ta': 'Area 3', 'Tb': 'Area 3', 'Tc': 'Area 3',
+      'Ua': 'Area 3', 'Ub': 'Area 3', 'Wa': 'Area 3',
+      // Area 4
+      'La1': 'Area 4', 'La2': 'Area 4', 'La3': 'Area 4', 'Lb1': 'Area 4', 'Lb2': 'Area 4',
+      'Lb3': 'Area 4', 'P5': 'Area 4', 'Lc': 'Area 4', 'Wc': 'Area 4', 'FB': 'Area 4'
+    }
   },
 
   // Optional generic area aliases, used only if no Section/segment is found

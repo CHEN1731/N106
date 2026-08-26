@@ -91,7 +91,8 @@
 
   <div class="filters">
     <label>Date <select id="fDate"><option value="">All dates</option></select></label>
-    <label>Area / Section <select id="fArea"><option value="">All areas</option></select></label>
+    <label>Area (1–4) <select id="fGroup"><option value="">All groups</option></select></label>
+    <label>Section <select id="fArea"><option value="">All sections</option></select></label>
     <span class="note" id="ctx"></span>
   </div>
 
@@ -127,7 +128,7 @@
     <div class="tablewrap">
       <table id="tbl">
         <thead><tr>
-          <th>Date</th><th>Area / Section</th><th>Status</th><th>Sim</th>
+          <th>Date</th><th>Area</th><th>Section</th><th>Status</th><th>Sim</th>
           <th>RTO</th><th>Samsung</th><th>Photos<br><span class="note">R / S</span></th>
         </tr></thead>
         <tbody></tbody>
@@ -140,15 +141,15 @@
 <script>
 /* Sample comparison output — identical shape to the Sheet's Comparison tab. */
 const ROWS = [
-  {date:"2026-08-05",area:"Sec-C/Mb",status:"Match",similarity:0.81,
+  {date:"2026-08-05",group:"Area 2",area:"Sec-C/Mb",status:"Match",similarity:0.81,
    rto:"CH 0+498 Slip Road Tunnel — Dwall reinstatement, DW64 curing, DW49 excavation for shoring",
    sam:"Slip Road Tunnel — Dwall reinstatement, DW64 curing, DW49 excavation for shoring",rp:3,sp:1},
-  {date:"2026-08-05",area:"Sec-D/Ub",status:"Conflict",similarity:0.65,
+  {date:"2026-08-05",group:"Area 3",area:"Sec-D/Ub",status:"Conflict",similarity:0.65,
    rto:"Base Slab — Unit#02 water curing, CJ hacking; Unit#01 no activities · Manpower 7pax",
    sam:"Base Slab — Unit#02 water curing, CJ hacking; Unit#01 no activities · Manpower 9pax",rp:3,sp:1},
-  {date:"2026-08-05",area:"Sec-C/Ld",status:"MissingSamsung",similarity:0,
+  {date:"2026-08-05",group:"Area 2",area:"Sec-C/Ld",status:"MissingSamsung",similarity:0,
    rto:"Huationg — Slip Road Tunnel / S3 layer excavation",sam:"—",rp:0,sp:0},
-  {date:"2026-08-05",area:"Sec-D/Ua",status:"MissingRTO",similarity:0,
+  {date:"2026-08-05",group:"Area 3",area:"Sec-D/Ua",status:"MissingRTO",similarity:0,
    rto:"—",sam:"Backfilling works ongoing to formation level",rp:0,sp:0}
 ];
 const ICON = {Match:"✓",Conflict:"!",MissingRTO:"✕",MissingSamsung:"✕"};
@@ -161,12 +162,13 @@ const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>
 function opts(sel, vals){ sel.innerHTML = sel.children[0].outerHTML +
   vals.map(v=>`<option>${v}</option>`).join(""); }
 opts($("fDate"), [...new Set(ROWS.map(r=>r.date))].sort());
+opts($("fGroup"), [...new Set(ROWS.map(r=>r.group).filter(Boolean))].sort());
 opts($("fArea"), [...new Set(ROWS.map(r=>r.area))].sort());
-$("fDate").onchange = $("fArea").onchange = render;
+$("fDate").onchange = $("fGroup").onchange = $("fArea").onchange = render;
 
 function filtered(){
-  const d=$("fDate").value, a=$("fArea").value;
-  return ROWS.filter(r=>(!d||r.date===d)&&(!a||r.area===a));
+  const d=$("fDate").value, g=$("fGroup").value, a=$("fArea").value;
+  return ROWS.filter(r=>(!d||r.date===d)&&(!g||r.group===g)&&(!a||r.area===a));
 }
 
 function render(){
@@ -188,6 +190,7 @@ function renderTable(rows){
   $("tbl").querySelector("tbody").innerHTML = rows.map(r=>`
     <tr>
       <td class="mono">${r.date}</td>
+      <td>${esc(r.group||"—")}</td>
       <td>${esc(r.area)}</td>
       <td><span class="pill ${r.status}"><span class="ico">${ICON[r.status]}</span>${LABEL[r.status]}</span></td>
       <td class="mono">${r.status==="Match"||r.status==="Conflict"? r.similarity.toFixed(2):"—"}</td>
@@ -197,10 +200,10 @@ function renderTable(rows){
     </tr>`).join("");
 }
 
-/* Aggregate by day honoring the area filter (date filter ignored for trends). */
+/* Aggregate by day honoring the area/group filters (date filter ignored for trends). */
 function daily(){
-  const a=$("fArea").value;
-  const src = ROWS.filter(r=>!a||r.area===a);
+  const g=$("fGroup").value, a=$("fArea").value;
+  const src = ROWS.filter(r=>(!g||r.group===g)&&(!a||r.area===a));
   const by={};
   src.forEach(r=>{ const d=by[r.date]||(by[r.date]={date:r.date,m:0,c:0,x:0,t:0});
     d.t++; if(r.status==="Match")d.m++; else if(r.status==="Conflict")d.c++; else d.x++; });
