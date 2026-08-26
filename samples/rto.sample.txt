@@ -1,9 +1,23 @@
-[15/08/2026, 08:12:03] RTO Supervisor: Good morning all, N106 daily report starting
-[15/08/2026, 08:45:11] RTO Supervisor: Zone A rebar fixing for slab, 80% done rest tomorrow
-[15/08/2026, 09:03:22] RTO Supervisor: <Media omitted>
-[15/08/2026, 11:20:40] RTO Supervisor: Concrete pour at basement, 25 m3 completed today
-[15/08/2026, 11:21:02] RTO Supervisor: <Media omitted>
-[15/08/2026, 14:50:19] RTO Supervisor: Roof waterproofing membrane started, about half done
-[16/08/2026, 08:30:00] RTO Supervisor: Formwork removal zone A, all clear no defects
-[16/08/2026, 09:12:00] RTO Supervisor: Delivered 10 pallets of blockwork to site store
-[16/08/2026, 09:13:00] RTO Supervisor: thanks
+[5/8/26, 10:09:08] ~ AR.Karthikeyan: Sec-C/ER15(Mb)
+SCT
+CH 0+498 /Slip Road Tunnel
+Dwall Reinstatement works
+1️⃣DW64 curing works
+2️⃣DW49  excavation for shoring installation works . image omitted
+[5/8/26, 10:09:08] ~ AR.Karthikeyan: image omitted
+[5/8/26, 10:09:09] ~ AR.Karthikeyan: image omitted
+[5/8/26, 10:09:38] ~ Manokaran(மனோகரன் நடேசன்):
+[5/8/26, 10:09:38] ~ Manokaran(மனோகரன் நடேசன்): Sec-D/CCL/Ub/Base Slab/Kian Hup:
+*Unit#02*
+-Water curing continue in progress,
+-CJ formwork dismantling &  CJ hacking
+*Unit#01*
+-No activities
+
+Manpower:7pax image omitted
+[5/8/26, 10:09:38] ~ Manokaran(மனோகரன் நடேசன்): image omitted
+[5/8/26, 10:09:39] ~ Manokaran(மனோகரன் நடேசன்): image omitted
+[5/8/26, 10:10:03] ~ AR.Karthikeyan:
+[5/8/26, 10:10:16] ~ AR.Karthikeyan: Sec-C/ER15/Ld
+Huationg
+Slip Road Tunnel/S3 layer  excavation

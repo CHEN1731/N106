@@ -35,24 +35,32 @@ var PARSER_CONFIG = {
     remark: ['remark', 'remarks', 'note', 'notes']
   },
 
-  // === AREA / SECTION LIST (the main thing to tune) ==================
-  // Canonical sections and the free-text aliases that map to each. Any alias
-  // (matched case-insensitively as a whole-word-ish substring) collapses to the
-  // canonical name, so "zone b", "Zone-B", "basement zone B" all become one key
-  // that lines RTO and Samsung records up. First matching area in this list wins,
-  // so list more specific areas before broader ones. REPLACE with the real N106
-  // sections + how each is written in the two chats.
-  areas: [
-    { name: 'Zone A', aliases: ['zone a', 'zone-a', 'zonea', 'blk a', 'block a'] },
-    { name: 'Zone B', aliases: ['zone b', 'zone-b', 'zoneb', 'basement', 'blk b', 'block b'] },
-    { name: 'Zone C', aliases: ['zone c', 'zone-c', 'zonec', 'roof', 'blk c', 'block c'] },
-    { name: 'Zone D', aliases: ['zone d', 'zone-d', 'zoned', 'external', 'ext', 'blk d', 'block d'] },
-    { name: 'Zone E', aliases: ['zone e', 'zone-e', 'zonee', 'blk e', 'block e'] },
-    { name: 'Level 1', aliases: ['level 1', 'l1', 'lvl 1', '1st floor', 'first floor'] },
-    { name: 'Level 2', aliases: ['level 2', 'l2', 'lvl 2', '2nd floor', 'second floor'] }
-  ],
+  // === SITE LOCATOR (the main thing to tune) =========================
+  // N106 messages start with a structured locator line, e.g.
+  //   "Sec-C/ER15(Mb)"  or  "Sec-D/CCL/Ub/Base Slab/Kian Hup:"
+  // The match key is Section (A-E) + segment code (the labels on the site plan:
+  // Mb, Ub, Ld, Ta, ...). Both are read from the first non-empty line.
+  locator: {
+    // Section A-E, written "Sec-C", "Sec C", "Section C".
+    sectionRe: /\bSec(?:tion)?[-\s]*([A-E])\b/i,
+    // Segment / zone codes from the site plan. Matched as whole tokens in the
+    // locator line (split on / ( ) space). Add/trim to match your plan labels.
+    segments: [
+      'Portal', 'Wc', 'Wb', 'Wa', 'Lc', 'Lb3', 'Lb2', 'Lb1', 'La3', 'La2', 'La1',
+      'Le', 'Ld', 'Mb', 'Ma', 'P5', 'FB', 'Ja', 'Jb', 'Ka', 'Kb',
+      'Qa', 'Qb', 'Qc', 'Qd', 'N', 'P', 'R', 'Sa', 'Sb', 'Ta', 'Tb', 'Tc', 'Ua', 'Ub'
+    ],
+    // Optional: map each segment to its Area group (1-4) for the dashboard's
+    // higher-level filter. Fill from the site plan; unmapped -> areaGroup ''.
+    // e.g. { 'Mb': 'Area 2', 'Ub': 'Area 4', 'Ld': 'Area 2' }
+    segmentArea: {}
+  },
 
-  // Fallback area for a message that has real site content but no area match.
+  // Optional generic area aliases, used only if no Section/segment is found
+  // (kept for non-N106 reuse). Same shape as before: { name, aliases:[...] }.
+  areas: [],
+
+  // Fallback area for a message that has real site content but no locator match.
   defaultArea: 'General',
 
   // Free-text signals that a no-area message is still a site record (so it goes
@@ -111,7 +119,13 @@ var PARSER_CONFIG = {
  */
 function parseWhatsApp(text, source) {
   if (!text) return [];
-  var lines = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  var lines = String(text)
+    .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    // WhatsApp inserts bidi/zero-width marks (LRM/RLM, ZWSP, bidi embeddings,
+    // BOM) before headers and media lines; strip them so line matching is
+    // reliable.
+    .replace(/[\u200b\u200e\u200f\u202a-\u202e\ufeff]/g, '')
+    .split('\n');
   var format = detectFormat_(lines);
   var messages = groupIntoMessages_(lines, format);
   var records = [];
@@ -157,7 +171,8 @@ function groupIntoMessages_(lines, format) {
       current = {
         rawDate: m[1].trim(),
         rawTime: m[2].trim(),
-        sender: m[3].trim(),
+        // WhatsApp prefixes group-chat senders with "~ "; drop it.
+        sender: m[3].trim().replace(/^~\s*/, ''),
         body: (m[4] || '').trim(),
         lines: [lines[i]]
       };
@@ -194,27 +209,29 @@ function messageToRecord_(msg, source) {
 
   var date = fields.date ? normalizeDate_(fields.date) : normalizeDate_(msg.rawDate);
 
-  // Resolve the section: a labelled Area: (canonicalised) wins; otherwise scan
-  // the free text for a known area alias. May be '' (no area found).
+  // Resolve the site locator (Section + segment) from the first line. A labelled
+  // Area: still wins if present; the generic alias list is a last resort.
+  var loc = resolveLocator_(contentBody);
   var area = fields.area !== undefined
     ? canonicalizeAreaValue_(fields.area)
-    : canonicalArea_(contentBody);
+    : (loc.area || canonicalArea_(contentBody));
 
-  // Does this free-text message look like a site record at all?
-  var hasSignal = hasActivitySignal_(contentBody);
+  // Does this message look like a site record at all?
+  var hasSignal = !!loc.area || hasActivitySignal_(contentBody);
   var isCandidate = hasLabel || !!area || hasSignal;
   if (!isCandidate || (isChatter_(contentBody) && !area && !hasSignal)) {
     if (photos > 0) return { _photoOnly: true, photos: photos, date: date };
     return null;
   }
 
-  // Build activity/remark: labelled fields win, else split the free text.
+  // Build activity/remark. Labelled fields win; else use the description lines,
+  // dropping the locator line (Sec-.../segment) which is not activity text.
   var ar;
   if (fields.activity !== undefined || fields.remark !== undefined) {
     ar = { activity: fields.activity || '', remark: fields.remark || '' };
-    if (!ar.activity) ar = splitFreeForm_(contentBody, fields);
+    if (!ar.activity) ar = splitDescription_(contentBody, fields, loc.locatorLine);
   } else {
-    ar = splitFreeForm_(contentBody, fields);
+    ar = splitDescription_(contentBody, fields, loc.locatorLine);
   }
   var activity = ar.activity, remark = ar.remark;
 
@@ -226,8 +243,11 @@ function messageToRecord_(msg, source) {
   return {
     source: source,
     date: date,
-    // No area match -> the General bucket, so nothing is lost.
+    // No locator match -> the General bucket, so nothing is lost.
     area: (area || PARSER_CONFIG.defaultArea).trim(),
+    areaGroup: (loc.areaGroup || '').trim(),
+    section: (loc.section || '').trim(),
+    segment: (loc.segment || '').trim(),
     activity: activity.trim(),
     remark: remark.trim(),
     photos: photos,
@@ -296,6 +316,83 @@ function extractLabelled_(body) {
 }
 
 /**
+ * Resolve the site locator from a message: Section (A-E) + segment code, read
+ * from the first non-empty line (the "Sec-C/ER15(Mb)" style header). Returns
+ * { section, segment, area, areaGroup, locatorLine }; area is "" if none found.
+ */
+function resolveLocator_(body) {
+  var lines = String(body).split('\n')
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) { return s.length > 0; });
+  var out = { section: '', segment: '', area: '', areaGroup: '', locatorLine: '' };
+  if (!lines.length) return out;
+
+  var cfg = PARSER_CONFIG.locator || {};
+
+  // Prefer the first line that actually carries a Section or segment token.
+  for (var i = 0; i < lines.length && i < 3; i++) {
+    var line = lines[i];
+    var sec = cfg.sectionRe ? cfg.sectionRe.exec(line) : null;
+    var seg = matchSegment_(line, cfg.segments || []);
+    if (sec || seg) {
+      out.section = sec ? ('Sec-' + sec[1].toUpperCase()) : '';
+      out.segment = seg || '';
+      out.locatorLine = line;
+      break;
+    }
+  }
+
+  if (out.section && out.segment) out.area = out.section + '/' + out.segment;
+  else out.area = out.section || out.segment || '';
+
+  if (out.segment && cfg.segmentArea && cfg.segmentArea[out.segment]) {
+    out.areaGroup = cfg.segmentArea[out.segment];
+  }
+  return out;
+}
+
+/** First segment code appearing as a whole token in the line, or ''. */
+function matchSegment_(line, segments) {
+  // Tokens are delimited by / ( ) , space and similar.
+  var tokens = String(line).split(/[\/()\[\],;:\s]+/).filter(Boolean);
+  var byLower = {};
+  for (var s = 0; s < segments.length; s++) byLower[String(segments[s]).toLowerCase()] = segments[s];
+  for (var t = 0; t < tokens.length; t++) {
+    var hit = byLower[tokens[t].toLowerCase()];
+    if (hit) return hit;
+  }
+  return '';
+}
+
+/**
+ * Build activity/remark from the description lines, dropping the locator line
+ * and any labelled segments already captured. Everything else becomes the
+ * activity text (kept together for reliable similarity matching); remark holds
+ * any trailing manpower/note line.
+ */
+function splitDescription_(body, fields, locatorLine) {
+  var text = body;
+  for (var key in fields) {
+    if (fields[key]) text = text.split(fields[key]).join(' ');
+  }
+  var lines = text.split('\n').map(function (s) { return s.trim(); })
+                  .filter(function (s) { return s.length > 0; });
+  if (locatorLine) {
+    lines = lines.filter(function (l) { return l !== locatorLine; });
+  }
+  if (!lines.length) return { activity: '', remark: '' };
+  // Pull a manpower line into remark; the rest is the activity description.
+  var remarkLines = [], actLines = [];
+  lines.forEach(function (l) {
+    if (/manpower/i.test(l)) remarkLines.push(l); else actLines.push(l);
+  });
+  return {
+    activity: actLines.join(' ').replace(/\s+/g, ' ').trim(),
+    remark: remarkLines.join(' | ').trim()
+  };
+}
+
+/**
  * Return the canonical section name whose alias appears in the free text, or ''
  * if none. Aliases are matched with word-ish boundaries so "zone b" does not
  * match inside another word. First area in CONFIG.areas wins.
@@ -338,19 +435,6 @@ function isChatter_(body) {
   return false;
 }
 
-/**
- * Split a free-form body into activity (first non-empty line) + remark (the
- * rest). Labelled segments already captured elsewhere are removed first.
- */
-function splitFreeForm_(body, fields) {
-  var text = body;
-  for (var key in fields) {
-    if (fields[key]) text = text.split(fields[key]).join(' ');
-  }
-  var lines = text.split('\n').map(function (s) { return s.trim(); })
-                  .filter(function (s) { return s.length > 0; });
-  return { activity: lines[0] || '', remark: lines.slice(1).join(' | ') };
-}
 
 /** Normalise D/M/Y (or D/M/YY) to ISO yyyy-mm-dd. */
 function normalizeDate_(raw) {
@@ -369,6 +453,7 @@ function escapeRe_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseWhatsApp: parseWhatsApp,
+    resolveLocator_: resolveLocator_,
     canonicalArea_: canonicalArea_,
     hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,

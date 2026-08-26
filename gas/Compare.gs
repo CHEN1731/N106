@@ -44,6 +44,7 @@ function compareRecords(rtoRecords, samsungRecords) {
       date: parts[0],
       // Display the original-cased area from whichever side has the record.
       area: (r && r.area) || (s && s.area) || parts[1],
+      areaGroup: (r && r.areaGroup) || (s && s.areaGroup) || '',
       status: '',
       similarity: 0,
       rtoActivity: r ? r.activity : '',
@@ -95,6 +96,7 @@ function indexByKey_(records) {
     } else {
       map[key] = {
         source: rec.source, date: rec.date, area: rec.area,
+        areaGroup: rec.areaGroup || '',
         activity: rec.activity, remark: rec.remark, photos: rec.photos
       };
     }
@@ -129,19 +131,29 @@ function recordSimilarity_(r, s) {
   return COMPARE_CONFIG.activityWeight * act + COMPARE_CONFIG.remarkWeight * rem;
 }
 
-/** True when both records cite numbers and the number sets differ. */
+/**
+ * True when both records cite QUANTITIES and the quantity sets differ. Only
+ * numbers carrying a unit (m3, m, pax, %, nos, ...) count — bare identifiers
+ * such as DW64, ER15 or chainage "CH 0+498" are not quantities and must not
+ * trigger a conflict.
+ */
 function numbersConflict_(r, s) {
-  var a = numbers_(r.activity + ' ' + r.remark);
-  var b = numbers_(s.activity + ' ' + s.remark);
+  var a = quantities_(r.activity + ' ' + r.remark);
+  var b = quantities_(s.activity + ' ' + s.remark);
   if (!a.length || !b.length) return false;
   return a.join(',') !== b.join(',');
 }
 
-function numbers_(text) {
-  var m = String(text || '').match(/\d+(?:\.\d+)?/g);
-  if (!m) return [];
-  return m.map(function (n) { return parseFloat(n); })
-          .sort(function (x, y) { return x - y; });
+// Number immediately followed by a recognised unit -> a quantity.
+var QUANTITY_RE = /(\d+(?:\.\d+)?)\s*(m3|m³|cum|mm|m|pax|%|nos|no|pcs|units?|ton|t|kg|rm|hrs|hr)\b/gi;
+
+function quantities_(text) {
+  var out = [], m;
+  QUANTITY_RE.lastIndex = 0;
+  while ((m = QUANTITY_RE.exec(String(text || ''))) !== null) {
+    out.push(parseFloat(m[1]) + m[2].toLowerCase().replace('³', '3'));
+  }
+  return out.sort();
 }
 
 function tokens_(text) {

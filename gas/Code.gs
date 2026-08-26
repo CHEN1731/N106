@@ -59,17 +59,19 @@ function saveToSheet(result) {
   var ss = getSpreadsheet_();
 
   writeTable_(ss, TABS.records,
-    ['source', 'date', 'area', 'activity', 'remark', 'photos', 'sender', 'raw_ts'],
+    ['source', 'date', 'area_group', 'section', 'segment', 'area', 'activity',
+     'remark', 'photos', 'sender', 'raw_ts'],
     (result.records || []).map(function (r) {
-      return [r.source, r.date, r.area, r.activity, r.remark, r.photos, r.sender, r.rawTs];
+      return [r.source, r.date, r.areaGroup || '', r.section || '', r.segment || '',
+              r.area, r.activity, r.remark, r.photos, r.sender, r.rawTs];
     }));
 
   writeTable_(ss, TABS.comparison,
-    ['date', 'area', 'status', 'similarity', 'rto_activity', 'samsung_activity',
-     'rto_remark', 'samsung_remark', 'rto_photos', 'samsung_photos'],
+    ['date', 'area_group', 'area', 'status', 'similarity', 'rto_activity',
+     'samsung_activity', 'rto_remark', 'samsung_remark', 'rto_photos', 'samsung_photos'],
     (result.rows || []).map(function (r) {
-      return [r.date, r.area, r.status, r.similarity, r.rtoActivity, r.samsungActivity,
-              r.rtoRemark, r.samsungRemark, r.rtoPhotos, r.samsungPhotos];
+      return [r.date, r.areaGroup || '', r.area, r.status, r.similarity, r.rtoActivity,
+              r.samsungActivity, r.rtoRemark, r.samsungRemark, r.rtoPhotos, r.samsungPhotos];
     }));
 
   writeTable_(ss, TABS.summary,

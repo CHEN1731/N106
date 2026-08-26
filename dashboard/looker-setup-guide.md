@@ -26,7 +26,8 @@ Place these across the top so every chart responds to them:
 
 - **Date range control** — set to the `date` field. Default: last 7 days.
 - **Drop-down control** — dimension `date` (or a dedicated "Day" list).
-- **Drop-down control** — dimension `area` (the section/area filter).
+- **Drop-down control** — dimension `area_group` (Area 1–4, the high-level filter).
+- **Drop-down control** — dimension `area` (the `Sec-X/Segment` locator).
 
 All charts on the page inherit page-level filters, so these drive everything.
 

@@ -1,7 +1,14 @@
-[15/08/2026, 08:20:00] Samsung PM: morning team
-[15/08/2026, 08:50:41] Samsung PM: zone-a rebar fixing slab 80% complete, rest tmr
-[15/08/2026, 09:10:00] Samsung PM: <Media omitted>
-[15/08/2026, 11:30:15] Samsung PM: concrete pouring basement 30 m3 today
-[16/08/2026, 08:35:12] Samsung PM: Formwork removal at Zone A - all clear, no defects
-[16/08/2026, 09:40:00] Samsung PM: Cleared debris north side, external zone
-[16/08/2026, 09:41:00] Samsung PM: <Media omitted>
+[5/8/26, 11:00:12] ~ Samsung Eng: Sec-C (Mb)
+Slip Road Tunnel
+Dwall reinstatement
+DW64 curing works
+DW49 excavation for shoring installation
+image omitted
+[5/8/26, 11:05:41] ~ Samsung Eng: Sec-D/Ub/Base Slab
+Unit#02 water curing in progress, CJ hacking
+Unit#01 no activities
+Manpower:9pax
+[5/8/26, 11:07:00] ~ Samsung Eng: image omitted
+[5/8/26, 11:10:22] ~ Samsung Eng: Sec-D/Ua
+Backfilling works ongoing to formation level
+[5/8/26, 11:12:00] ~ Samsung Eng: Good morning all, safety briefing done

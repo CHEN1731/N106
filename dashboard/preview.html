@@ -140,21 +140,16 @@
 <script>
 /* Sample comparison output — identical shape to the Sheet's Comparison tab. */
 const ROWS = [
-  {date:"2026-08-15",area:"Zone A",status:"Match",similarity:0.55,
-   rto:"Zone A rebar fixing for slab, 80% done rest tomorrow",
-   sam:"zone-a rebar fixing slab 80% complete, rest tmr",rp:1,sp:1},
-  {date:"2026-08-15",area:"Zone B",status:"Conflict",similarity:0.40,
-   rto:"Concrete pour at basement, 25 m3 completed today",
-   sam:"concrete pouring basement 30 m3 today",rp:1,sp:0},
-  {date:"2026-08-15",area:"Zone C",status:"MissingSamsung",similarity:0,
-   rto:"Roof waterproofing membrane started, about half done",sam:"—",rp:0,sp:0},
-  {date:"2026-08-16",area:"Zone A",status:"Match",similarity:0.88,
-   rto:"Formwork removal zone A, all clear no defects",
-   sam:"Formwork removal at Zone A - all clear, no defects",rp:0,sp:0},
-  {date:"2026-08-16",area:"General",status:"MissingSamsung",similarity:0,
-   rto:"Delivered 10 pallets of blockwork to site store",sam:"—",rp:0,sp:0},
-  {date:"2026-08-16",area:"Zone D",status:"MissingRTO",similarity:0,
-   rto:"—",sam:"Cleared debris north side, external zone",rp:0,sp:1}
+  {date:"2026-08-05",area:"Sec-C/Mb",status:"Match",similarity:0.81,
+   rto:"CH 0+498 Slip Road Tunnel — Dwall reinstatement, DW64 curing, DW49 excavation for shoring",
+   sam:"Slip Road Tunnel — Dwall reinstatement, DW64 curing, DW49 excavation for shoring",rp:3,sp:1},
+  {date:"2026-08-05",area:"Sec-D/Ub",status:"Conflict",similarity:0.65,
+   rto:"Base Slab — Unit#02 water curing, CJ hacking; Unit#01 no activities · Manpower 7pax",
+   sam:"Base Slab — Unit#02 water curing, CJ hacking; Unit#01 no activities · Manpower 9pax",rp:3,sp:1},
+  {date:"2026-08-05",area:"Sec-C/Ld",status:"MissingSamsung",similarity:0,
+   rto:"Huationg — Slip Road Tunnel / S3 layer excavation",sam:"—",rp:0,sp:0},
+  {date:"2026-08-05",area:"Sec-D/Ua",status:"MissingRTO",similarity:0,
+   rto:"—",sam:"Backfilling works ongoing to formation level",rp:0,sp:0}
 ];
 const ICON = {Match:"✓",Conflict:"!",MissingRTO:"✕",MissingSamsung:"✕"};
 const LABEL = {Match:"Match",Conflict:"Conflict",MissingRTO:"Missing · RTO",MissingSamsung:"Missing · Samsung"};

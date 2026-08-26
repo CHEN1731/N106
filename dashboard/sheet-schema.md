@@ -16,9 +16,12 @@ raw activity feed.
 |--------|------|-------|
 | `source` | Text | `RTO` or `Samsung` |
 | `date` | Date (yyyy-mm-dd) | normalised from the message/label |
-| `area` | Text | Area / Section, original casing |
-| `activity` | Text | extracted activity |
-| `remark` | Text | free-text remark |
+| `area_group` | Text | Area 1–4 (from the segment→area map; blank if unmapped) |
+| `section` | Text | Section A–E, e.g. `Sec-C` |
+| `segment` | Text | site-plan segment code, e.g. `Mb`, `Ub`, `Ld` |
+| `area` | Text | the match key locator, e.g. `Sec-C/Mb` |
+| `activity` | Text | extracted activity description |
+| `remark` | Text | manpower / trailing notes |
 | `photos` | Number | attachments credited to the record |
 | `sender` | Text | WhatsApp sender name |
 | `raw_ts` | Text | original date + time from the export |
@@ -30,7 +33,8 @@ One row per **distinct Date + Area key**, with both sides side by side.
 | Column | Type | Notes |
 |--------|------|-------|
 | `date` | Date (yyyy-mm-dd) | |
-| `area` | Text | |
+| `area_group` | Text | Area 1–4 (blank if unmapped) — the higher-level filter |
+| `area` | Text | match-key locator, e.g. `Sec-C/Mb` |
 | `status` | Text | `Match` \| `Conflict` \| `MissingRTO` \| `MissingSamsung` |
 | `similarity` | Number | 0–1 token/number similarity (blank meaning for missing) |
 | `rto_activity` | Text | |

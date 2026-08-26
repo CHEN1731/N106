@@ -33,12 +33,14 @@ dashboard.
 
 ## How accuracy is judged
 
-Messages are **free-form** (no fixed template needed). The parser reads each
-message, canonicalises the **area/section** it mentions (so `zone b`, `Zone-B` and
-`basement` all collapse to one section), and keys records on **Date + canonical
-Area**. Messages with no recognisable area but real site content go to a
-**`General`** bucket; greetings and acknowledgements are skipped. Each distinct key
-resolves to:
+Messages are **free-form** (no fixed template needed). Each N106 message opens with
+a locator line like `Sec-C/ER15(Mb)` or `Sec-D/CCL/Ub/Base Slab/Kian Hup:`. The
+parser reads the **Section** (A–E) and the **segment code** (the site-plan labels:
+`Mb`, `Ub`, `Ld`, `Ta`, …) from it and keys records on **Date + `Sec-X/Segment`**
+(e.g. `2026-08-05 · Sec-C/Mb`), so RTO and Samsung line up even when the wording
+differs. Messages with no recognisable locator but real site content go to a
+**`General`** bucket; greetings/acknowledgements are skipped; WhatsApp's invisible
+bidi marks and `~ ` sender prefix are handled. Each distinct key resolves to:
 
 | Status | Meaning |
 |--------|---------|
@@ -103,21 +105,26 @@ sheet per the setup guide.
 `gas/Parser.gs` opens with a clearly-marked **`PARSER_CONFIG`** block — adjust it to
 your exports, no logic changes needed:
 
-- **`areas`** — the main thing to edit: your canonical sections and the free-text
-  **aliases** that map to each (`{ name: 'Zone B', aliases: ['zone b','zone-b','basement'] }`).
-  List more specific areas before broader ones; the first match wins.
-- **`defaultArea`** — the bucket for records with no area match (default `General`).
-- **`activityKeywords`** — words that mark a no-area message as real site content
+- **`locator.segments`** — the main thing to edit: the site-plan segment codes
+  (`Mb`, `Ub`, `Ld`, `Ta`, …). Add/trim to match your plan labels.
+- **`locator.sectionRe`** — how the Section is written (default matches `Sec-C`,
+  `Sec C`, `Section C`).
+- **`locator.segmentArea`** — optional map from each segment to its **Area 1–4**
+  group (e.g. `{ 'Mb': 'Area 2', 'Ub': 'Area 4' }`) to power the dashboard's
+  higher-level filter. Unmapped segments leave `area_group` blank.
+- **`activityKeywords`** — words that mark a no-locator message as real site content
   (so it reaches `General` instead of being dropped).
 - **`chatterPatterns`** — greetings/acks to skip.
-- **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; if a message
-  is labelled, those win over the free-text heuristics (hybrid).
-- **`lineFormats`** — the two WhatsApp export headers (iOS / Android), auto-detected.
-- **`requireLabelledRecord`** — `false` (free-form). Set `true` only if your exports
-  are strictly a labelled template.
+- **`areas`** — optional generic name/alias fallback for non-N106 reuse (empty by
+  default).
+- **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
+  message uses those over the heuristics (hybrid).
+- **`lineFormats`** — WhatsApp export headers (iOS / Android), auto-detected.
 
-Comparison leniency lives in `gas/Compare.gs` → `COMPARE_CONFIG.agreeThreshold`
-(text-similarity bar; a quantity mismatch is always a Conflict regardless).
+Comparison lives in `gas/Compare.gs`: `COMPARE_CONFIG.agreeThreshold` (text-similarity
+bar) and `QUANTITY_RE` (which units count as a quantity). A **quantity** mismatch
+(e.g. `7pax` vs `9pax`, `25 m3` vs `30 m3`) is always a Conflict; bare identifiers
+like `DW64`, `ER15` or chainage `CH 0+498` are ignored so they never false-flag.
 
-The sample files under `samples/` are free-form placeholders — replace them with real
-lines and re-run `npm test`.
+The sample files under `samples/` hold real N106-format lines — replace with your own
+and re-run `npm test`.
