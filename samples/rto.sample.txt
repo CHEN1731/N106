@@ -1,25 +1,9 @@
-[15/08/2026, 08:12:03] RTO Supervisor: Good morning team, N106 daily report starting
-[15/08/2026, 08:45:11] RTO Supervisor: Date: 15/08/2026
-Area: Zone A - Level 1
-Activity: Rebar fixing for slab
-Remark: 80% complete, rest tomorrow
+[15/08/2026, 08:12:03] RTO Supervisor: Good morning all, N106 daily report starting
+[15/08/2026, 08:45:11] RTO Supervisor: Zone A rebar fixing for slab, 80% done rest tomorrow
 [15/08/2026, 09:03:22] RTO Supervisor: <Media omitted>
-[15/08/2026, 09:03:25] RTO Supervisor: Photos above for rebar zone A
-[15/08/2026, 11:20:40] RTO Supervisor: Date: 15/08/2026
-Area: Zone B - Basement
-Activity: Concrete pouring
-Remark: Completed 25 cubic meters
+[15/08/2026, 11:20:40] RTO Supervisor: Concrete pour at basement, 25 m3 completed today
 [15/08/2026, 11:21:02] RTO Supervisor: <Media omitted>
-[15/08/2026, 14:50:19] RTO Supervisor: Date: 15/08/2026
-Area: Zone C - Roof
-Activity: Waterproofing membrane
-Remark: Started, half done
-[16/08/2026, 08:30:00] RTO Supervisor: Date: 16/08/2026
-Area: Zone A - Level 1
-Activity: Formwork removal
-Remark: All clear, no defects
-[16/08/2026, 10:15:33] RTO Supervisor: Date: 16/08/2026
-Area: Zone B - Basement
-Activity: Waterproofing
-Remark: Applied primer coat
-[16/08/2026, 10:16:00] RTO Supervisor: <Media omitted>
+[15/08/2026, 14:50:19] RTO Supervisor: Roof waterproofing membrane started, about half done
+[16/08/2026, 08:30:00] RTO Supervisor: Formwork removal zone A, all clear no defects
+[16/08/2026, 09:12:00] RTO Supervisor: Delivered 10 pallets of blockwork to site store
+[16/08/2026, 09:13:00] RTO Supervisor: thanks

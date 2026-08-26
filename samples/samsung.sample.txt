@@ -1,19 +1,7 @@
-[15/08/2026, 08:20:00] Samsung PM: N106 site log
-[15/08/2026, 08:50:41] Samsung PM: Date: 15/08/2026
-Area: Zone A - Level 1
-Activity: Rebar fixing for slab
-Remark: 80% complete, rest tomorrow
+[15/08/2026, 08:20:00] Samsung PM: morning team
+[15/08/2026, 08:50:41] Samsung PM: zone-a rebar fixing slab 80% complete, rest tmr
 [15/08/2026, 09:10:00] Samsung PM: <Media omitted>
-[15/08/2026, 11:30:15] Samsung PM: Date: 15/08/2026
-Area: Zone B - Basement
-Activity: Concrete pouring
-Remark: Poured 30 cubic meters today
-[16/08/2026, 08:35:12] Samsung PM: Date: 16/08/2026
-Area: Zone A - Level 1
-Activity: Formwork removal
-Remark: All clear, no defects
-[16/08/2026, 09:40:00] Samsung PM: Date: 16/08/2026
-Area: Zone D - External
-Activity: Site clearance
-Remark: Cleared north side debris
+[15/08/2026, 11:30:15] Samsung PM: concrete pouring basement 30 m3 today
+[16/08/2026, 08:35:12] Samsung PM: Formwork removal at Zone A - all clear, no defects
+[16/08/2026, 09:40:00] Samsung PM: Cleared debris north side, external zone
 [16/08/2026, 09:41:00] Samsung PM: <Media omitted>

@@ -35,11 +35,43 @@ var PARSER_CONFIG = {
     remark: ['remark', 'remarks', 'note', 'notes']
   },
 
-  // Known areas/sections for keyword fallback when no Area: label is present.
-  // Matched case-insensitively as a substring of the message body.
-  areaKeywords: [
-    'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
-    'Basement', 'Level 1', 'Level 2', 'Roof', 'External'
+  // === AREA / SECTION LIST (the main thing to tune) ==================
+  // Canonical sections and the free-text aliases that map to each. Any alias
+  // (matched case-insensitively as a whole-word-ish substring) collapses to the
+  // canonical name, so "zone b", "Zone-B", "basement zone B" all become one key
+  // that lines RTO and Samsung records up. First matching area in this list wins,
+  // so list more specific areas before broader ones. REPLACE with the real N106
+  // sections + how each is written in the two chats.
+  areas: [
+    { name: 'Zone A', aliases: ['zone a', 'zone-a', 'zonea', 'blk a', 'block a'] },
+    { name: 'Zone B', aliases: ['zone b', 'zone-b', 'zoneb', 'basement', 'blk b', 'block b'] },
+    { name: 'Zone C', aliases: ['zone c', 'zone-c', 'zonec', 'roof', 'blk c', 'block c'] },
+    { name: 'Zone D', aliases: ['zone d', 'zone-d', 'zoned', 'external', 'ext', 'blk d', 'block d'] },
+    { name: 'Zone E', aliases: ['zone e', 'zone-e', 'zonee', 'blk e', 'block e'] },
+    { name: 'Level 1', aliases: ['level 1', 'l1', 'lvl 1', '1st floor', 'first floor'] },
+    { name: 'Level 2', aliases: ['level 2', 'l2', 'lvl 2', '2nd floor', 'second floor'] }
+  ],
+
+  // Fallback area for a message that has real site content but no area match.
+  defaultArea: 'General',
+
+  // Free-text signals that a no-area message is still a site record (so it goes
+  // to the General bucket rather than being dropped). Extend with your trades.
+  activityKeywords: [
+    'pour', 'concrete', 'rebar', 'reinforce', 'formwork', 'form work', 'install',
+    'installation', 'waterproof', 'membrane', 'clear', 'clearance', 'excavat',
+    'backfill', 'scaffold', 'plaster', 'screed', 'block', 'brick', 'steel',
+    'weld', 'paint', 'tiling', 'tile', 'inspect', 'inspection', 'test', 'delivery',
+    'deliver', 'progress', 'complete', 'completed', 'ongoing', 'defect', 'crane'
+  ],
+
+  // Messages matching any of these (and carrying no area / activity signal) are
+  // treated as chatter and skipped, so General does not fill with greetings.
+  chatterPatterns: [
+    /^\s*(good\s*(morning|afternoon|evening|night))\b/i,
+    /^\s*(hi|hello|hey|thanks?|thank you|ok(ay)?|noted|received|welcome|sure|yes|no)\b[\s.!]*$/i,
+    /daily report (starting|start)/i,
+    /site log\s*$/i
   ],
 
   // Lines/messages that are chat noise, not site records.
@@ -60,15 +92,14 @@ var PARSER_CONFIG = {
     /\.(jpg|jpeg|png|heic|webp)\b/i
   ],
 
-  // A message only becomes a record if it carries site content. Require at
-  // least a recognisable Activity (labelled or non-trivial body).
+  // A message only becomes a record if it carries site content of this length.
   minActivityLength: 3,
 
-  // When true, a message must contain at least one recognised label
-  // (Date:/Area:/Activity:/Remark:) to count as a site record. This keeps
-  // greetings and free chatter out of the data. Flip to false for exports
-  // whose records are NOT labelled and rely on keyword heuristics instead.
-  requireLabelledRecord: true
+  // Free-form mode (default). When false, a message must contain a recognised
+  // label (Date:/Area:/Activity:/Remark:) to count — use only if your exports
+  // are strictly a labelled template. Labelled fields are always honored when
+  // present, so free-form mode still parses labelled messages correctly.
+  requireLabelledRecord: false
 };
 // === END CONFIG =====================================================
 
@@ -162,13 +193,32 @@ function messageToRecord_(msg, source) {
   }
 
   var date = fields.date ? normalizeDate_(fields.date) : normalizeDate_(msg.rawDate);
-  var area = fields.area || guessArea_(contentBody);
-  var activity = fields.activity || guessActivity_(contentBody, fields);
-  var remark = fields.remark || '';
 
-  // Need a resolvable area AND activity to be a usable comparison record.
-  var hasContent = area && activity && activity.length >= PARSER_CONFIG.minActivityLength;
-  if (!hasContent) {
+  // Resolve the section: a labelled Area: (canonicalised) wins; otherwise scan
+  // the free text for a known area alias. May be '' (no area found).
+  var area = fields.area !== undefined
+    ? canonicalizeAreaValue_(fields.area)
+    : canonicalArea_(contentBody);
+
+  // Does this free-text message look like a site record at all?
+  var hasSignal = hasActivitySignal_(contentBody);
+  var isCandidate = hasLabel || !!area || hasSignal;
+  if (!isCandidate || (isChatter_(contentBody) && !area && !hasSignal)) {
+    if (photos > 0) return { _photoOnly: true, photos: photos, date: date };
+    return null;
+  }
+
+  // Build activity/remark: labelled fields win, else split the free text.
+  var ar;
+  if (fields.activity !== undefined || fields.remark !== undefined) {
+    ar = { activity: fields.activity || '', remark: fields.remark || '' };
+    if (!ar.activity) ar = splitFreeForm_(contentBody, fields);
+  } else {
+    ar = splitFreeForm_(contentBody, fields);
+  }
+  var activity = ar.activity, remark = ar.remark;
+
+  if (!activity || activity.length < PARSER_CONFIG.minActivityLength) {
     if (photos > 0) return { _photoOnly: true, photos: photos, date: date };
     return null;
   }
@@ -176,9 +226,10 @@ function messageToRecord_(msg, source) {
   return {
     source: source,
     date: date,
-    area: (area || '').trim(),
-    activity: (activity || '').trim(),
-    remark: (remark || '').trim(),
+    // No area match -> the General bucket, so nothing is lost.
+    area: (area || PARSER_CONFIG.defaultArea).trim(),
+    activity: activity.trim(),
+    remark: remark.trim(),
     photos: photos,
     sender: msg.sender,
     rawTs: msg.rawDate + ' ' + msg.rawTime
@@ -244,25 +295,61 @@ function extractLabelled_(body) {
   return result;
 }
 
-/** Substring match against known areas. */
-function guessArea_(body) {
-  for (var i = 0; i < PARSER_CONFIG.areaKeywords.length; i++) {
-    var kw = PARSER_CONFIG.areaKeywords[i];
-    if (new RegExp(escapeRe_(kw), 'i').test(body)) return kw;
+/**
+ * Return the canonical section name whose alias appears in the free text, or ''
+ * if none. Aliases are matched with word-ish boundaries so "zone b" does not
+ * match inside another word. First area in CONFIG.areas wins.
+ */
+function canonicalArea_(body) {
+  var text = ' ' + String(body).toLowerCase() + ' ';
+  for (var i = 0; i < PARSER_CONFIG.areas.length; i++) {
+    var area = PARSER_CONFIG.areas[i];
+    for (var a = 0; a < area.aliases.length; a++) {
+      var alias = String(area.aliases[a]).toLowerCase();
+      var re = new RegExp('(^|[^a-z0-9])' + escapeRe_(alias) + '([^a-z0-9]|$)', 'i');
+      if (re.test(text)) return area.name;
+    }
   }
   return '';
 }
 
-/** When no Activity label, use the first non-empty line of the body. */
-function guessActivity_(body, fields) {
-  var text = body;
-  // Remove any labelled segments we already captured.
-  for (var key in fields) {
-    if (fields[key]) text = text.replace(fields[key], '');
+/** Canonicalise a labelled Area: value; keep the raw value if it is unknown. */
+function canonicalizeAreaValue_(value) {
+  return canonicalArea_(value) || String(value || '').trim();
+}
+
+/** True when the free text carries a site-activity signal (keyword or a number). */
+function hasActivitySignal_(body) {
+  // A standalone quantity like "25 m3" or "80%" — but NOT digits embedded in a
+  // token such as the project code "N106", which would flag greetings.
+  if (/(^|[^a-z0-9])\d+(\.\d+)?/i.test(body)) return true;
+  var low = String(body).toLowerCase();
+  for (var i = 0; i < PARSER_CONFIG.activityKeywords.length; i++) {
+    if (low.indexOf(String(PARSER_CONFIG.activityKeywords[i]).toLowerCase()) !== -1) return true;
   }
-  var line = text.split('\n').map(function (s) { return s.trim(); })
-                 .filter(function (s) { return s.length > 0; })[0];
-  return line || '';
+  return false;
+}
+
+/** True when the message looks like greeting/ack chatter. */
+function isChatter_(body) {
+  for (var i = 0; i < PARSER_CONFIG.chatterPatterns.length; i++) {
+    if (PARSER_CONFIG.chatterPatterns[i].test(body)) return true;
+  }
+  return false;
+}
+
+/**
+ * Split a free-form body into activity (first non-empty line) + remark (the
+ * rest). Labelled segments already captured elsewhere are removed first.
+ */
+function splitFreeForm_(body, fields) {
+  var text = body;
+  for (var key in fields) {
+    if (fields[key]) text = text.split(fields[key]).join(' ');
+  }
+  var lines = text.split('\n').map(function (s) { return s.trim(); })
+                  .filter(function (s) { return s.length > 0; });
+  return { activity: lines[0] || '', remark: lines.slice(1).join(' | ') };
 }
 
 /** Normalise D/M/Y (or D/M/YY) to ISO yyyy-mm-dd. */
@@ -282,6 +369,8 @@ function escapeRe_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseWhatsApp: parseWhatsApp,
+    canonicalArea_: canonicalArea_,
+    hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,
     PARSER_CONFIG: PARSER_CONFIG
   };

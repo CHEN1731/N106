@@ -33,17 +33,24 @@ dashboard.
 
 ## How accuracy is judged
 
-Records are matched by **Date + Area/Section**. Each distinct key resolves to:
+Messages are **free-form** (no fixed template needed). The parser reads each
+message, canonicalises the **area/section** it mentions (so `zone b`, `Zone-B` and
+`basement` all collapse to one section), and keys records on **Date + canonical
+Area**. Messages with no recognisable area but real site content go to a
+**`General`** bucket; greetings and acknowledgements are skipped. Each distinct key
+resolves to:
 
 | Status | Meaning |
 |--------|---------|
-| **Match** | present both sides, activity/remark agree, no number mismatch |
+| **Match** | present both sides, wording agrees, no number mismatch |
 | **Conflict** | present both sides but details differ (e.g. 25 m³ vs 30 m³) |
 | **Missing · RTO** | reported only by Samsung |
 | **Missing · Samsung** | reported only by RTO |
 
-**Accuracy % = Matches ÷ total distinct keys**, per day and overall. A difference
-in any cited quantity always counts as a Conflict — that is the point of the check.
+**Accuracy % = Matches ÷ total distinct keys**, per day and overall. Because the
+same work is often paraphrased differently, the text-similarity bar is lenient —
+but a difference in any cited **quantity** always counts as a Conflict, which is the
+point of the check.
 
 ## Repository layout
 
@@ -93,9 +100,24 @@ sheet per the setup guide.
 
 ## Tuning the parser to your real exports
 
-`gas/Parser.gs` opens with a clearly-marked **`PARSER_CONFIG`** block: the two
-supported WhatsApp line formats (iOS / Android, auto-detected), the field labels
-(`Date:` / `Area:` / `Activity:` / `Remark:` and synonyms), the known area
-keywords, and system/media patterns. Adjust that block to match your exports —
-no logic changes needed. The sample files under `samples/` are placeholders;
-replace them with real lines and re-run `npm test`.
+`gas/Parser.gs` opens with a clearly-marked **`PARSER_CONFIG`** block — adjust it to
+your exports, no logic changes needed:
+
+- **`areas`** — the main thing to edit: your canonical sections and the free-text
+  **aliases** that map to each (`{ name: 'Zone B', aliases: ['zone b','zone-b','basement'] }`).
+  List more specific areas before broader ones; the first match wins.
+- **`defaultArea`** — the bucket for records with no area match (default `General`).
+- **`activityKeywords`** — words that mark a no-area message as real site content
+  (so it reaches `General` instead of being dropped).
+- **`chatterPatterns`** — greetings/acks to skip.
+- **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; if a message
+  is labelled, those win over the free-text heuristics (hybrid).
+- **`lineFormats`** — the two WhatsApp export headers (iOS / Android), auto-detected.
+- **`requireLabelledRecord`** — `false` (free-form). Set `true` only if your exports
+  are strictly a labelled template.
+
+Comparison leniency lives in `gas/Compare.gs` → `COMPARE_CONFIG.agreeThreshold`
+(text-similarity bar; a quantity mismatch is always a Conflict regardless).
+
+The sample files under `samples/` are free-form placeholders — replace them with real
+lines and re-run `npm test`.

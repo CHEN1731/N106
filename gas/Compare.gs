@@ -14,7 +14,10 @@
 
 var COMPARE_CONFIG = {
   // Two records "agree" when the token overlap of Activity(+Remark) is >= this.
-  agreeThreshold: 0.75,
+  // Kept lenient because free-form messages paraphrase the same work heavily;
+  // the match key (Date + Area) already establishes they are the same record,
+  // so a differing quantity (numbersConflict_) is the primary Conflict signal.
+  agreeThreshold: 0.5,
   // Weight of activity vs remark when scoring similarity.
   activityWeight: 0.7,
   remarkWeight: 0.3
