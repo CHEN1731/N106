@@ -36,7 +36,9 @@ const sam = parseWhatsApp(fs.readFileSync(path.join(root, 'samples', 'samsung.sa
 
 console.log('\nParsing:');
 assert(rto.length === 3, 'RTO parses 3 records (Mb, Ub, Ld) — got ' + rto.length);
-assert(sam.length === 3, 'Samsung parses 3 records (Mb, Ub, Ua), greeting skipped — got ' + sam.length);
+assert(sam.length === 3, 'Samsung parses 3 records (Mb, Ub, Ua); chatter/RFI/emoji dropped — got ' + sam.length);
+assert(rto.concat(sam).every(r => r.area !== 'General'),
+  'requireLocator drops no-locator junk (nothing lands in General)');
 
 const mb = rto.find(r => r.area === 'Sec-C/Mb');
 assert(!!mb, 'RTO Mb record built');

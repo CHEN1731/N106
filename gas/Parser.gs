@@ -89,9 +89,11 @@ var PARSER_CONFIG = {
   // treated as chatter and skipped, so General does not fill with greetings.
   chatterPatterns: [
     /^\s*(good\s*(morning|afternoon|evening|night))\b/i,
-    /^\s*(hi|hello|hey|thanks?|thank you|ok(ay)?|noted|received|welcome|sure|yes|no)\b[\s.!]*$/i,
+    /^\s*(hi|hello|hey|thanks?|thank you|tq|ok(ay)?|noted|received|well\s*done|welcome|sure|yes|no|copy|roger)\b[\s.!👍🙏]*$/i,
     /daily report (starting|start)/i,
-    /site log\s*$/i
+    /site log\s*$/i,
+    /^\s*[\p{Emoji}\s]+$/u,     // emoji-only messages
+    /\?\s*$/                     // questions (RFI / coordination) end with "?"
   ],
 
   // Lines/messages that are chat noise, not site records.
@@ -119,7 +121,13 @@ var PARSER_CONFIG = {
   // label (Date:/Area:/Activity:/Remark:) to count — use only if your exports
   // are strictly a labelled template. Labelled fields are always honored when
   // present, so free-form mode still parses labelled messages correctly.
-  requireLabelledRecord: false
+  requireLabelledRecord: false,
+
+  // Keep ONLY messages that resolve to a real Section/segment locator (or a
+  // labelled Area:). Daily site reports always carry one; greetings, questions
+  // and coordination chatter do not — so this drops that noise instead of
+  // letting it land in the General bucket. Set false to keep General records.
+  requireLocator: true
 };
 // === END CONFIG =====================================================
 
@@ -227,6 +235,14 @@ function messageToRecord_(msg, source) {
   var area = fields.area !== undefined
     ? canonicalizeAreaValue_(fields.area)
     : (loc.area || canonicalArea_(contentBody));
+
+  // Locator-only mode: keep just real site reports (Section/segment or a
+  // labelled Area:); drop greetings, questions and coordination chatter.
+  var hasLocator = !!loc.area || fields.area !== undefined;
+  if (PARSER_CONFIG.requireLocator && !hasLocator) {
+    if (photos > 0) return { _photoOnly: true, photos: photos, date: date };
+    return null;
+  }
 
   // Does this message look like a site record at all?
   var hasSignal = !!loc.area || hasActivitySignal_(contentBody);

@@ -100,6 +100,22 @@ Then either bind the script to a Google Sheet, or set `SPREADSHEET_ID` at the to
 of `Code.gs` to the target spreadsheet's ID. Finally connect Looker Studio to that
 sheet per the setup guide.
 
+## Removing unwanted rows (chatter, questions, non-reports)
+
+You never delete rows by hand. **Save to Sheet rewrites the `Records`, `Comparison`
+and `DailySummary` tabs from scratch every time** (`writeTable_` clears the tab first),
+so the fastest cleanup is:
+
+1. The parser now runs with **`requireLocator: true`** — only messages carrying a real
+   `Sec-/segment` locator are kept, so greetings, RFI questions, emoji and coordination
+   chatter are dropped *before* they reach the Sheet.
+2. Re-open the app, **Compare** the same exports again, and **Save to Sheet**. The old
+   junk rows are overwritten and gone. In Looker Studio, click **Refresh data**.
+
+If a specific junk phrase still slips through, add it to `chatterPatterns` in
+`gas/Parser.gs` (or, if it lacks a locator, `requireLocator` already removes it). To keep
+`General`-bucket notes instead of dropping them, set `requireLocator: false`.
+
 ## Tuning the parser to your real exports
 
 `gas/Parser.gs` opens with a clearly-marked **`PARSER_CONFIG`** block — adjust it to
@@ -112,9 +128,12 @@ your exports, no logic changes needed:
 - **`locator.segmentArea`** — optional map from each segment to its **Area 1–4**
   group (e.g. `{ 'Mb': 'Area 2', 'Ub': 'Area 4' }`) to power the dashboard's
   higher-level filter. Unmapped segments leave `area_group` blank.
+- **`requireLocator`** — `true` (recommended): keep ONLY messages with a real
+  `Sec-/segment` locator, so greetings, questions (RFI), emoji and coordination
+  chatter never reach the Sheet. Set `false` to also keep `General`-bucket notes.
 - **`activityKeywords`** — words that mark a no-locator message as real site content
-  (so it reaches `General` instead of being dropped).
-- **`chatterPatterns`** — greetings/acks to skip.
+  (only used when `requireLocator` is `false`).
+- **`chatterPatterns`** — greetings/acks/questions/emoji to skip.
 - **`areas`** — optional generic name/alias fallback for non-N106 reuse (empty by
   default).
 - **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
