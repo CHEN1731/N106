@@ -1,0 +1,110 @@
+<script>
+  var lastResult = null;
+
+  function $(id) { return document.getElementById(id); }
+
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg; t.classList.remove('hidden');
+    clearTimeout(t._h); t._h = setTimeout(function () { t.classList.add('hidden'); }, 2600);
+  }
+
+  // Load an uploaded .txt file into its textarea (editable afterwards).
+  function wireUpload(fileId, textId) {
+    $(fileId).addEventListener('change', function (e) {
+      var f = e.target.files[0];
+      if (!f) return;
+      var reader = new FileReader();
+      reader.onload = function () { $(textId).value = reader.result; };
+      reader.readAsText(f);
+    });
+  }
+  wireUpload('fileRto', 'rtoText');
+  wireUpload('fileSamsung', 'samsungText');
+
+  $('btnCompare').addEventListener('click', function () {
+    var rto = $('rtoText').value, sam = $('samsungText').value;
+    if (!rto.trim() || !sam.trim()) { toast('Paste or upload both exports first.'); return; }
+    $('btnCompare').disabled = true; $('btnCompare').textContent = 'Comparing…';
+    google.script.run
+      .withSuccessHandler(onResult)
+      .withFailureHandler(function (err) {
+        $('btnCompare').disabled = false; $('btnCompare').textContent = 'Compare';
+        toast('Error: ' + err.message);
+      })
+      .runComparison(rto, sam);
+  });
+
+  function onResult(res) {
+    lastResult = res;
+    $('btnCompare').disabled = false; $('btnCompare').textContent = 'Compare';
+    $('btnSave').disabled = false;
+    $('results').classList.remove('hidden');
+
+    var o = res.overall;
+    $('scAccuracy').textContent = o.accuracyPct + '%';
+    $('scMatched').textContent = o.matched;
+    $('scConflict').textContent = o.conflicts;
+    $('scMissing').textContent = o.missing;
+    $('scTotal').textContent = o.total;
+    $('parseNote').textContent =
+      'Parsed ' + res.rtoCount + ' RTO and ' + res.samsungCount + ' Samsung records.';
+
+    // Populate the date filter.
+    var dates = res.daily.map(function (d) { return d.date; });
+    var sel = $('fltDate');
+    sel.innerHTML = '<option value="">All</option>' +
+      dates.map(function (d) { return '<option>' + d + '</option>'; }).join('');
+
+    renderRows();
+  }
+
+  ['fltDate', 'fltStatus'].forEach(function (id) {
+    $(id).addEventListener('change', renderRows);
+  });
+
+  function renderRows() {
+    if (!lastResult) return;
+    var d = $('fltDate').value, st = $('fltStatus').value;
+    var body = $('cmpTable').querySelector('tbody');
+    body.innerHTML = '';
+    lastResult.rows
+      .filter(function (r) { return (!d || r.date === d) && (!st || r.status === st); })
+      .forEach(function (r) {
+        var tr = document.createElement('tr');
+        tr.className = r.status;
+        tr.innerHTML =
+          td(r.date) + td(r.area) +
+          '<td><span class="pill ' + r.status + '">' + label(r.status) + '</span></td>' +
+          td(r.similarity) +
+          td(r.rtoActivity) + td(r.samsungActivity) +
+          td(r.rtoRemark) + td(r.samsungRemark) +
+          td((r.rtoPhotos || 0) + ' / ' + (r.samsungPhotos || 0));
+        body.appendChild(tr);
+      });
+  }
+
+  function td(v) {
+    return '<td>' + String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>';
+  }
+  function label(s) {
+    return s === 'MissingRTO' ? 'Missing · RTO'
+      : s === 'MissingSamsung' ? 'Missing · Samsung' : s;
+  }
+
+  $('btnSave').addEventListener('click', function () {
+    if (!lastResult) return;
+    $('btnSave').disabled = true; $('btnSave').textContent = 'Saving…';
+    google.script.run
+      .withSuccessHandler(function (url) {
+        $('btnSave').disabled = false; $('btnSave').textContent = 'Save to Sheet';
+        toast('Saved. Sheet: ' + url);
+      })
+      .withFailureHandler(function (err) {
+        $('btnSave').disabled = false; $('btnSave').textContent = 'Save to Sheet';
+        toast('Save failed: ' + err.message);
+      })
+      .saveToSheet(lastResult);
+  });
+</script>

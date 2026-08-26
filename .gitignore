@@ -1,0 +1,11 @@
+# clasp
+.clasp.json
+.clasprc.json
+
+# node
+node_modules/
+npm-debug.log*
+
+# os / editor
+.DS_Store
+*.swp

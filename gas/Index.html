@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>N106 · WhatsApp Site Record Accuracy</h1>
+        <p class="sub">Paste or upload both exports, edit if needed, then compare on Date + Area.</p>
+      </div>
+      <div class="actions">
+        <button id="btnCompare" class="primary">Compare</button>
+        <button id="btnSave" disabled>Save to Sheet</button>
+      </div>
+    </header>
+
+    <section class="panes">
+      <div class="pane">
+        <div class="pane-head">
+          <span class="tag rto">RTO</span>
+          <label class="file">Upload .txt<input type="file" id="fileRto" accept=".txt"></label>
+        </div>
+        <textarea id="rtoText" spellcheck="false" placeholder="Paste the RTO WhatsApp export here…"></textarea>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <span class="tag samsung">Samsung</span>
+          <label class="file">Upload .txt<input type="file" id="fileSamsung" accept=".txt"></label>
+        </div>
+        <textarea id="samsungText" spellcheck="false" placeholder="Paste the Samsung WhatsApp export here…"></textarea>
+      </div>
+    </section>
+
+    <section id="results" class="results hidden">
+      <div class="scorecards">
+        <div class="card"><div class="num" id="scAccuracy">–</div><div class="lbl">Accuracy</div></div>
+        <div class="card"><div class="num" id="scMatched">–</div><div class="lbl">Matched</div></div>
+        <div class="card"><div class="num" id="scConflict">–</div><div class="lbl">Conflicts</div></div>
+        <div class="card"><div class="num" id="scMissing">–</div><div class="lbl">Missing</div></div>
+        <div class="card"><div class="num" id="scTotal">–</div><div class="lbl">Total keys</div></div>
+      </div>
+
+      <div class="filters">
+        <label>Date <select id="fltDate"><option value="">All</option></select></label>
+        <label>Status <select id="fltStatus">
+          <option value="">All</option>
+          <option>Match</option><option>Conflict</option>
+          <option>MissingRTO</option><option>MissingSamsung</option>
+        </select></label>
+        <span id="parseNote" class="note"></span>
+      </div>
+
+      <div class="tablewrap">
+        <table id="cmpTable">
+          <thead>
+            <tr>
+              <th>Date</th><th>Area / Section</th><th>Status</th><th>Sim</th>
+              <th>RTO activity</th><th>Samsung activity</th>
+              <th>RTO remark</th><th>Samsung remark</th><th>Photos</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <?!= include('JavaScript'); ?>
+  </body>
+</html>

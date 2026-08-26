@@ -1,0 +1,10 @@
+{
+  "name": "n106-whatsapp-accuracy",
+  "version": "1.0.0",
+  "description": "WhatsApp site-record accuracy checker for project N106 (GAS web app + Google Sheet + Looker Studio).",
+  "private": true,
+  "scripts": {
+    "test": "node test/run-tests.js"
+  },
+  "license": "UNLICENSED"
+}
