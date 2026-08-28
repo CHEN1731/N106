@@ -10,26 +10,33 @@ dashboard.
 ## The three pieces
 
 ```
-   ┌────────────────────┐      ┌──────────────────┐      ┌───────────────────┐
-   │  GAS Web App (you) │  →   │  Google Sheet    │  →   │  Looker Studio    │
-   │  upload / edit /   │      │  Records /       │      │  (Director & team │
-   │  compare 2 exports │      │  Comparison /    │      │   view only)      │
-   │                    │      │  DailySummary    │      │                   │
-   └────────────────────┘      └──────────────────┘      └───────────────────┘
+   ┌────────────────────┐      ┌──────────────────┐      ┌────────────────────────┐
+   │  GAS Web App (you) │  →   │  Google Sheet    │  →   │  Interactive Viewer    │
+   │  upload / compare  │      │  Records /       │      │  ?page=view (in the    │
+   │  AI-extract / save │      │  Comparison /    │      │  same app) — directors │
+   │                    │      │  DailySummary    │      │  filter / drill / edit │
+   └────────────────────┘      └──────────────────┘      └────────────────────────┘
+                                        │
+                                        └──→ (optional) Looker Studio dashboard
 ```
 
 1. **`gas/` — Apps Script web app (you, the uploader).**
-   Paste or upload the two `WhatsApp.txt` exports (RTO + Samsung). Both panes are
-   **editable and fully scrollable** — nothing is anonymised. Click **Compare** to
-   match records on **Date + Area/Section** and score accuracy; click **Save to
-   Sheet** to write the three tabs.
+   Paste or upload the two `WhatsApp.txt` exports (RTO + Samsung), editable and
+   fully shown. Click **Compare** — messages are turned into clean records by
+   **AI extraction (Claude)** when an API key is set, otherwise by the built-in
+   regex parser — records are matched on **Date + Section/segment** and scored;
+   click **Save to Sheet** to write the three tabs.
 
 2. **Google Sheet — the data bridge.** Schema in
    [`dashboard/sheet-schema.md`](dashboard/sheet-schema.md).
 
-3. **`dashboard/` — Looker Studio dashboard (director & team, view only).**
-   Build steps in [`dashboard/looker-setup-guide.md`](dashboard/looker-setup-guide.md);
-   a working layout mockup in [`dashboard/preview.html`](dashboard/preview.html).
+3. **Interactive Viewer (director & team) — the same web app at `?page=view`.**
+   Reads the Sheet live and shows accuracy scorecards, a daily trend, a status
+   breakdown, and a detail table with **full activity text**, **filters/drill-down**
+   (Date · Area 1–4 · Section), **search**, **photo counts**, and **inline editing**
+   that saves corrections back to the Sheet. Layout preview:
+   [`dashboard/preview.html`](dashboard/preview.html). A Looker Studio dashboard is
+   still available as an option ([`dashboard/looker-setup-guide.md`](dashboard/looker-setup-guide.md)).
 
 ## How accuracy is judged
 
@@ -58,16 +65,19 @@ point of the check.
 
 ```
 gas/                 Apps Script project (clasp-compatible)
-  appsscript.json    manifest (web app)
-  Code.gs            doGet + runComparison + saveToSheet
+  appsscript.json    manifest (web app + external_request scope)
+  Code.gs            doGet routing + runComparison + saveToSheet + getReport/saveRecordEdit
+  Extract.gs         AI extraction (Claude via UrlFetchApp) + parser fallback
   Parser.gs          WhatsApp .txt -> records  (CONFIG block at top to tune)
-  Compare.gs         match on Date+Area, score accuracy
-  Index.html         two editable/scrollable panes + results
-  Styles.html        CSS   ·   JavaScript.html  client glue
+  Compare.gs         match on Date+Section/segment, score accuracy
+  Index.html         uploader: two editable panes + results (+Styles/JavaScript)
+  Viewer.html        directors' interactive report (+ViewerStyles/ViewerJs)
+docs/
+  report-template.md     recommended message format for the site teams
 dashboard/
   sheet-schema.md        exact tabs/columns
-  looker-setup-guide.md  step-by-step Looker build
-  preview.html           self-contained dashboard mockup
+  looker-setup-guide.md  optional Looker build
+  preview.html           self-contained viewer/dashboard mockup
 samples/             example exports (rto / samsung)
 test/run-tests.js    Node harness validating parser + comparison
 ```
@@ -97,8 +107,31 @@ clasp deploy
 ```
 
 Then either bind the script to a Google Sheet, or set `SPREADSHEET_ID` at the top
-of `Code.gs` to the target spreadsheet's ID. Finally connect Looker Studio to that
-sheet per the setup guide.
+of `Code.gs` to the target spreadsheet's ID.
+
+**Two URLs from one deployment:**
+- **Uploader (you):** the web-app URL as-is.
+- **Viewer (directors):** the same URL with **`?page=view`** appended.
+
+## AI extraction (optional but recommended)
+
+The app cleans messy messages with **Claude** when a key is present, and silently
+falls back to the regex parser otherwise. To enable it:
+
+1. Apps Script → **Project Settings → Script properties** → add
+   **`ANTHROPIC_API_KEY`** = your Anthropic key. (Optional `CLAUDE_MODEL`, default
+   `claude-opus-5`; set a cheaper model if you prefer.)
+2. That's it — **Compare** now sends each day's messages to Claude and gets back
+   clean, structured records. Cost is a few cents/day; a failed call or missing key
+   just uses the parser, so the app always works.
+
+The logic lives in [`gas/Extract.gs`](gas/Extract.gs) (`extractRecords` → Claude via
+`UrlFetchApp`, structured tool-call output). Encourage the team to post in the
+[recommended template](docs/report-template.md) — it makes both the AI and the
+parser near-perfect and cuts the corrections you make in the viewer.
+
+Looker Studio is optional now that the built-in Viewer covers the director view;
+connect it per the setup guide only if you still want it.
 
 ## Removing unwanted rows (chatter, questions, non-reports)
 

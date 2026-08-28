@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('ViewerStyles'); ?>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>N106 · Site Record Report</h1>
+          <p class="note">RTO vs Samsung daily reports · matched on Date + Section/segment</p>
+        </div>
+        <span class="badge" id="src">loading…</span>
+      </header>
+
+      <div class="filters">
+        <label>Date <select id="fDate"><option value="">All dates</option></select></label>
+        <label>Area (1–4) <select id="fGroup"><option value="">All groups</option></select></label>
+        <label>Section <select id="fArea"><option value="">All sections</option></select></label>
+        <label>Status <select id="fStatus">
+          <option value="">All</option><option>Match</option><option>Conflict</option>
+          <option>MissingRTO</option><option>MissingSamsung</option></select></label>
+        <label>Search <input type="search" id="fSearch" placeholder="activity / remark…"></label>
+        <button id="reload">↻ Refresh</button>
+        <span class="note" id="ctx"></span>
+      </div>
+
+      <div class="cards">
+        <div class="card"><div class="k">Accuracy</div><div class="v" id="cAcc">–</div></div>
+        <div class="card"><div class="k"><span class="dot" style="background:var(--good)"></span>Matched</div><div class="v" id="cMatch">–</div></div>
+        <div class="card"><div class="k"><span class="dot" style="background:var(--warning)"></span>Conflicts</div><div class="v" id="cConf">–</div></div>
+        <div class="card"><div class="k"><span class="dot" style="background:var(--critical)"></span>Missing</div><div class="v" id="cMiss">–</div></div>
+        <div class="card"><div class="k">Total keys</div><div class="v" id="cTotal">–</div></div>
+      </div>
+
+      <div class="row2">
+        <div class="panel">
+          <h2>Daily accuracy</h2><p class="sub">Matched ÷ total keys, per day</p>
+          <svg id="trend" viewBox="0 0 480 200" role="img" aria-label="Daily accuracy trend"></svg>
+        </div>
+        <div class="panel">
+          <h2>Status breakdown by day</h2><p class="sub">How each day's records resolved</p>
+          <svg id="bars" viewBox="0 0 480 200" role="img" aria-label="Status breakdown by day"></svg>
+          <div class="legend">
+            <span><span class="dot" style="background:var(--good)"></span>Match</span>
+            <span><span class="dot" style="background:var(--warning)"></span>Conflict</span>
+            <span><span class="dot" style="background:var(--critical)"></span>Missing</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:12px">
+        <h2>Highlighted site activity</h2>
+        <p class="sub">Full activity text · click Edit to correct a record and save it back</p>
+        <div class="tablewrap">
+          <table id="tbl">
+            <thead><tr>
+              <th>Date</th><th>Area</th><th>Section</th><th>Status</th>
+              <th>RTO activity</th><th>Samsung activity</th>
+              <th>Photos<br><span class="note">R / S</span></th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+    <?!= include('ViewerJs'); ?>
+  </body>
+</html>

@@ -1,0 +1,80 @@
+<style>
+  :root{
+    color-scheme: light;
+    --plane:#f9f9f7; --surface:#fcfcfb;
+    --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --trend:#2a78d6; --brand:#1f6feb;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --good-bg:#e7f6ec; --warning-bg:#fdf4df; --critical-bg:#fbe9e9;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --plane:#0d0d0d; --surface:#1a1a19;
+      --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --trend:#3987e5;
+      --good-bg:#12261a; --warning-bg:#2c2410; --critical-bg:#2a1414;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--plane);color:var(--ink);
+    font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:20px}
+  header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  h1{font-size:18px;margin:0}
+  .note{color:var(--ink2);font-size:12.5px;margin:2px 0 0}
+  .badge{font-size:11px;color:var(--ink2);border:1px solid var(--border);border-radius:999px;padding:3px 10px}
+  button{border:1px solid var(--border);background:var(--surface);color:var(--ink);
+    padding:7px 13px;border-radius:8px;font-size:13px;cursor:pointer}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  button:disabled{opacity:.5;cursor:not-allowed}
+
+  .filters{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:16px 0}
+  .filters label{font-size:12.5px;color:var(--ink2)}
+  select,input[type=search]{margin-left:6px;padding:6px 9px;border-radius:8px;
+    border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:13px}
+
+  .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .card .k{color:var(--ink2);font-size:12px;display:flex;align-items:center;gap:6px}
+  .card .v{font-size:26px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .panel h2{font-size:13px;margin:0 0 4px;font-weight:600}
+  .panel .sub{color:var(--muted);font-size:11.5px;margin:0 0 10px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ink2);margin-top:8px}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  svg{display:block;width:100%;height:auto;overflow:visible}
+  .gl{stroke:var(--grid);stroke-width:1}
+  .axl{fill:var(--muted);font-size:10.5px}
+
+  .tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-top:12px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--grid);vertical-align:top}
+  th{color:var(--ink2);font-weight:600;white-space:nowrap}
+  td.mono{font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.activity{min-width:240px;white-space:pre-wrap;word-break:break-word}  /* full text, no truncation */
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;
+    font-weight:600;font-size:11px;white-space:nowrap}
+  .pill.Match{color:var(--good);background:var(--good-bg)}
+  .pill.Conflict{color:#a5730a;background:var(--warning-bg)}
+  .pill.MissingRTO,.pill.MissingSamsung{color:var(--critical);background:var(--critical-bg)}
+  .ico{font-weight:700}
+  .photos{color:var(--ink2)}
+  .linkish{color:var(--brand);cursor:pointer;font-size:11.5px;background:none;border:0;padding:0}
+
+  .editrow td{background:var(--warning-bg)}
+  .edit-field{display:block;width:100%;margin:3px 0;padding:6px;border:1px solid var(--border);
+    border-radius:6px;background:var(--surface);color:var(--ink);font:inherit}
+  textarea.edit-field{min-height:52px;resize:vertical}
+  .edit-actions{display:flex;gap:8px;margin-top:6px}
+
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);
+    color:var(--surface);padding:10px 16px;border-radius:8px;font-size:13px;z-index:20}
+  .hidden{display:none}
+  @media (max-width:840px){.cards{grid-template-columns:repeat(2,1fr)}.row2{grid-template-columns:1fr}}
+</style>

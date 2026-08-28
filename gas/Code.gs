@@ -19,30 +19,42 @@ var TABS = {
   summary: 'DailySummary'
 };
 
-function doGet() {
-  return HtmlService.createTemplateFromFile('Index')
+/**
+ * Route:
+ *   ?page=view  -> Viewer.html   (directors: interactive, editable report)
+ *   (default)   -> Index.html    (you: upload / compare / save)
+ */
+function doGet(e) {
+  var page = (e && e.parameter && e.parameter.page) || '';
+  var file = page === 'view' ? 'Viewer' : 'Index';
+  var title = page === 'view'
+    ? 'N106 — Site Record Report'
+    : 'N106 — WhatsApp Site Record Accuracy';
+  return HtmlService.createTemplateFromFile(file)
     .evaluate()
-    .setTitle('N106 — WhatsApp Site Record Accuracy')
+    .setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
-/** Let Index.html pull in Styles.html and JavaScript.html. */
+/** Let a template pull in its partial .html files (styles/scripts). */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 /**
  * Parse + compare. Called from the client with the (possibly edited) text of
- * both panes. Returns a plain object the client renders; nothing is persisted.
+ * both panes. Uses AI extraction when an API key is set (Extract.gs), else the
+ * regex parser. Returns a plain object the client renders; nothing is persisted.
  */
 function runComparison(rtoText, samsungText) {
-  var rto = parseWhatsApp(rtoText, 'RTO');
-  var sam = parseWhatsApp(samsungText, 'Samsung');
+  var rto = extractRecords('RTO', rtoText);
+  var sam = extractRecords('Samsung', samsungText);
   var cmp = compareRecords(rto, sam);
   return {
     rtoCount: rto.length,
     samsungCount: sam.length,
+    usedAi: !!getApiKey_(),
     rows: cmp.rows,
     daily: cmp.daily,
     overall: cmp.overall,
@@ -81,6 +93,57 @@ function saveToSheet(result) {
     }));
 
   return ss.getUrl();
+}
+
+/**
+ * Read the saved report for the Viewer page: the Comparison + DailySummary tabs
+ * as arrays of objects (header row -> keys). Returns {} shape the viewer renders.
+ */
+function getReport() {
+  var ss = getSpreadsheet_();
+  return {
+    comparison: readTable_(ss, TABS.comparison),
+    daily: readTable_(ss, TABS.summary),
+    records: readTable_(ss, TABS.records)
+  };
+}
+
+function readTable_(ss, name) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) return [];
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var header = values[0];
+  return values.slice(1).map(function (row) {
+    var o = {};
+    header.forEach(function (h, i) { o[h] = row[i]; });
+    return o;
+  });
+}
+
+/**
+ * Save an inline correction from the Viewer back to the Comparison tab.
+ * `edit` = { date, area, field, value } — updates the matching row's column.
+ * Returns true on success.
+ */
+function saveRecordEdit(edit) {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(TABS.comparison);
+  if (!sheet) throw new Error('No Comparison tab to edit.');
+  var values = sheet.getDataRange().getValues();
+  var header = values[0];
+  var dateCol = header.indexOf('date');
+  var areaCol = header.indexOf('area');
+  var fieldCol = header.indexOf(edit.field);
+  if (fieldCol < 0) throw new Error('Unknown field: ' + edit.field);
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][dateCol]) === String(edit.date) &&
+        String(values[r][areaCol]) === String(edit.area)) {
+      sheet.getRange(r + 1, fieldCol + 1).setValue(edit.value);
+      return true;
+    }
+  }
+  throw new Error('Row not found for ' + edit.date + ' / ' + edit.area);
 }
 
 function getSpreadsheet_() {

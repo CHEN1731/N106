@@ -1,0 +1,185 @@
+<script>
+  var DATA = [];          // comparison rows (from the Sheet)
+  var editingKey = null;  // date||area currently being edited
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function toast(m){ var t=$('toast'); t.textContent=m; t.classList.remove('hidden');
+    clearTimeout(t._h); t._h=setTimeout(function(){t.classList.add('hidden');},2600); }
+  var ICON={Match:'✓',Conflict:'!',MissingRTO:'✕',MissingSamsung:'✕'};
+  var LABEL={Match:'Match',Conflict:'Conflict',MissingRTO:'Missing · RTO',MissingSamsung:'Missing · Samsung'};
+  function isMissing(s){ return s==='MissingRTO'||s==='MissingSamsung'; }
+  function keyOf(r){ return r.date+'||'+r.area; }
+
+  // Load: use google.script.run in GAS; a page-injected __MOCK__ for local testing.
+  function load(){
+    if (window.__MOCK__){ onData(window.__MOCK__); return; }
+    if (!(window.google && google.script && google.script.run)){
+      $('src').textContent='no data source'; return;
+    }
+    $('src').textContent='loading…';
+    google.script.run.withSuccessHandler(onData)
+      .withFailureHandler(function(e){ $('src').textContent='error'; toast('Load failed: '+e.message); })
+      .getReport();
+  }
+
+  function onData(report){
+    DATA = (report && report.comparison) || [];
+    $('src').textContent = DATA.length + ' records';
+    buildFilters();
+    render();
+  }
+
+  function opts(sel, vals){ sel.innerHTML = sel.children[0].outerHTML +
+    vals.map(function(v){return '<option>'+esc(v)+'</option>';}).join(''); }
+  function uniq(key){ var s={}; DATA.forEach(function(r){ if(r[key]!=='' && r[key]!=null) s[r[key]]=1; });
+    return Object.keys(s).sort(); }
+
+  function buildFilters(){
+    opts($('fDate'), uniq('date'));
+    opts($('fGroup'), uniq('area_group'));
+    opts($('fArea'), uniq('area'));
+  }
+  ['fDate','fGroup','fArea','fStatus'].forEach(function(id){ $(id).addEventListener('change', render); });
+  $('fSearch').addEventListener('input', render);
+  $('reload').addEventListener('click', load);
+
+  function filtered(){
+    var d=$('fDate').value, g=$('fGroup').value, a=$('fArea').value,
+        st=$('fStatus').value, q=$('fSearch').value.trim().toLowerCase();
+    return DATA.filter(function(r){
+      if(d && String(r.date)!==d) return false;
+      if(g && r.area_group!==g) return false;
+      if(a && r.area!==a) return false;
+      if(st && r.status!==st) return false;
+      if(q){
+        var hay=(r.rto_activity+' '+r.samsung_activity+' '+r.rto_remark+' '+r.samsung_remark).toLowerCase();
+        if(hay.indexOf(q)===-1) return false;
+      }
+      return true;
+    });
+  }
+
+  function render(){
+    var rows=filtered();
+    var m=rows.filter(function(r){return r.status==='Match';}).length;
+    var c=rows.filter(function(r){return r.status==='Conflict';}).length;
+    var x=rows.filter(function(r){return isMissing(r.status);}).length;
+    var t=rows.length;
+    $('cAcc').textContent = t? (Math.round(m/t*1000)/10)+'%' : '–';
+    $('cMatch').textContent=m; $('cConf').textContent=c; $('cMiss').textContent=x; $('cTotal').textContent=t;
+    $('ctx').textContent = t+' record'+(t===1?'':'s')+' shown';
+    renderTable(rows);
+    renderCharts();
+  }
+
+  function renderTable(rows){
+    var body=$('tbl').querySelector('tbody'); body.innerHTML='';
+    rows.forEach(function(r){
+      if (keyOf(r)===editingKey){ body.appendChild(editRow(r)); return; }
+      var tr=document.createElement('tr');
+      tr.innerHTML =
+        '<td class="mono">'+esc(r.date)+'</td>'+
+        '<td>'+esc(r.area_group||'—')+'</td>'+
+        '<td>'+esc(r.area)+'</td>'+
+        '<td><span class="pill '+r.status+'"><span class="ico">'+ICON[r.status]+'</span>'+LABEL[r.status]+'</span></td>'+
+        '<td class="activity">'+esc(cell(r.rto_activity,r.rto_remark))+'</td>'+
+        '<td class="activity">'+esc(cell(r.samsung_activity,r.samsung_remark))+'</td>'+
+        '<td class="mono photos">'+(r.rto_photos||0)+' / '+(r.samsung_photos||0)+'</td>'+
+        '<td><button class="linkish">Edit</button></td>';
+      tr.querySelector('button').addEventListener('click', function(){ editingKey=keyOf(r); render(); });
+      body.appendChild(tr);
+    });
+  }
+
+  function cell(act, rem){
+    act=act||''; rem=rem||'';
+    return rem ? (act+'\n— '+rem) : act;
+  }
+
+  function editRow(r){
+    var tr=document.createElement('tr'); tr.className='editrow';
+    var td=document.createElement('td'); td.colSpan=8;
+    td.innerHTML =
+      '<strong>'+esc(r.date)+' · '+esc(r.area)+'</strong>'+
+      '<label class="note">Status'+
+        '<select class="edit-field" data-f="status">'+
+          ['Match','Conflict','MissingRTO','MissingSamsung'].map(function(s){
+            return '<option'+(s===r.status?' selected':'')+'>'+s+'</option>';}).join('')+
+        '</select></label>'+
+      '<label class="note">RTO activity<textarea class="edit-field" data-f="rto_activity">'+esc(r.rto_activity||'')+'</textarea></label>'+
+      '<label class="note">Samsung activity<textarea class="edit-field" data-f="samsung_activity">'+esc(r.samsung_activity||'')+'</textarea></label>'+
+      '<label class="note">RTO remark<textarea class="edit-field" data-f="rto_remark">'+esc(r.rto_remark||'')+'</textarea></label>'+
+      '<label class="note">Samsung remark<textarea class="edit-field" data-f="samsung_remark">'+esc(r.samsung_remark||'')+'</textarea></label>'+
+      '<div class="edit-actions"><button class="primary" data-a="save">Save</button>'+
+        '<button data-a="cancel">Cancel</button></div>';
+    td.querySelector('[data-a="cancel"]').addEventListener('click', function(){ editingKey=null; render(); });
+    td.querySelector('[data-a="save"]').addEventListener('click', function(){ saveEdits(r, td); });
+    tr.appendChild(td); return tr;
+  }
+
+  function saveEdits(r, td){
+    var changes=[];
+    td.querySelectorAll('.edit-field').forEach(function(el){
+      var f=el.getAttribute('data-f'); var v=el.value;
+      if (String(v)!==String(r[f]==null?'':r[f])) changes.push({field:f, value:v});
+    });
+    if(!changes.length){ editingKey=null; render(); return; }
+
+    function applyLocal(){ changes.forEach(function(ch){ r[ch.field]=ch.value; }); editingKey=null; render(); }
+
+    if (window.__MOCK__ || !(window.google && google.script && google.script.run)){
+      applyLocal(); toast('Saved (local preview)'); return;
+    }
+    td.querySelector('[data-a="save"]').disabled=true;
+    var pending=changes.length, failed=0;
+    changes.forEach(function(ch){
+      google.script.run
+        .withSuccessHandler(function(){ if(--pending===0) finish(); })
+        .withFailureHandler(function(){ failed++; if(--pending===0) finish(); })
+        .saveRecordEdit({ date:r.date, area:r.area, field:ch.field, value:ch.value });
+    });
+    function finish(){ applyLocal(); toast(failed? (failed+' change(s) failed') : 'Saved to Sheet'); }
+  }
+
+  /* ---- charts (computed from the filtered rows, so they follow edits) ---- */
+  function daily(){
+    var g=$('fGroup').value, a=$('fArea').value;
+    var src=DATA.filter(function(r){ return (!g||r.area_group===g)&&(!a||r.area===a); });
+    var by={};
+    src.forEach(function(r){ var d=by[r.date]||(by[r.date]={date:r.date,m:0,c:0,x:0,t:0});
+      d.t++; if(r.status==='Match')d.m++; else if(r.status==='Conflict')d.c++; else d.x++; });
+    return Object.keys(by).sort().map(function(k){return by[k];});
+  }
+
+  function renderCharts(){
+    var d=daily(), W=480,H=200,L=40,R=16,T=16,B=34, iw=W-L-R, ih=H-T-B;
+    var xs = d.length>1 ? d.map(function(_,i){return L+iw*i/(d.length-1);}) : [L+iw/2];
+    // trend
+    var y=function(v){return T+ih*(1-v/100);};
+    var g='';[0,25,50,75,100].forEach(function(v){ g+='<line class="gl" x1="'+L+'" y1="'+y(v)+'" x2="'+(W-R)+'" y2="'+y(v)+'"/>'+
+      '<text class="axl" x="'+(L-6)+'" y="'+(y(v)+3)+'" text-anchor="end">'+v+'%</text>'; });
+    var acc=d.map(function(o){return o.t? o.m/o.t*100:0;});
+    var path=d.map(function(o,i){return (i?'L':'M')+xs[i].toFixed(1)+','+y(acc[i]).toFixed(1);}).join(' ');
+    var marks='';d.forEach(function(o,i){
+      marks+='<circle cx="'+xs[i].toFixed(1)+'" cy="'+y(acc[i]).toFixed(1)+'" r="5" fill="var(--trend)" stroke="var(--surface)" stroke-width="2"></circle>';
+      marks+='<text class="axl" x="'+xs[i].toFixed(1)+'" y="'+(H-14)+'" text-anchor="middle">'+esc(String(o.date).slice(5))+'</text>';
+      marks+='<text class="axl" x="'+xs[i].toFixed(1)+'" y="'+(y(acc[i])-10)+'" text-anchor="middle" fill="var(--ink2)">'+Math.round(acc[i])+'%</text>';});
+    $('trend').innerHTML = g+'<path d="'+path+'" fill="none" stroke="var(--trend)" stroke-width="2"/>'+marks;
+    // bars
+    var max=Math.max(1,Math.max.apply(null,d.map(function(o){return o.t;}).concat([1])));
+    var yb=function(v){return T+ih*(1-v/max);};
+    var bg='';for(var v=0;v<=max;v++){ bg+='<line class="gl" x1="'+L+'" y1="'+yb(v)+'" x2="'+(W-R)+'" y2="'+yb(v)+'"/>'+
+      '<text class="axl" x="'+(L-6)+'" y="'+(yb(v)+3)+'" text-anchor="end">'+v+'</text>'; }
+    var bw=Math.min(60,iw/Math.max(1,d.length)*0.5), bars='';
+    d.forEach(function(o,i){ var cx=d.length>1?L+iw*i/(d.length-1):L+iw/2, x=cx-bw/2, top=T+ih;
+      [['var(--good)',o.m],['var(--warning)',o.c],['var(--critical)',o.x]].forEach(function(seg){
+        if(!seg[1])return; var h=ih*seg[1]/max; top-=h;
+        bars+='<rect x="'+x+'" y="'+top+'" width="'+bw+'" height="'+Math.max(0,h-2)+'" rx="3" fill="'+seg[0]+'"></rect>'; });
+      bars+='<text class="axl" x="'+cx+'" y="'+(H-14)+'" text-anchor="middle">'+esc(String(o.date).slice(5))+'</text>'; });
+    $('bars').innerHTML = bg+bars;
+  }
+
+  load();
+</script>
