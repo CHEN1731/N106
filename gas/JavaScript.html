@@ -55,6 +55,7 @@
   $('btnCompare').addEventListener('click', function () {
     var rto = $('rtoText').value, sam = $('samsungText').value;
     if (!rto.trim() || !sam.trim()) { toast('Paste or upload both exports first.'); return; }
+    var reportDate = $('reportDate') ? $('reportDate').value : '';  // yyyy-mm-dd or ''
     $('btnCompare').disabled = true; $('btnCompare').textContent = 'Comparing…';
     google.script.run
       .withSuccessHandler(onResult)
@@ -62,7 +63,7 @@
         $('btnCompare').disabled = false; $('btnCompare').textContent = 'Compare';
         toast('Error: ' + err.message);
       })
-      .runComparison(rto, sam);
+      .runComparison(rto, sam, reportDate);
   });
 
   function onResult(res) {

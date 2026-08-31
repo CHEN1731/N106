@@ -144,6 +144,44 @@ var PARSER_CONFIG = {
 };
 // === END CONFIG =====================================================
 
+/** Normalise newlines and strip WhatsApp's bidi/zero-width marks -> line array. */
+function chatLines_(text) {
+  return String(text)
+    .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    // LRM/RLM, ZWSP, bidi embeddings, BOM — inserted before headers/media lines.
+    .replace(/[​‎‏‪-‮﻿]/g, '')
+    .split('\n');
+}
+
+/**
+ * Keep only the chat messages whose header date is in `dates` (array of ISO
+ * yyyy-mm-dd). Used to scope a full-history WhatsApp export down to one day
+ * before extraction/comparison. Returns the sliced raw text (unknown formats or
+ * empty `dates` return the input unchanged).
+ */
+function sliceChatByDate_(text, dates) {
+  if (!text || !dates || !dates.length) return text;
+  var want = {};
+  dates.forEach(function (d) { want[String(d)] = true; });
+  var lines = chatLines_(text);
+  var format = detectFormat_(lines);
+  var out = [], keep = false, any = false;
+  for (var i = 0; i < lines.length; i++) {
+    var m = format.re.exec(lines[i]);
+    if (m) { keep = !!want[normalizeDate_(m[1])]; if (keep) any = true; }
+    if (keep) out.push(lines[i]);
+  }
+  return any ? out.join('\n') : text; // no header matched -> don't lose the data
+}
+
+/** Keep only records whose date is in `dates` (array of ISO yyyy-mm-dd). */
+function filterByDates_(records, dates) {
+  if (!dates || !dates.length) return records;
+  var want = {};
+  dates.forEach(function (d) { want[String(d)] = true; });
+  return records.filter(function (r) { return want[String(r.date)]; });
+}
+
 /**
  * Parse a raw export into an array of message objects.
  * @param {string} text  raw WhatsApp .txt contents
@@ -152,13 +190,7 @@ var PARSER_CONFIG = {
  */
 function parseWhatsApp(text, source) {
   if (!text) return [];
-  var lines = String(text)
-    .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    // WhatsApp inserts bidi/zero-width marks (LRM/RLM, ZWSP, bidi embeddings,
-    // BOM) before headers and media lines; strip them so line matching is
-    // reliable.
-    .replace(/[\u200b\u200e\u200f\u202a-\u202e\ufeff]/g, '')
-    .split('\n');
+  var lines = chatLines_(text);
   var format = detectFormat_(lines);
   var messages = groupIntoMessages_(lines, format);
   var records = [];
@@ -503,6 +535,8 @@ if (typeof module !== 'undefined' && module.exports) {
     canonicalArea_: canonicalArea_,
     hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,
+    sliceChatByDate_: sliceChatByDate_,
+    filterByDates_: filterByDates_,
     PARSER_CONFIG: PARSER_CONFIG
   };
 }

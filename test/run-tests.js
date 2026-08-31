@@ -13,13 +13,14 @@ const vm = require('vm');
 const root = path.join(__dirname, '..');
 const sandbox = {};
 vm.createContext(sandbox);
-['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs'].forEach((f) => {
+['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs'].forEach((f) => {
   // No `module` in the sandbox, so each file's `typeof module` export guard is
   // skipped and its functions land as sandbox globals — exactly like GAS.
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
 const { parseWhatsApp, resolveLocator_, normalizeDate_, normalizeExtracted_, compareRecords,
-        normalizeSummary_, summaryFromRecords_, docxXmlToText_ } = sandbox;
+        normalizeSummary_, summaryFromRecords_, docxXmlToText_,
+        sliceChatByDate_, filterByDates_, mergeByDate_, runComparison } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -117,6 +118,31 @@ assert(fb.executiveSummary.length >= 3, 'fallback produces 3+ exec bullets');
 assert(fb.status === 'Discrepancy', 'fallback flags Discrepancy (Ub conflict + missing)');
 assert(fb.discrepancies.length === 3, 'fallback lists 3 discrepancies (1 conflict + 2 missing)');
 assert(fb.sectionBreakdown.length === 4, 'fallback section breakdown covers all 4 keys');
+
+console.log('\nDaily-upload sustainability (date scoping + accumulation):');
+const multiDay =
+  '[5/8/26, 10:00:00] ~ Eng: Sec-C(Mb)\nDwall works\n' +
+  '[6/8/26, 10:00:00] ~ Eng: Sec-D(Ub)\nBase slab works\n';
+const sliced = sliceChatByDate_(multiDay, ['2026-08-05']);
+assert(sliced.indexOf('5/8/26') !== -1 && sliced.indexOf('6/8/26') === -1, 'sliceChatByDate keeps only the target day');
+assert(parseWhatsApp(sliced, 'RTO').length === 1, 'sliced chat parses to just that day (1 record)');
+assert(filterByDates_(parseWhatsApp(multiDay, 'RTO'), ['2026-08-06']).length === 1, 'filterByDates keeps the chosen date');
+
+// runComparison scopes a multi-day RTO export to the report date.
+const aisDay = '[5/8/26, 11:00:00] ~ AIS: Sec-C(Mb)\nDwall reinstatement works\n';
+const rc = runComparison(multiDay, aisDay, '2026-08-05');
+assert(rc.reportDate === '2026-08-05', 'runComparison reports the scoped date');
+assert(rc.records.every(r => r.date === '2026-08-05'), 'runComparison drops the RTO 6-Aug record (date scoping)');
+assert(rc.rows.length === 1 && rc.rows[0].area === 'Sec-C/Mb', 'only the report-date key is compared');
+
+// mergeByDate: today's upload replaces only today's rows; other days survive.
+const existing = [['2026-08-05', 'a'], ['2026-08-05', 'b'], ['2026-08-04', 'keep']];
+const incoming = [['2026-08-05', 'new']];
+const merged = mergeByDate_(existing, incoming, 0);
+assert(merged.length === 2, 'mergeByDate replaces the upload date and keeps others (2 rows)');
+assert(merged.some(r => r[0] === '2026-08-04' && r[1] === 'keep'), 'other-day rows preserved');
+assert(merged.filter(r => r[0] === '2026-08-05').length === 1 && merged.find(r => r[0] === '2026-08-05')[1] === 'new',
+  'upload date rows replaced with the new upload');
 
 console.log('\nComparison:');
 const cmp = compareRecords(rto, sam);

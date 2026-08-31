@@ -173,21 +173,21 @@ function normalizeExtracted_(r, source) {
  * @param {string} aisText  AIS Daily Report raw data
  * @return {Object} canonical summary (see normalizeSummary_)
  */
-function generateWorkSummary(rtoText, aisText) {
+function generateWorkSummary(rtoText, aisText, dateHint) {
   var key = getApiKey_();
   if (key) {
     try {
-      var s = callClaudeSummary_(rtoText, aisText, key);
+      var s = callClaudeSummary_(rtoText, aisText, key, dateHint);
       if (s) return s;
     } catch (err) {
       try { console.error('AI summary failed, using fallback: ' + err); } catch (e) {}
     }
   }
-  return summaryFromRecords_(rtoText, aisText);
+  return summaryFromRecords_(rtoText, aisText, dateHint);
 }
 
 /** Claude forced-tool cross-comparison. */
-function callClaudeSummary_(rtoText, aisText, key) {
+function callClaudeSummary_(rtoText, aisText, key, dateHint) {
   var tool = {
     name: 'emit_summary',
     description: 'Return the executive cross-comparison of the RTO notes vs the AIS daily report.',
@@ -244,6 +244,7 @@ function callClaudeSummary_(rtoText, aisText, key) {
     'unverified (differing quantities, work reported by only one source, conflicting ' +
     'status). Empty array if fully aligned.\n' +
     '- manpowerAndRemarks: key manpower, equipment, safety/quality highlights.\n' +
+    (dateHint ? ('This summary is for ' + dateHint + '. Only include work for that date.\n') : '') +
     'Call emit_summary once.\n\n' +
     '=== RTO NOTES ===\n' + (rtoText || '(none)') +
     '\n\n=== AIS DAILY REPORT ===\n' + (aisText || '(none)');
@@ -300,9 +301,10 @@ function normalizeSummary_(raw, source) {
  * Deterministic fallback: build the same summary shape from the parsed records
  * and their comparison — no AI, always available.
  */
-function summaryFromRecords_(rtoText, aisText) {
+function summaryFromRecords_(rtoText, aisText, dateHint) {
   var rto = parseWhatsApp(rtoText, 'RTO');
   var ais = parseWhatsApp(aisText, 'AIS');
+  if (dateHint) { rto = filterByDates_(rto, [dateHint]); ais = filterByDates_(ais, [dateHint]); }
   var cmp = compareRecords(rto, ais);
   var rows = cmp.rows, o = cmp.overall;
 

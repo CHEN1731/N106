@@ -48,23 +48,44 @@ function include(filename) {
  * both panes. Uses AI extraction when an API key is set (Extract.gs), else the
  * regex parser. Returns a plain object the client renders; nothing is persisted.
  */
-function runComparison(rtoText, samsungText) {
-  var rto = extractRecords('RTO', rtoText);
-  var sam = extractRecords('Samsung', samsungText);
-  var cmp = compareRecords(rto, sam);
-  // Executive cross-comparison summary (RTO field notes vs the AIS/2nd daily
-  // report). AI when a key is set, deterministic fallback otherwise.
-  var summary = generateWorkSummary(rtoText, samsungText);
+function runComparison(rtoText, samsungText, reportDate) {
+  // The AIS daily report is one day; the RTO WhatsApp export is often the whole
+  // chat history. Scope RTO to the report's date so each day compares cleanly
+  // (and the AI only processes that day). Priority: an explicit reportDate, else
+  // the date(s) found in the AIS report, else no scoping.
+  var ais = extractRecords('AIS', samsungText);
+  var target = targetDates_(reportDate, ais);
+  var rtoScoped = target ? sliceChatByDate_(rtoText, target) : rtoText;
+
+  var rto = extractRecords('RTO', rtoScoped);
+  if (target) { rto = filterByDates_(rto, target); ais = filterByDates_(ais, target); }
+
+  var cmp = compareRecords(rto, ais);
+  var summary = generateWorkSummary(rtoScoped, samsungText, target && target[0]);
   return {
     rtoCount: rto.length,
-    samsungCount: sam.length,
+    samsungCount: ais.length,
     usedAi: !!getApiKey_(),
+    reportDate: (target && target[0]) || '',
     rows: cmp.rows,
     daily: cmp.daily,
     overall: cmp.overall,
-    records: rto.concat(sam),
+    records: rto.concat(ais),
     summary: summary
   };
+}
+
+/** Resolve which date(s) this run covers: explicit reportDate, else AIS dates. */
+function targetDates_(reportDate, aisRecords) {
+  if (reportDate) {
+    var d = normalizeDate_(reportDate);
+    return d ? [d] : null;
+  }
+  var seen = {}, out = [];
+  (aisRecords || []).forEach(function (r) {
+    if (r.date && !seen[r.date]) { seen[r.date] = true; out.push(r.date); }
+  });
+  return out.length ? out : null;
 }
 
 /**
@@ -75,24 +96,26 @@ function runComparison(rtoText, samsungText) {
 function saveToSheet(result) {
   var ss = getSpreadsheet_();
 
-  writeTable_(ss, TABS.records,
+  // Upsert by date so history accumulates across daily uploads: rows for the
+  // date(s) in this upload replace only those dates; other days are untouched.
+  upsertByDate_(ss, TABS.records,
     ['source', 'date', 'area_group', 'section', 'segment', 'area', 'activity',
-     'remark', 'photos', 'sender', 'raw_ts'],
+     'remark', 'photos', 'sender', 'raw_ts'], 1,
     (result.records || []).map(function (r) {
       return [r.source, r.date, r.areaGroup || '', r.section || '', r.segment || '',
               r.area, r.activity, r.remark, r.photos, r.sender, r.rawTs];
     }));
 
-  writeTable_(ss, TABS.comparison,
+  upsertByDate_(ss, TABS.comparison,
     ['date', 'area_group', 'area', 'status', 'similarity', 'rto_activity',
-     'samsung_activity', 'rto_remark', 'samsung_remark', 'rto_photos', 'samsung_photos'],
+     'samsung_activity', 'rto_remark', 'samsung_remark', 'rto_photos', 'samsung_photos'], 0,
     (result.rows || []).map(function (r) {
       return [r.date, r.areaGroup || '', r.area, r.status, r.similarity, r.rtoActivity,
               r.samsungActivity, r.rtoRemark, r.samsungRemark, r.rtoPhotos, r.samsungPhotos];
     }));
 
-  writeTable_(ss, TABS.summary,
-    ['date', 'total_keys', 'matched', 'conflicts', 'missing', 'accuracy_pct'],
+  upsertByDate_(ss, TABS.summary,
+    ['date', 'total_keys', 'matched', 'conflicts', 'missing', 'accuracy_pct'], 0,
     (result.daily || []).map(function (d) {
       return [d.date, d.total, d.matched, d.conflicts, d.missing, d.accuracyPct];
     }));
@@ -100,6 +123,37 @@ function saveToSheet(result) {
   if (result.summary) upsertWorkSummary_(ss, result.summary);
 
   return ss.getUrl();
+}
+
+/**
+ * Replace the rows for the date(s) present in `rows`, keep every other date, and
+ * rewrite the tab. `dateCol` is the 0-based index of the date column.
+ */
+function upsertByDate_(ss, name, header, dateCol, rows) {
+  var sheet = ss.getSheetByName(name);
+  var existing = [];
+  if (sheet) {
+    var values = sheet.getDataRange().getValues();
+    if (values.length > 1) existing = values.slice(1); // drop header
+  }
+  var merged = mergeByDate_(existing, rows, dateCol);
+  writeTable_(ss, name, header, merged);
+}
+
+/**
+ * Pure merge: drop existing rows whose date is among the incoming rows' dates,
+ * then append the incoming rows; sorted by date. Exposed for testing.
+ */
+function mergeByDate_(existingRows, newRows, dateCol) {
+  var incomingDates = {};
+  newRows.forEach(function (r) { incomingDates[String(r[dateCol])] = true; });
+  var kept = existingRows.filter(function (r) { return !incomingDates[String(r[dateCol])]; });
+  var out = kept.concat(newRows);
+  out.sort(function (a, b) {
+    var x = String(a[dateCol]), y = String(b[dateCol]);
+    return x < y ? -1 : (x > y ? 1 : 0);
+  });
+  return out;
 }
 
 /**

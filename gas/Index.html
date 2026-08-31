@@ -8,9 +8,12 @@
     <header class="topbar">
       <div>
         <h1>N106 · WhatsApp Site Record Accuracy</h1>
-        <p class="sub">Paste or upload both exports, edit if needed, then compare on Date + Area.</p>
+        <p class="sub">Upload RTO chat + AIS report, pick the report date, then Compare. Saving accumulates by date — upload a new day anytime.</p>
       </div>
       <div class="actions">
+        <label class="datepick">Report date
+          <input type="date" id="reportDate">
+        </label>
         <button id="btnCompare" class="primary">Compare</button>
         <button id="btnSave" disabled>Save to Sheet</button>
       </div>

@@ -136,6 +136,23 @@ parser near-perfect and cuts the corrections you make in the viewer.
 Looker Studio is optional now that the built-in Viewer covers the director view;
 connect it per the setup guide only if you still want it.
 
+## Daily workflow (sustainable, accumulates history)
+
+Run it every day; nothing gets overwritten:
+
+1. Upload that day's **RTO** WhatsApp export (the full-history `.txt` is fine) and the
+   **AIS** `.docx`.
+2. Pick the **Report date** (top-right). The app scopes the RTO chat to that date
+   (so a whole-chat export compares cleanly against the single-day AIS report, and
+   the AI only processes that day). Leave it blank to auto-use the AIS report's date.
+3. **Compare**, review, **Save to Sheet**.
+
+**Save to Sheet upserts by date** — the day's rows replace only that date in every
+tab (`Records`, `Comparison`, `DailySummary`, `WorkSummary`) and keep all other
+days, so the Viewer's trend, filters, and executive-summary history build up over
+time. Re-uploading a day corrects just that day (`mergeByDate_` in `gas/Code.gs`).
+The Viewer (`?page=view`) then shows the full multi-day history.
+
 ## Executive Work Summary (RTO vs AIS)
 
 On **Compare**, the app also cross-compares the **RTO** field notes against the

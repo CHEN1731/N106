@@ -1,9 +1,9 @@
 # Google Sheet schema — the Looker Studio data source
 
-The GAS web app writes these tabs on **Save to Sheet**. The `Records`,
-`Comparison` and `DailySummary` tabs are fully rewritten every save (they reflect
-the latest upload); `WorkSummary` is **upserted by date** so executive summaries
-accumulate as history. Looker Studio (or the built-in Viewer) reads these tabs.
+The GAS web app writes these tabs on **Save to Sheet**. **All tabs upsert by
+date** — a day's upload replaces only that date's rows and keeps every other day,
+so history accumulates across daily uploads and re-uploading a day corrects just
+that day. Looker Studio (or the built-in Viewer) reads these tabs.
 
 > Column names below are the exact header text the app writes — match them when
 > you set field types in Looker.
