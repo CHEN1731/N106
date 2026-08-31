@@ -1,8 +1,9 @@
 # Google Sheet schema — the Looker Studio data source
 
-The GAS web app writes these three tabs on **Save to Sheet**. Each tab is fully
-rewritten every save (header row frozen + bold). Looker Studio connects to this
-spreadsheet and reads these tabs as data sources.
+The GAS web app writes these tabs on **Save to Sheet**. The `Records`,
+`Comparison` and `DailySummary` tabs are fully rewritten every save (they reflect
+the latest upload); `WorkSummary` is **upserted by date** so executive summaries
+accumulate as history. Looker Studio (or the built-in Viewer) reads these tabs.
 
 > Column names below are the exact header text the app writes — match them when
 > you set field types in Looker.
@@ -57,6 +58,21 @@ Looker-side calc.
 | `conflicts` | Number | status = Conflict |
 | `missing` | Number | MissingRTO + MissingSamsung |
 | `accuracy_pct` | Number | matched ÷ total_keys × 100 |
+
+## Tab: `WorkSummary` — executive RTO-vs-AIS cross-comparison
+
+One row **per date** (upserted, so history accumulates). Drives the Viewer's
+Executive Work Summary panel. The full structured summary is in the `json` column;
+the flat columns are for at-a-glance reading and any Looker use.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `date` | Date (yyyy-mm-dd) | report date (upsert key) |
+| `status` | Text | `Aligned` \| `Discrepancy` (RTO vs AIS) |
+| `executive_summary` | Text | 3–5 bullets, joined with `•` newlines |
+| `discrepancy_count` | Number | number of RTO↔AIS discrepancies |
+| `source` | Text | `ai` (Claude) or `fallback` (deterministic) |
+| `json` | Text | full summary object: `executiveSummary[]`, `sectionBreakdown[{area,section,work}]`, `discrepancies[{item,rto,ais,severity}]`, `manpowerAndRemarks[]` |
 
 ## Suggested Looker calculated fields
 

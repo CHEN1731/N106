@@ -133,6 +133,24 @@ parser near-perfect and cuts the corrections you make in the viewer.
 Looker Studio is optional now that the built-in Viewer covers the director view;
 connect it per the setup guide only if you still want it.
 
+## Executive Work Summary (RTO vs AIS)
+
+On **Compare**, the app also cross-compares the **RTO** field notes against the
+**AIS Daily Report** (the two uploaded texts) and produces a management summary:
+an **executive summary** (3–5 bullets), **work by section** (Area 1–4), the
+**RTO-vs-AIS discrepancies** (with severity), and **manpower/quality highlights**,
+plus an overall **Aligned / Discrepancy** status. Claude generates it when an API
+key is set; otherwise a **deterministic fallback** builds the same shape from the
+parsed records — so it always produces a summary.
+
+**Save to Sheet** upserts it (one row per date, history kept) to the `WorkSummary`
+tab (`gas/Code.gs#upsertWorkSummary_`; schema in
+[`dashboard/sheet-schema.md`](dashboard/sheet-schema.md)). The directors' Viewer
+(`?page=view`) shows it as the **Executive Work Summary (工作总结看板)** panel at the
+top, driven by the Date / Area / Section filters. Logic lives in
+[`gas/Extract.gs`](gas/Extract.gs) (`generateWorkSummary` → `callClaudeSummary_`
+with `summaryFromRecords_` fallback).
+
 ## Removing unwanted rows (chatter, questions, non-reports)
 
 You never delete rows by hand. **Save to Sheet rewrites the `Records`, `Comparison`

@@ -36,6 +36,30 @@
   select,input[type=search]{margin-left:6px;padding:6px 9px;border-radius:8px;
     border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:13px}
 
+  /* Executive summary panel */
+  .exec{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:16px 18px;margin-bottom:12px}
+  .exec-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .exec-head h2{font-size:15px;margin:0}
+  .exec-head .cjk{color:var(--ink2);font-weight:600;font-size:13px}
+  .statusflag{font-size:12px;font-weight:700;padding:4px 12px;border-radius:999px;white-space:nowrap}
+  .statusflag.Aligned{color:var(--good);background:var(--good-bg)}
+  .statusflag.Discrepancy{color:#a5730a;background:var(--warning-bg)}
+  .exec-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin-top:12px}
+  .exec-block h3{font-size:12px;text-transform:uppercase;letter-spacing:.03em;
+    color:var(--muted);margin:0 0 6px}
+  .bullets{margin:0;padding-left:18px}
+  .bullets li{margin:3px 0}
+  .kv{display:flex;flex-direction:column;gap:6px}
+  .kv .item{border-left:3px solid var(--grid);padding:2px 0 2px 9px}
+  .kv .item .lbl{font-weight:600}
+  .kv .item .d{color:var(--ink2);font-size:12px}
+  .sev{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;margin-left:6px}
+  .sev.high{color:var(--critical);background:var(--critical-bg)}
+  .sev.medium{color:#a5730a;background:var(--warning-bg)}
+  .sev.low{color:var(--ink2);background:var(--grid)}
+  .empty{color:var(--muted);font-size:12.5px}
+
   .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
   .card .k{color:var(--ink2);font-size:12px;display:flex;align-items:center;gap:6px}

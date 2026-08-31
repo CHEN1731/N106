@@ -16,7 +16,8 @@ var SPREADSHEET_ID = '';
 var TABS = {
   records: 'Records',
   comparison: 'Comparison',
-  summary: 'DailySummary'
+  summary: 'DailySummary',
+  workSummary: 'WorkSummary'   // executive RTO-vs-AIS cross-comparison, one row per date
 };
 
 /**
@@ -51,6 +52,9 @@ function runComparison(rtoText, samsungText) {
   var rto = extractRecords('RTO', rtoText);
   var sam = extractRecords('Samsung', samsungText);
   var cmp = compareRecords(rto, sam);
+  // Executive cross-comparison summary (RTO field notes vs the AIS/2nd daily
+  // report). AI when a key is set, deterministic fallback otherwise.
+  var summary = generateWorkSummary(rtoText, samsungText);
   return {
     rtoCount: rto.length,
     samsungCount: sam.length,
@@ -58,7 +62,8 @@ function runComparison(rtoText, samsungText) {
     rows: cmp.rows,
     daily: cmp.daily,
     overall: cmp.overall,
-    records: rto.concat(sam)
+    records: rto.concat(sam),
+    summary: summary
   };
 }
 
@@ -92,7 +97,41 @@ function saveToSheet(result) {
       return [d.date, d.total, d.matched, d.conflicts, d.missing, d.accuracyPct];
     }));
 
+  if (result.summary) upsertWorkSummary_(ss, result.summary);
+
   return ss.getUrl();
+}
+
+/**
+ * Upsert one executive summary row keyed by date (keeps history across days,
+ * unlike the other tabs which reflect only the latest upload). The full summary
+ * object is stored as JSON in the `json` column; flat columns aid at-a-glance
+ * reading and any Looker use.
+ */
+function upsertWorkSummary_(ss, summary) {
+  var header = ['date', 'status', 'executive_summary', 'discrepancy_count', 'source', 'json'];
+  var sheet = ss.getSheetByName(TABS.workSummary);
+  if (!sheet) {
+    sheet = ss.insertSheet(TABS.workSummary);
+    sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  var row = [
+    summary.date || '',
+    summary.status || '',
+    (summary.executiveSummary || []).map(function (b) { return '• ' + b; }).join('\n'),
+    (summary.discrepancies || []).length,
+    summary.source || '',
+    JSON.stringify(summary)
+  ];
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][0]) === String(summary.date) && summary.date) {
+      sheet.getRange(r + 1, 1, 1, header.length).setValues([row]);
+      return;
+    }
+  }
+  sheet.appendRow(row);
 }
 
 /**
@@ -104,8 +143,23 @@ function getReport() {
   return {
     comparison: readTable_(ss, TABS.comparison),
     daily: readTable_(ss, TABS.summary),
-    records: readTable_(ss, TABS.records)
+    records: readTable_(ss, TABS.records),
+    summaries: readWorkSummaries_(ss)
   };
+}
+
+/** Read the WorkSummary tab back into full summary objects (newest first). */
+function readWorkSummaries_(ss) {
+  return readTable_(ss, TABS.workSummary).map(function (row) {
+    try { return JSON.parse(row.json); }
+    catch (e) {
+      return { date: row.date, status: row.status,
+               executiveSummary: String(row.executive_summary || '').split('\n')
+                 .map(function (s) { return s.replace(/^•\s*/, ''); }).filter(Boolean),
+               sectionBreakdown: [], discrepancies: [], manpowerAndRemarks: [],
+               source: row.source };
+    }
+  }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 }
 
 function readTable_(ss, name) {

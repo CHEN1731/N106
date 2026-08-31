@@ -1,5 +1,6 @@
 <script>
   var DATA = [];          // comparison rows (from the Sheet)
+  var SUMMARIES = [];     // executive work summaries (newest first)
   var editingKey = null;  // date||area currently being edited
 
   function $(id){ return document.getElementById(id); }
@@ -26,6 +27,7 @@
 
   function onData(report){
     DATA = (report && report.comparison) || [];
+    SUMMARIES = (report && report.summaries) || [];
     $('src').textContent = DATA.length + ' records';
     buildFilters();
     render();
@@ -70,8 +72,54 @@
     $('cAcc').textContent = t? (Math.round(m/t*1000)/10)+'%' : '–';
     $('cMatch').textContent=m; $('cConf').textContent=c; $('cMiss').textContent=x; $('cTotal').textContent=t;
     $('ctx').textContent = t+' record'+(t===1?'':'s')+' shown';
+    renderExec();
     renderTable(rows);
     renderCharts();
+  }
+
+  /* Executive summary panel: the selected date's summary, else the latest. */
+  function pickSummary(){
+    if(!SUMMARIES.length) return null;
+    var d=$('fDate').value;
+    if(d){ for(var i=0;i<SUMMARIES.length;i++){ if(String(SUMMARIES[i].date)===d) return SUMMARIES[i]; } return null; }
+    return SUMMARIES[0]; // newest (getReport sorts desc)
+  }
+
+  function renderExec(){
+    var s=pickSummary(), panel=$('exec');
+    if(!s){ panel.hidden=true; return; }
+    panel.hidden=false;
+    var st=s.status||'Aligned';
+    var flag=$('execStatus'); flag.textContent=st; flag.className='statusflag '+st;
+    $('execMeta').textContent = (s.date? s.date+' · ':'') +
+      'RTO vs AIS cross-comparison' + (s.source==='fallback'? ' · auto (no AI key)':'');
+
+    $('execKey').innerHTML = list_(s.executiveSummary, 'No summary points.');
+    $('execManpower').innerHTML = list_(s.manpowerAndRemarks, 'None noted.');
+
+    var g=$('fGroup').value, a=$('fArea').value;
+    var secs=(s.sectionBreakdown||[]).filter(function(x){
+      return (!g||x.area===g)&&(!a||x.section===a); });
+    $('execSections').innerHTML = secs.length ? secs.map(function(x){
+      return '<div class="item"><span class="lbl">'+esc(x.section||x.area||'—')+
+        (x.area?' <span class="d">('+esc(x.area)+')</span>':'')+'</span>'+
+        '<div class="d">'+esc(x.work||'')+'</div></div>'; }).join('')
+      : '<div class="empty">No section work for this filter.</div>';
+
+    var disc=s.discrepancies||[];
+    $('execDisc').innerHTML = disc.length ? disc.map(function(x){
+      var sev=(x.severity||'medium').toLowerCase();
+      return '<div class="item"><span class="lbl">'+esc(x.item||'—')+
+        '</span><span class="sev '+sev+'">'+esc(sev)+'</span>'+
+        '<div class="d">RTO: '+esc(x.rto||'—')+'</div>'+
+        '<div class="d">AIS: '+esc(x.ais||'—')+'</div></div>'; }).join('')
+      : '<div class="empty">✓ RTO and AIS aligned — no discrepancies.</div>';
+  }
+
+  function list_(arr, emptyMsg){
+    arr = arr||[];
+    return arr.length ? arr.map(function(x){return '<li>'+esc(x)+'</li>';}).join('')
+      : '<li class="empty">'+esc(emptyMsg)+'</li>';
   }
 
   function renderTable(rows){

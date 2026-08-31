@@ -18,7 +18,8 @@ vm.createContext(sandbox);
   // skipped and its functions land as sandbox globals — exactly like GAS.
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, normalizeDate_, normalizeExtracted_, compareRecords } = sandbox;
+const { parseWhatsApp, resolveLocator_, normalizeDate_, normalizeExtracted_, compareRecords,
+        normalizeSummary_, summaryFromRecords_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -69,6 +70,35 @@ assert(ai.date === '2026-08-05', 'AI record date normalised to ISO');
 assert(['source','date','area','areaGroup','section','segment','activity','remark','photos']
   .every(k => k in ai), 'AI record carries the canonical fields');
 assert(normalizeExtracted_({ activity: '' }, 'RTO') === null, 'AI record with empty activity dropped');
+
+console.log('\nWork summary — AI output normaliser:');
+const aiSummary = normalizeSummary_({
+  date: '5/8/26',
+  executiveSummary: ['Slip Road Tunnel dwall works progressing', 'Base Slab curing at Sec-D/Ub', 'One quantity discrepancy flagged', 'x','x','x','x'],
+  sectionBreakdown: [{ area: 'Area 2', section: 'Sec-C/Mb', work: 'Dwall reinstatement' }, { area:'', section:'', work:'' }],
+  rtoVsAisDiscrepancies: [{ item: 'Sec-D/Ub', rto: '7 pax', ais: '9 pax', severity: 'Medium' }],
+  manpowerAndRemarks: ['Kian Hup 7 pax', '']
+}, 'ai');
+assert(aiSummary.status === 'Discrepancy', 'summary with a discrepancy -> status Discrepancy');
+assert(aiSummary.date === '2026-08-05', 'summary date normalised to ISO');
+assert(aiSummary.executiveSummary.length === 6, 'executiveSummary capped at 6 (got ' + aiSummary.executiveSummary.length + ')');
+assert(aiSummary.sectionBreakdown.length === 1, 'empty sectionBreakdown entries dropped');
+assert(aiSummary.discrepancies[0].severity === 'medium', 'severity lower-cased');
+assert(['date','status','executiveSummary','sectionBreakdown','discrepancies','manpowerAndRemarks','source']
+  .every(k => k in aiSummary), 'summary carries the canonical fields');
+const aligned = normalizeSummary_({ date: '2026-08-05', executiveSummary: ['all good'], rtoVsAisDiscrepancies: [] }, 'ai');
+assert(aligned.status === 'Aligned', 'no discrepancies -> status Aligned');
+
+console.log('\nWork summary — deterministic fallback (no AI):');
+const fb = summaryFromRecords_(
+  fs.readFileSync(path.join(root, 'samples', 'rto.sample.txt'), 'utf8'),
+  fs.readFileSync(path.join(root, 'samples', 'samsung.sample.txt'), 'utf8'));
+assert(fb.source === 'fallback', 'fallback marked source=fallback');
+assert(fb.date === '2026-08-05', 'fallback picks the reporting date');
+assert(fb.executiveSummary.length >= 3, 'fallback produces 3+ exec bullets');
+assert(fb.status === 'Discrepancy', 'fallback flags Discrepancy (Ub conflict + missing)');
+assert(fb.discrepancies.length === 3, 'fallback lists 3 discrepancies (1 conflict + 2 missing)');
+assert(fb.sectionBreakdown.length === 4, 'fallback section breakdown covers all 4 keys');
 
 console.log('\nComparison:');
 const cmp = compareRecords(rto, sam);
