@@ -45,10 +45,23 @@ var PARSER_CONFIG = {
     sectionRe: /\bSec(?:tion)?[-\s]*([A-E])\b/i,
     // Segment / zone codes from the site plan. Matched as whole tokens in the
     // locator line (split on / ( ) space). Add/trim to match your plan labels.
+    // Multi-letter names are listed before single letters so they win.
     segments: [
-      'Portal', 'Wc', 'Wb', 'Wa', 'Lc', 'Lb3', 'Lb2', 'Lb1', 'La3', 'La2', 'La1',
+      'Portal', 'Cube8', 'SLF', 'SJII', 'TLQ', 'OPA', 'SPC', 'SOD',
+      'Wc', 'Wb', 'Wa', 'Lc', 'Lb3', 'Lb2', 'Lb1', 'La3', 'La2', 'La1',
       'Le', 'Ld', 'Mb', 'Ma', 'P5', 'FB', 'Ja', 'Jb', 'Ka', 'Kb',
-      'Qa', 'Qb', 'Qc', 'Qd', 'N', 'P', 'R', 'Sa', 'Sb', 'Ta', 'Tb', 'Tc', 'Ua', 'Ub'
+      'Qa', 'Qb', 'Qc', 'Qd', 'Sa', 'Sb', 'Ta', 'Tb', 'Tc', 'Ua', 'Ub',
+      'N', 'P', 'R'
+    ],
+    // Regex patterns that recognise structure / pile / shaft codes as segments
+    // without enumerating thousands of them (e.g. P323, DW1072, EI12, BT29-1,
+    // MH02, NMH01, T9-3, CW319). A token matching any of these becomes the
+    // segment. These carry no Area mapping (areaGroup stays '') unless also in
+    // segmentArea. Tune to your real structure numbering.
+    segmentPatterns: [
+      /^P\d{2,4}$/i, /^DW\d{2,4}$/i, /^EI\d{1,3}$/i, /^BT\d{1,2}(?:-\d)?$/i,
+      /^N?MH\d{1,3}$/i, /^T\d{1,2}-\d$/i, /^CW\d{2,4}$/i, /^BP-T\d/i,
+      /^XR\d{1,3}$/i, /^Cube\s?\d+$/i
     ],
     // Map each segment to its Area group (1-4) for the dashboard's higher-level
     // filter. From the N106 site plan; unmapped segments -> areaGroup ''.
@@ -386,9 +399,13 @@ function matchSegment_(line, segments) {
   var tokens = String(line).split(/[\/()\[\],;:\s]+/).filter(Boolean);
   var byLower = {};
   for (var s = 0; s < segments.length; s++) byLower[String(segments[s]).toLowerCase()] = segments[s];
+  var patterns = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.segmentPatterns) || [];
   for (var t = 0; t < tokens.length; t++) {
     var hit = byLower[tokens[t].toLowerCase()];
     if (hit) return hit;
+    for (var p = 0; p < patterns.length; p++) {
+      if (patterns[p].test(tokens[t])) return tokens[t];  // structure/pile code
+    }
   }
   return '';
 }

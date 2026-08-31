@@ -9,7 +9,7 @@
       <header>
         <div>
           <h1>N106 · Site Record Report</h1>
-          <p class="note">RTO vs Samsung daily reports · matched on Date + Section/segment</p>
+          <p class="note">RTO vs AIS daily reports · matched on Date + Section/segment</p>
         </div>
         <span class="badge" id="src">loading…</span>
       </header>
@@ -20,7 +20,7 @@
         <label>Section <select id="fArea"><option value="">All sections</option></select></label>
         <label>Status <select id="fStatus">
           <option value="">All</option><option>Match</option><option>Conflict</option>
-          <option>MissingRTO</option><option>MissingSamsung</option></select></label>
+          <option value="MissingRTO">Missing · RTO</option><option value="MissingSamsung">Missing · AIS</option></select></label>
         <label>Search <input type="search" id="fSearch" placeholder="activity / remark…"></label>
         <button id="reload">↻ Refresh</button>
         <span class="note" id="ctx"></span>
@@ -85,7 +85,7 @@
           <table id="tbl">
             <thead><tr>
               <th>Date</th><th>Area</th><th>Section</th><th>Status</th>
-              <th>RTO activity</th><th>Samsung activity</th>
+              <th>RTO activity</th><th>AIS activity</th>
               <th>Photos<br><span class="note">R / S</span></th><th></th>
             </tr></thead>
             <tbody></tbody>

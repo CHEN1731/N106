@@ -20,7 +20,37 @@
     });
   }
   wireUpload('fileRto', 'rtoText');
-  wireUpload('fileSamsung', 'samsungText');
+
+  // AIS pane accepts Word (.docx) or .txt. Word files are converted to text on
+  // the server (Docx.gs); .txt is read locally. Result is editable/fully shown.
+  $('fileSamsung').addEventListener('change', function (e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    var note = $('aisNote');
+    var isWord = /\.docx?$/i.test(f.name);
+    if (!isWord) {
+      var reader = new FileReader();
+      reader.onload = function () { $('samsungText').value = reader.result; if (note) note.textContent = 'Loaded ' + f.name; };
+      reader.readAsText(f);
+      return;
+    }
+    if (note) note.textContent = 'Reading ' + f.name + '…';
+    var r = new FileReader();
+    r.onload = function () {
+      var b64 = String(r.result).split(',')[1]; // strip the data: URL prefix
+      google.script.run
+        .withSuccessHandler(function (text) {
+          $('samsungText').value = text || '';
+          if (note) note.textContent = 'Loaded ' + f.name + ' (' + (text ? text.length : 0) + ' chars) — edit if needed';
+        })
+        .withFailureHandler(function (err) {
+          if (note) note.textContent = 'Could not read ' + f.name + ': ' + err.message;
+          toast('Word read failed: ' + err.message);
+        })
+        .docxToText(b64, f.name);
+    };
+    r.readAsDataURL(f);
+  });
 
   $('btnCompare').addEventListener('click', function () {
     var rto = $('rtoText').value, sam = $('samsungText').value;
@@ -90,7 +120,7 @@
   }
   function label(s) {
     return s === 'MissingRTO' ? 'Missing · RTO'
-      : s === 'MissingSamsung' ? 'Missing · Samsung' : s;
+      : s === 'MissingSamsung' ? 'Missing · AIS' : s;
   }
 
   $('btnSave').addEventListener('click', function () {

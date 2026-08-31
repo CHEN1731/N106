@@ -13,13 +13,13 @@ const vm = require('vm');
 const root = path.join(__dirname, '..');
 const sandbox = {};
 vm.createContext(sandbox);
-['Parser.gs', 'Compare.gs', 'Extract.gs'].forEach((f) => {
+['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs'].forEach((f) => {
   // No `module` in the sandbox, so each file's `typeof module` export guard is
   // skipped and its functions land as sandbox globals — exactly like GAS.
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
 const { parseWhatsApp, resolveLocator_, normalizeDate_, normalizeExtracted_, compareRecords,
-        normalizeSummary_, summaryFromRecords_ } = sandbox;
+        normalizeSummary_, summaryFromRecords_, docxXmlToText_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -34,6 +34,24 @@ assert(loc1.section === 'Sec-C' && loc1.segment === 'Mb' && loc1.area === 'Sec-C
   '"Sec-C/ER15(Mb)" -> Sec-C + Mb');
 const loc2 = resolveLocator_('Sec-D/CCL/Ub/Base Slab/Kian Hup:');
 assert(loc2.area === 'Sec-D/Ub', '"Sec-D/CCL/Ub/Base Slab" -> Sec-D/Ub');
+
+console.log('\nExpanded segment recognition (real N106 locators):');
+assert(resolveLocator_('Sec D/SLF/Traffic Decking/KORI :').area === 'Sec-D/SLF', 'named location SLF -> Sec-D/SLF');
+assert(resolveLocator_('Sec-D/EI12/ CHCI').area === 'Sec-D/EI12', 'structure code EI12 -> Sec-D/EI12');
+assert(resolveLocator_('Sec-A/Cube8 CM/SCT/N(N3a)').area === 'Sec-A/Cube8', 'Cube8 beats stray N -> Sec-A/Cube8');
+assert(resolveLocator_('Sec-E /XR14 / Whitley Rd').area === 'Sec-E/XR14', 'XR14 pattern -> Sec-E/XR14');
+assert(resolveLocator_('DW1072 rebar').segment === 'DW1072', 'DW1072 pattern recognised as segment');
+
+console.log('\nDOCX -> text:');
+const docxXml = '<w:body><w:p><w:r><w:t>Date / Day: 28 Aug 2026</w:t></w:r></w:p>' +
+  '<w:p><w:r><w:t>SITE WORKS </w:t></w:r><w:tab/><w:r><w:t>[ AREA </w:t></w:r>' +
+  '<w:r><w:t>&#8211; 1 ]</w:t></w:r></w:p><w:p><w:r><w:t>Manpower &amp; plant: 6</w:t></w:r></w:p></w:body>';
+const dt = docxXmlToText_(docxXml);
+assert(/Date \/ Day: 28 Aug 2026/.test(dt), 'docx: first paragraph text extracted');
+assert(dt.split('\n').length >= 3, 'docx: paragraphs become separate lines');
+assert(dt.indexOf('\t') !== -1, 'docx: w:tab preserved as a tab');
+assert(dt.indexOf('&') !== -1 && dt.indexOf('&amp;') === -1, 'docx: entities unescaped (&amp; -> &)');
+assert(dt.indexOf('–') !== -1, 'docx: numeric entity &#8211; -> en dash');
 
 console.log('\nInvisible-mark stripping:');
 const marked = '‎[5/8/26, 09:00:00] ~ Eng: Sec-C(Mb)\nDwall works\n‎image omitted';

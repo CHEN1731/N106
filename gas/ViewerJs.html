@@ -9,7 +9,7 @@
   function toast(m){ var t=$('toast'); t.textContent=m; t.classList.remove('hidden');
     clearTimeout(t._h); t._h=setTimeout(function(){t.classList.add('hidden');},2600); }
   var ICON={Match:'✓',Conflict:'!',MissingRTO:'✕',MissingSamsung:'✕'};
-  var LABEL={Match:'Match',Conflict:'Conflict',MissingRTO:'Missing · RTO',MissingSamsung:'Missing · Samsung'};
+  var LABEL={Match:'Match',Conflict:'Conflict',MissingRTO:'Missing · RTO',MissingSamsung:'Missing · AIS'};
   function isMissing(s){ return s==='MissingRTO'||s==='MissingSamsung'; }
   function keyOf(r){ return r.date+'||'+r.area; }
 

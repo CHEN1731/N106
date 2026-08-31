@@ -26,10 +26,11 @@
       </div>
       <div class="pane">
         <div class="pane-head">
-          <span class="tag samsung">Samsung</span>
-          <label class="file">Upload .txt<input type="file" id="fileSamsung" accept=".txt"></label>
+          <span class="tag samsung">AIS Daily Report</span>
+          <label class="file">Upload Word / .txt<input type="file" id="fileSamsung" accept=".docx,.doc,.txt"></label>
         </div>
-        <textarea id="samsungText" spellcheck="false" placeholder="Paste the Samsung WhatsApp export here…"></textarea>
+        <textarea id="samsungText" spellcheck="false" placeholder="Upload the AIS Daily Report (.docx) — its text appears here, editable — or paste it…"></textarea>
+        <div class="filenote" id="aisNote"></div>
       </div>
     </section>
 
@@ -47,7 +48,7 @@
         <label>Status <select id="fltStatus">
           <option value="">All</option>
           <option>Match</option><option>Conflict</option>
-          <option>MissingRTO</option><option>MissingSamsung</option>
+          <option value="MissingRTO">Missing · RTO</option><option value="MissingSamsung">Missing · AIS</option>
         </select></label>
         <span id="parseNote" class="note"></span>
       </div>
@@ -57,8 +58,8 @@
           <thead>
             <tr>
               <th>Date</th><th>Area / Section</th><th>Status</th><th>Sim</th>
-              <th>RTO activity</th><th>Samsung activity</th>
-              <th>RTO remark</th><th>Samsung remark</th><th>Photos</th>
+              <th>RTO activity</th><th>AIS activity</th>
+              <th>RTO remark</th><th>AIS remark</th><th>Photos</th>
             </tr>
           </thead>
           <tbody></tbody>

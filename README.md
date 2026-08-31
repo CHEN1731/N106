@@ -21,8 +21,10 @@ dashboard.
 ```
 
 1. **`gas/` — Apps Script web app (you, the uploader).**
-   Paste or upload the two `WhatsApp.txt` exports (RTO + Samsung), editable and
-   fully shown. Click **Compare** — messages are turned into clean records by
+   Left pane: paste/upload the **RTO** WhatsApp export (`.txt`). Right pane: upload
+   the **AIS Daily Report** as a **Word `.docx`** (converted to editable text on the
+   server by `Docx.gs`) or paste text. Both are editable and fully shown. Click
+   **Compare** — messages/report are turned into clean records by
    **AI extraction (Claude)** when an API key is set, otherwise by the built-in
    regex parser — records are matched on **Date + Section/segment** and scored;
    click **Save to Sheet** to write the three tabs.
@@ -67,6 +69,7 @@ point of the check.
 gas/                 Apps Script project (clasp-compatible)
   appsscript.json    manifest (web app + external_request scope)
   Code.gs            doGet routing + runComparison + saveToSheet + getReport/saveRecordEdit
+  Docx.gs            read an uploaded AIS Word (.docx) report into text (Utilities.unzip)
   Extract.gs         AI extraction (Claude via UrlFetchApp) + parser fallback
   Parser.gs          WhatsApp .txt -> records  (CONFIG block at top to tune)
   Compare.gs         match on Date+Section/segment, score accuracy
@@ -173,7 +176,11 @@ If a specific junk phrase still slips through, add it to `chatterPatterns` in
 your exports, no logic changes needed:
 
 - **`locator.segments`** — the main thing to edit: the site-plan segment codes
-  (`Mb`, `Ub`, `Ld`, `Ta`, …). Add/trim to match your plan labels.
+  (`Mb`, `Ub`, `Ld`, `Ta`, …) plus recurring sub-locations (`Cube8`, `SLF`, `SJII`,
+  `XR14`, `TLQ`, `OPA`, …). Add/trim to match your plan labels.
+- **`locator.segmentPatterns`** — regexes that recognise structure/pile/shaft codes
+  as segments without listing thousands (`P323`, `DW1072`, `EI12`, `BT29-1`, `MH02`,
+  `T9-3`, `CW319`). Extend to your numbering.
 - **`locator.sectionRe`** — how the Section is written (default matches `Sec-C`,
   `Sec C`, `Section C`).
 - **`locator.segmentArea`** — optional map from each segment to its **Area 1–4**
