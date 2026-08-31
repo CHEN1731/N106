@@ -272,7 +272,8 @@ function messageToRecord_(msg, source) {
     source: source,
     date: date,
     // No locator match -> the General bucket, so nothing is lost.
-    area: (area || PARSER_CONFIG.defaultArea).trim(),
+    // Collapse whitespace so a labelled/multi-line value can't become a garbage key.
+    area: (area || PARSER_CONFIG.defaultArea).replace(/\s+/g, ' ').trim(),
     areaGroup: (loc.areaGroup || '').trim(),
     section: (loc.section || '').trim(),
     segment: (loc.segment || '').trim(),

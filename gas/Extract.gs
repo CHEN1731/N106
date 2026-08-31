@@ -77,21 +77,26 @@ function callClaude_(text, source, key) {
   };
 
   var instructions =
-    'You extract daily construction site progress records from a WhatsApp chat ' +
-    'export for project N106. Each real record has a locator like "Sec-C/ER15(Mb)" ' +
-    '(Section A-E + a site-plan segment code such as Mb, Ub, Ld, Ta) followed by the ' +
-    'work done. Rules:\n' +
-    '- Return ONE record per distinct site report. Combine a report with its ' +
-    'immediately-following photo messages (count them into "photos").\n' +
-    '- Put the Section into "section" (format "Sec-X") and the segment code into ' +
-    '"segment"; leave them "" if genuinely absent.\n' +
-    '- "activity" = the full work description text (keep it complete, do not summarise).\n' +
-    '- "remark" = manpower or trailing notes.\n' +
-    '- IGNORE greetings, acknowledgements, emoji-only messages, questions/RFIs and ' +
-    'any coordination chatter that is not a site progress report.\n' +
-    '- "date" is the message date as ISO yyyy-mm-dd.\n' +
+    'You extract daily construction site progress records for project N106. The ' +
+    'input is EITHER a WhatsApp chat export (lines like "[5/8/26, 10:09] ~ Name: ...") ' +
+    'OR a structured daily report document (blocks grouped under "AREA 1-4" headers, ' +
+    'each with a location / contractor / activity / "Manpower - N"). Handle whichever ' +
+    'you are given. A record\'s locator may be written many ways — "Sec-C/ER15(Mb)", ' +
+    '"Sec D/SLF/...", "CUBE 8 ... (Qb)", "TMC (Sec.Ka)", "Sec N(N3a)". Rules:\n' +
+    '- Return ONE record per distinct site report/location block. In a chat, fold a ' +
+    'report\'s immediately-following photo messages into its "photos" count.\n' +
+    '- "section": the Section letter as "Sec-X" (A-E) when present, else "".\n' +
+    '- "segment": the site-plan segment/zone code when identifiable (Mb, Ub, Ld, Ta, ' +
+    'Ka, Qb, Ja, Jb, N, P, R, Sa ...). If the location names a code not in that set ' +
+    '(e.g. P323, EI12, DW1072, Cube8, Gate#28), put the most specific location token ' +
+    'in "segment" anyway so it can be matched; leave "" only if truly none.\n' +
+    '- "activity" = the full work description (keep complete, do not summarise).\n' +
+    '- "remark" = manpower / equipment / trailing notes.\n' +
+    '- IGNORE greetings, acknowledgements, emoji-only and coordination chatter.\n' +
+    '- "date" = the report/message date as ISO yyyy-mm-dd (use the report header date ' +
+    'for a document).\n' +
     'Call emit_records with every record you find.\n\n' +
-    'CHAT EXPORT:\n' + text;
+    'INPUT:\n' + text;
 
   var body = {
     model: getModel_(),
