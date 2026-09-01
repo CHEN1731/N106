@@ -22,34 +22,72 @@
   wireUpload('fileRto', 'rtoText');
 
   // AIS pane accepts Word (.docx) or .txt. Word files are converted to text on
-  // the server (Docx.gs); .txt is read locally. Result is editable/fully shown.
+  // the server (Docx.gs); .txt is read locally. Everything is wrapped so a
+  // failure only shows a message and never breaks the page.
   $('fileSamsung').addEventListener('change', function (e) {
-    var f = e.target.files[0];
-    if (!f) return;
     var note = $('aisNote');
-    var isWord = /\.docx?$/i.test(f.name);
-    if (!isWord) {
-      var reader = new FileReader();
-      reader.onload = function () { $('samsungText').value = reader.result; if (note) note.textContent = 'Loaded ' + f.name; };
-      reader.readAsText(f);
-      return;
+    try {
+      var f = e.target.files[0];
+      if (!f) return;
+      var isWord = /\.docx?$/i.test(f.name);
+
+      if (!isWord) {
+        var reader = new FileReader();
+        reader.onerror = function () { if (note) note.textContent = 'Could not read ' + f.name; };
+        reader.onload = function () { $('samsungText').value = reader.result; if (note) note.textContent = 'Loaded ' + f.name; };
+        reader.readAsText(f);
+        return;
+      }
+
+      // Old .doc (binary, pre-2007) is not a zip — we can't read it.
+      if (/\.doc$/i.test(f.name)) {
+        if (note) note.textContent = 'Old .doc not supported — please "Save As" .docx, or paste the text.';
+        toast('Please use .docx (not .doc), or paste the text.');
+        return;
+      }
+      // Server converter must exist in the DEPLOYED version.
+      if (!(window.google && google.script && google.script.run &&
+            typeof google.script.run.docxToText === 'function')) {
+        if (note) note.textContent = 'Word upload not available — redeploy the web app (New version), then reload.';
+        toast('Redeploy the web app to enable Word upload.');
+        return;
+      }
+      // Guard very large files (google.script.run has payload limits).
+      if (f.size > 20 * 1024 * 1024) {
+        if (note) note.textContent = 'File too large (' + Math.round(f.size/1048576) + ' MB) — export text-only or paste it.';
+        toast('Word file too large — paste the text instead.');
+        return;
+      }
+
+      if (note) note.textContent = 'Reading ' + f.name + '…';
+      var r = new FileReader();
+      r.onerror = function () { if (note) note.textContent = 'Could not read ' + f.name + ' (file error).'; };
+      r.onload = function () {
+        try {
+          var res = String(r.result || '');
+          var comma = res.indexOf(',');
+          var b64 = comma >= 0 ? res.slice(comma + 1) : res; // strip data: prefix
+          google.script.run
+            .withSuccessHandler(function (text) {
+              $('samsungText').value = text || '';
+              if (note) note.textContent = 'Loaded ' + f.name + ' (' + (text ? text.length : 0) + ' chars) — edit if needed';
+            })
+            .withFailureHandler(function (err) {
+              var m = (err && err.message) ? err.message : 'unknown error';
+              if (note) note.textContent = 'Could not read ' + f.name + ': ' + m;
+              toast('Word read failed: ' + m);
+            })
+            .docxToText(b64, f.name);
+        } catch (inner) {
+          if (note) note.textContent = 'Upload error: ' + inner.message;
+          toast('Upload error: ' + inner.message);
+        }
+      };
+      r.readAsDataURL(f);
+    } catch (outer) {
+      if (note) note.textContent = 'Upload error: ' + outer.message;
+      toast('Upload error: ' + outer.message);
     }
-    if (note) note.textContent = 'Reading ' + f.name + '…';
-    var r = new FileReader();
-    r.onload = function () {
-      var b64 = String(r.result).split(',')[1]; // strip the data: URL prefix
-      google.script.run
-        .withSuccessHandler(function (text) {
-          $('samsungText').value = text || '';
-          if (note) note.textContent = 'Loaded ' + f.name + ' (' + (text ? text.length : 0) + ' chars) — edit if needed';
-        })
-        .withFailureHandler(function (err) {
-          if (note) note.textContent = 'Could not read ' + f.name + ': ' + err.message;
-          toast('Word read failed: ' + err.message);
-        })
-        .docxToText(b64, f.name);
-    };
-    r.readAsDataURL(f);
   });
 
   $('btnCompare').addEventListener('click', function () {
