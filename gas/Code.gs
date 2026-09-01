@@ -21,6 +21,26 @@ var TABS = {
 };
 
 /**
+ * DIAGNOSTIC — run this from the Apps Script editor (select debugSheet -> Run),
+ * then open View -> Logs (or Executions). No deployment needed. It prints which
+ * spreadsheet getSpreadsheet_() actually opens and every tab's row count, so a
+ * wrong-sheet / wrong-tab-name mismatch is obvious.
+ */
+function debugSheet() {
+  var ss = getSpreadsheet_();
+  Logger.log('SPREADSHEET_ID setting = "' + SPREADSHEET_ID + '"');
+  Logger.log('Opened spreadsheet: "' + ss.getName() + '"');
+  Logger.log('URL: ' + ss.getUrl());
+  var c = ss.getSheetByName(TABS.comparison);
+  Logger.log('Comparison tab exists? ' + !!c + '  rows (incl header): ' +
+    (c ? c.getDataRange().getValues().length : 'N/A'));
+  Logger.log('--- all tabs in this spreadsheet ---');
+  ss.getSheets().forEach(function (s) {
+    Logger.log('tab "' + s.getName() + '"  lastRow=' + s.getLastRow());
+  });
+}
+
+/**
  * Route:
  *   ?page=view  -> Viewer.html   (directors: interactive, editable report)
  *   (default)   -> Index.html    (you: upload / compare / save)
