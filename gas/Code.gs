@@ -198,7 +198,11 @@ function getReport() {
     comparison: readTable_(ss, TABS.comparison),
     daily: readTable_(ss, TABS.summary),
     records: readTable_(ss, TABS.records),
-    summaries: readWorkSummaries_(ss)
+    summaries: readWorkSummaries_(ss),
+    // Which spreadsheet the viewer actually read — so a "0 records" while the
+    // sheet clearly has data instantly reveals a wrong-spreadsheet mismatch.
+    spreadsheetUrl: ss.getUrl(),
+    spreadsheetName: ss.getName()
   };
 }
 

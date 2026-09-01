@@ -28,7 +28,14 @@
   function onData(report){
     DATA = (report && report.comparison) || [];
     SUMMARIES = (report && report.summaries) || [];
-    $('src').textContent = DATA.length + ' records';
+    if (DATA.length) {
+      $('src').textContent = DATA.length + ' records';
+    } else {
+      // Empty while the sheet has data => viewer is reading the wrong sheet.
+      var name = report && report.spreadsheetName;
+      $('src').textContent = '0 records' + (name ? ' — reading "' + name + '"' : '');
+      $('src').title = (report && report.spreadsheetUrl) || '';
+    }
     buildFilters();
     render();
   }
