@@ -9,9 +9,12 @@
  * Parsing/comparison logic lives in Parser.gs and Compare.gs.
  */
 
-// Target spreadsheet. Leave blank to use the container-bound sheet (if the
-// script is bound to a Sheet), or paste a spreadsheet ID for a standalone script.
-var SPREADSHEET_ID = '';
+// Target spreadsheet ID (the part of the Sheet URL between /d/ and /edit).
+// MUST be set for the web app: in a web-app context getActiveSpreadsheet() is
+// unreliable, so pin the ID here. This is the "N106 Summary AI" sheet; change it
+// if you switch spreadsheets. Leaving it '' falls back to the active sheet
+// (works only in the bound editor, NOT reliably in the deployed Viewer).
+var SPREADSHEET_ID = '1njkQDQ8gGjojRx9otdO6JXU210WNpj5QggChTmkFXv8';
 
 var TABS = {
   records: 'Records',
