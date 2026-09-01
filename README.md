@@ -22,8 +22,9 @@ dashboard.
 
 1. **`gas/` — Apps Script web app (you, the uploader).**
    Left pane: paste/upload the **RTO** WhatsApp export (`.txt`). Right pane: upload
-   the **AIS Daily Report** as a **Word `.docx`** (converted to editable text on the
-   server by `Docx.gs`) or paste text. Both are editable and fully shown. Click
+   the **AIS Daily Report** as a **Word `.docx`** (unzipped to editable text **in the
+   browser** via JSZip — any file size, images ignored; `Docx.gs` is a server-side
+   fallback) or paste text. Both are editable and fully shown. Click
    **Compare** — messages/report are turned into clean records by
    **AI extraction (Claude)** when an API key is set, otherwise by the built-in
    regex parser — records are matched on **Date + Section/segment** and scored;

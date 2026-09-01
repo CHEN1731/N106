@@ -9,6 +9,23 @@
     clearTimeout(t._h); t._h = setTimeout(function () { t.classList.add('hidden'); }, 2600);
   }
 
+  // Convert Word document.xml -> readable text (same logic as Docx.gs, run in
+  // the browser so large files never hit the server payload limit).
+  function docxXmlToTextClient(xml) {
+    var s = String(xml)
+      .replace(/<w:tab\b[^>]*\/?>/g, '\t')
+      .replace(/<w:br\b[^>]*\/?>/g, '\n')
+      .replace(/<\/w:p>/g, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 10)); })
+      .replace(/&#x([0-9a-fA-F]+);/g, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
+      .replace(/&amp;/g, '&')
+      .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+    return s.trim();
+  }
+
   // Load an uploaded .txt file into its textarea (editable afterwards).
   function wireUpload(fileId, textId) {
     $(fileId).addEventListener('change', function (e) {
@@ -45,21 +62,46 @@
         toast('Please use .docx (not .doc), or paste the text.');
         return;
       }
-      // Server converter must exist in the DEPLOYED version.
-      if (!(window.google && google.script && google.script.run &&
-            typeof google.script.run.docxToText === 'function')) {
-        if (note) note.textContent = 'Word upload not available — redeploy the web app (New version), then reload.';
-        toast('Redeploy the web app to enable Word upload.');
-        return;
-      }
-      // Guard very large files (google.script.run has payload limits).
-      if (f.size > 20 * 1024 * 1024) {
-        if (note) note.textContent = 'File too large (' + Math.round(f.size/1048576) + ' MB) — export text-only or paste it.';
-        toast('Word file too large — paste the text instead.');
+      if (note) note.textContent = 'Reading ' + f.name + '…';
+
+      // Preferred path: unzip in the browser with JSZip and extract only the
+      // document text — handles any file size, no server round-trip.
+      if (window.JSZip) {
+        var ab = new FileReader();
+        ab.onerror = function () { if (note) note.textContent = 'Could not read ' + f.name + ' (file error).'; };
+        ab.onload = function () {
+          JSZip.loadAsync(ab.result)
+            .then(function (zip) {
+              var entry = zip.file('word/document.xml');
+              if (!entry) throw new Error('No word/document.xml — not a .docx?');
+              return entry.async('string');
+            })
+            .then(function (xml) {
+              var text = docxXmlToTextClient(xml);
+              $('samsungText').value = text;
+              if (note) note.textContent = 'Loaded ' + f.name + ' (' + text.length + ' chars) — edit if needed';
+            })
+            .catch(function (err) {
+              if (note) note.textContent = 'Could not read ' + f.name + ': ' + (err && err.message || err);
+              toast('Word read failed: ' + (err && err.message || err));
+            });
+        };
+        ab.readAsArrayBuffer(f);
         return;
       }
 
-      if (note) note.textContent = 'Reading ' + f.name + '…';
+      // Fallback (JSZip not loaded): send to the server (small files only).
+      if (!(window.google && google.script && google.script.run &&
+            typeof google.script.run.docxToText === 'function')) {
+        if (note) note.textContent = 'Word upload unavailable — redeploy the web app, or paste the text.';
+        toast('Redeploy the web app, or paste the text.');
+        return;
+      }
+      if (f.size > 20 * 1024 * 1024) {
+        if (note) note.textContent = 'File too large and JSZip unavailable — paste the text instead.';
+        toast('Too large — paste the text.');
+        return;
+      }
       var r = new FileReader();
       r.onerror = function () { if (note) note.textContent = 'Could not read ' + f.name + ' (file error).'; };
       r.onload = function () {

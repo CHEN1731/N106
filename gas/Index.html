@@ -2,6 +2,9 @@
 <html>
   <head>
     <base target="_top">
+    <!-- JSZip: unzip the .docx in the browser so only its (small) text is used,
+         no matter how big the file — avoids the google.script.run payload limit. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <?!= include('Styles'); ?>
   </head>
   <body>
