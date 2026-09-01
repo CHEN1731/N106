@@ -158,8 +158,19 @@
     $('scConflict').textContent = o.conflicts;
     $('scMissing').textContent = o.missing;
     $('scTotal').textContent = o.total;
-    $('parseNote').textContent =
-      'Parsed ' + res.rtoCount + ' RTO and ' + res.samsungCount + ' Samsung records.';
+    var msg = 'Parsed ' + res.rtoCount + ' RTO and ' + res.samsungCount + ' AIS records'
+      + (res.reportDate ? ' for ' + res.reportDate : '') + '.';
+    // Explain an empty / all-missing comparison so it isn't confusing.
+    if (res.samsungCount === 0) {
+      msg += res.usedAi
+        ? '  ⚠ AIS parsed 0 records — check the report has content for this date.'
+        : '  ⚠ AIS parsed 0 records — set ANTHROPIC_API_KEY so the Word report can be read (offline can\'t parse it).';
+    } else if (res.rtoCount === 0) {
+      msg += '  ⚠ No RTO messages for this date — pick a date your RTO chat covers, or clear the Report date.';
+    } else if (o.matched === 0 && o.conflicts === 0 && o.missing > 0) {
+      msg += '  ⚠ No overlap — RTO and AIS have no common date/section. Use the same day on both sides.';
+    }
+    $('parseNote').textContent = msg;
 
     // Populate the date filter.
     var dates = res.daily.map(function (d) { return d.date; });
