@@ -16,13 +16,18 @@
   // Load: use google.script.run in GAS; a page-injected __MOCK__ for local testing.
   function load(){
     if (window.__MOCK__){ onData(window.__MOCK__); return; }
+    // Preferred: data injected into the page by doGet (no client round-trip).
+    if (typeof window.__REPORT__ !== 'undefined' && window.__REPORT__ !== null){
+      if (window.__REPORT__.error){ $('src').textContent = 'ERROR: ' + window.__REPORT__.error; return; }
+      onData(window.__REPORT__); return;
+    }
+    // Fallback: fetch via google.script.run (older deployments).
     if (!(window.google && google.script && google.script.run)){
       $('src').textContent='no data source'; return;
     }
     $('src').textContent='loading…';
     google.script.run.withSuccessHandler(onData)
       .withFailureHandler(function(e){
-        // Surface the real server error so we stop guessing.
         $('src').textContent = 'ERROR: ' + (e && e.message ? e.message : e);
         toast('Load failed: ' + (e && e.message ? e.message : e));
       })
@@ -32,10 +37,9 @@
   function onData(report){
     DATA = (report && report.comparison) || [];
     SUMMARIES = (report && report.summaries) || [];
-    // Always show what was read + which sheet, so a wrong-sheet / wrong-project
-    // deployment is obvious at a glance.
     var name = (report && report.spreadsheetName) || '(no sheet name)';
-    $('src').textContent = DATA.length + ' records · ' + name;
+    var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
+    $('src').textContent = DATA.length + ' records · ' + name + ver;
     $('src').title = (report && report.spreadsheetUrl) || '';
     buildFilters();
     render();
@@ -53,7 +57,11 @@
   }
   ['fDate','fGroup','fArea','fStatus'].forEach(function(id){ $(id).addEventListener('change', render); });
   $('fSearch').addEventListener('input', render);
-  $('reload').addEventListener('click', load);
+  // Reload the whole page so doGet re-reads the sheet and re-injects fresh data.
+  $('reload').addEventListener('click', function(){
+    if (window.__REPORT__ !== undefined && !window.__MOCK__) { location.reload(); }
+    else { load(); }
+  });
 
   function filtered(){
     var d=$('fDate').value, g=$('fGroup').value, a=$('fArea').value,

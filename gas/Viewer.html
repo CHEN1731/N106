@@ -94,6 +94,11 @@
       </div>
     </div>
     <div id="toast" class="toast hidden"></div>
+    <script>
+      // Server-injected data + version (set by doGet). Robust: no client round-trip.
+      window.__APPV__ = "<?= appVersion ?>";
+      window.__REPORT__ = <?!= reportJson ?>;
+    </script>
     <?!= include('ViewerJs'); ?>
   </body>
 </html>

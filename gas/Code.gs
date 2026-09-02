@@ -61,10 +61,18 @@ function debugGetReport() {
   }
 }
 
+// Bump this on every deploy so the running version is visible in the browser —
+// if the Viewer doesn't show this string, the deployed code is stale/wrong.
+var APP_VERSION = 'build-8 · server-injected';
+
 /**
  * Route:
  *   ?page=view  -> Viewer.html   (directors: interactive, editable report)
  *   (default)   -> Index.html    (you: upload / compare / save)
+ *
+ * For the viewer, the report data is read server-side and injected straight into
+ * the page (window.__REPORT__), so it no longer depends on a client-side
+ * google.script.run round-trip.
  */
 function doGet(e) {
   var page = (e && e.parameter && e.parameter.page) || '';
@@ -72,8 +80,17 @@ function doGet(e) {
   var title = page === 'view'
     ? 'N106 — Site Record Report'
     : 'N106 — WhatsApp Site Record Accuracy';
-  return HtmlService.createTemplateFromFile(file)
-    .evaluate()
+  var t = HtmlService.createTemplateFromFile(file);
+  t.appVersion = APP_VERSION;
+  if (page === 'view') {
+    var rep;
+    try { rep = getReport(); } catch (err) { rep = { error: String(err) }; }
+    // Escape "<" so a stray "</script>" in the data can't break the page.
+    t.reportJson = JSON.stringify(rep).replace(/</g, '\\u003c');
+  } else {
+    t.reportJson = 'null';
+  }
+  return t.evaluate()
     .setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
