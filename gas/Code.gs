@@ -44,6 +44,24 @@ function debugSheet() {
 }
 
 /**
+ * DIAGNOSTIC — runs the EXACT function the Viewer calls (getReport) from the
+ * editor. If this logs comparison rows > 0 but the deployed Viewer still shows
+ * 0, the deployment is stale (redeploy a New version). If this logs 0, getReport
+ * itself is the problem.
+ */
+function debugGetReport() {
+  var r = getReport();
+  Logger.log('getReport spreadsheet: "' + r.spreadsheetName + '"');
+  Logger.log('comparison rows: ' + r.comparison.length);
+  Logger.log('records rows: ' + r.records.length);
+  Logger.log('summaries: ' + r.summaries.length);
+  if (r.comparison[0]) {
+    Logger.log('first comparison row keys: ' + JSON.stringify(Object.keys(r.comparison[0])));
+    Logger.log('first comparison row: ' + JSON.stringify(r.comparison[0]));
+  }
+}
+
+/**
  * Route:
  *   ?page=view  -> Viewer.html   (directors: interactive, editable report)
  *   (default)   -> Index.html    (you: upload / compare / save)
