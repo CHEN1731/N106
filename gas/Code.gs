@@ -48,13 +48,14 @@ function debugGetReport() {
   var r = getReport();
   Logger.log('getReport spreadsheet: "' + r.spreadsheetName + '"');
   Logger.log('activities rows: ' + r.activities.length);
+  if (r.activities[0]) Logger.log('first activity: ' + JSON.stringify(r.activities[0]));
   Logger.log('productivity days: ' + r.productivity.length);
   if (r.productivity[0]) Logger.log('latest productivity: ' + JSON.stringify(r.productivity[r.productivity.length - 1]));
 }
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-9 · productivity';
+var APP_VERSION = 'build-10 · productivity';
 
 /**
  * Route:
@@ -175,9 +176,20 @@ function mergeByDate_(existingRows, newRows, dateCol) {
  */
 function getReport() {
   var ss = getSpreadsheet_();
+  // Activities: normalise the date so it always matches the Viewer's date filter
+  // (Google Sheets may store "2026-08-05" as a Date object, not text).
+  var activities = readTable_(ss, TABS.activities).map(function (row) {
+    return {
+      date: toDateStr_(row.date),
+      area: String(row.area == null ? '' : row.area),
+      section: String(row.section == null ? '' : row.section),
+      activity: String(row.activity == null ? '' : row.activity),
+      manpower: Number(row.manpower) || 0
+    };
+  });
   var prod = readTable_(ss, TABS.productivity).map(function (row) {
     return {
-      date: String(row.date),
+      date: toDateStr_(row.date),
       dWallCount: Number(row.dwall_count) || 0,
       bPileCount: Number(row.bpile_count) || 0,
       bWallCount: Number(row.bwall_count) || 0,
@@ -192,11 +204,22 @@ function getReport() {
   }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
   return {
-    activities: readTable_(ss, TABS.activities),
+    activities: activities,
     productivity: prod,
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };
+}
+
+/** Normalise a cell value to "YYYY-MM-DD" whether Sheets returns text or a Date. */
+function toDateStr_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) {
+    var y = v.getFullYear();
+    var m = ('0' + (v.getMonth() + 1)).slice(-2);
+    var d = ('0' + v.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
+  }
+  return String(v == null ? '' : v).trim();
 }
 
 function splitList_(v) {

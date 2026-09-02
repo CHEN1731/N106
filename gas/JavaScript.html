@@ -192,15 +192,29 @@
 
   $('btnSave').addEventListener('click', function () {
     if (!lastResult) return;
+    if (!(lastResult.mergedActivities || []).length) {
+      toast('Nothing to save — 0 merged activities.'); return;
+    }
     $('btnSave').disabled = true; $('btnSave').textContent = 'Saving…';
     google.script.run
       .withSuccessHandler(function (url) {
         $('btnSave').disabled = false; $('btnSave').textContent = 'Save to Sheet';
-        toast('Saved. Sheet: ' + url);
+        var n = (lastResult.mergedActivities || []).length;
+        toast('Saved ' + n + ' activities to the Sheet.');
+        var viewer = location.href.split('?')[0] + '?page=view';
+        var note = $('saveNote');
+        if (note) {
+          note.innerHTML = '✅ Saved <b>' + n + '</b> activities for <b>' +
+            (lastResult.reportDate || lastResult.date || '') + '</b> to the Google Sheet. ' +
+            '<a href="' + url + '" target="_blank">Open Sheet</a> · ' +
+            '<a href="' + viewer + '" target="_blank">Open Viewer</a>';
+        }
       })
       .withFailureHandler(function (err) {
         $('btnSave').disabled = false; $('btnSave').textContent = 'Save to Sheet';
         toast('Save failed: ' + err.message);
+        var note = $('saveNote');
+        if (note) note.textContent = '⚠ Save failed: ' + (err && err.message || err);
       })
       .saveToSheet(lastResult);
   });
