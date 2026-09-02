@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-11 · productivity';
+var APP_VERSION = 'build-12 · productivity + edit';
 
 /**
  * Route:
@@ -144,6 +144,68 @@ function saveToSheet(result) {
 }
 
 /**
+ * Inline edit from the Viewer: overwrite one Activities row's section / activity /
+ * manpower (Area and Date are kept). `edit` = {row, date, section, activity,
+ * manpower, orig:{section,activity,manpower}}. The `orig` snapshot is checked
+ * against the live cells so a stale row (someone re-saved the day meanwhile) is
+ * rejected instead of overwriting the wrong record. Returns the new totalManpower
+ * for that date so the Viewer can refresh its KPI without a full reload.
+ */
+function saveActivityEdit(edit) {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(TABS.activities);
+  if (!sheet) throw new Error('No Activities tab yet — Save from the uploader first.');
+  var row = Number(edit && edit.row);
+  if (!(row >= 2 && row <= sheet.getLastRow())) {
+    throw new Error('Row out of range — click Refresh, then edit again.');
+  }
+  var cur = sheet.getRange(row, 1, 1, 5).getValues()[0]; // [date, area, section, activity, manpower]
+  if (edit.orig) {
+    if (String(edit.orig.section) !== String(cur[2]) ||
+        String(edit.orig.activity) !== String(cur[3]) ||
+        (Number(edit.orig.manpower) || 0) !== (Number(cur[4]) || 0)) {
+      throw new Error('This row changed since you loaded it — click Refresh, then edit again.');
+    }
+  }
+  sheet.getRange(row, 3, 1, 3).setValues([[
+    edit.section == null ? '' : edit.section,
+    edit.activity == null ? '' : edit.activity,
+    Number(edit.manpower) || 0
+  ]]);
+
+  // Recompute that date's total manpower from the Activities tab and mirror it
+  // into the Productivity row so the KPI stays consistent with the edits.
+  var date = toDateStr_(cur[0]);
+  var total = sumManpowerForDate_(sheet, date);
+  updateProductivityManpower_(ss, date, total);
+  return total;
+}
+
+/** Sum the manpower column of the Activities tab for one date. */
+function sumManpowerForDate_(sheet, date) {
+  var values = sheet.getDataRange().getValues();
+  var sum = 0;
+  for (var i = 1; i < values.length; i++) {
+    if (toDateStr_(values[i][0]) === String(date)) sum += Number(values[i][4]) || 0;
+  }
+  return sum;
+}
+
+/** Write total_manpower into the Productivity row for `date` (if the row exists). */
+function updateProductivityManpower_(ss, date, total) {
+  var sheet = ss.getSheetByName(TABS.productivity);
+  if (!sheet) return;
+  var values = sheet.getDataRange().getValues();
+  var col = PRODUCTIVITY_HEADER.indexOf('total_manpower'); // 0-based
+  for (var i = 1; i < values.length; i++) {
+    if (toDateStr_(values[i][0]) === String(date)) {
+      sheet.getRange(i + 1, col + 1).setValue(total);
+      return;
+    }
+  }
+}
+
+/**
  * Replace the rows for the date(s) present in `rows`, keep every other date, and
  * rewrite the tab. `dateCol` is the 0-based index of the date column.
  */
@@ -178,8 +240,9 @@ function getReport() {
   var ss = getSpreadsheet_();
   // Activities: normalise the date so it always matches the Viewer's date filter
   // (Google Sheets may store "2026-08-05" as a Date object, not text).
-  var activities = readTable_(ss, TABS.activities).map(function (row) {
+  var activities = readTable_(ss, TABS.activities).map(function (row, i) {
     return {
+      _row: i + 2,                       // 1-based sheet row (row 1 = header) for inline edits
       date: toDateStr_(row.date),
       area: String(row.area == null ? '' : row.area),
       section: String(row.section == null ? '' : row.section),

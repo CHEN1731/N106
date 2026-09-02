@@ -1,11 +1,14 @@
 <script>
-  var ACTS = [];   // merged activities [{date,area,section,activity,manpower}]
+  var ACTS = [];   // merged activities [{_row,date,area,section,activity,manpower}]
   var PROD = [];    // productivity history (asc by date)
   var concreteChart = null, structChart = null;
+  var editingRow = null;   // _row of the activity currently being edited (or null)
 
   function $(id){ return document.getElementById(id); }
   function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
+  function actByRow(r){ for(var i=0;i<ACTS.length;i++) if(ACTS[i]._row===r) return ACTS[i]; return null; }
   function toast(m){ var t=$('toast'); t.textContent=m; t.classList.remove('hidden');
     clearTimeout(t._h); t._h=setTimeout(function(){t.classList.add('hidden');},2600); }
   function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888'; }
@@ -98,14 +101,66 @@
     var host=$('areas');
     if(!rows.length){ host.innerHTML='<div class="areagroup"><div class="empty">No activities for this filter.</div></div>'; return; }
     host.innerHTML = order.map(function(g){
-      var body = groups[g].map(function(a){
-        return '<tr><td>'+esc(a.section||'—')+'</td><td class="act">'+esc(a.activity||'')+
-          '</td><td class="mono">'+(a.manpower||0)+'</td></tr>';
-      }).join('');
+      var body = groups[g].map(function(a){ return activityRowHtml(a); }).join('');
       return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+
-        '<div class="tablewrap"><table><thead><tr><th>Section</th><th>Activity</th><th>Manpower</th></tr></thead>'+
+        '<div class="tablewrap"><table><thead><tr><th>Section</th><th>Activity</th>'+
+        '<th>Manpower</th><th class="acts"></th></tr></thead>'+
         '<tbody>'+body+'</tbody></table></div></div>';
     }).join('');
+  }
+
+  // One activity row: read-only, or an editable form when it is the editing row.
+  function activityRowHtml(a){
+    if (a._row === editingRow){
+      return '<tr class="editing" data-row="'+a._row+'">'+
+        '<td><input class="e-sec" value="'+attr(a.section||'')+'"></td>'+
+        '<td><input class="e-act" value="'+attr(a.activity||'')+'"></td>'+
+        '<td><input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></td>'+
+        '<td class="acts"><button class="e-save">Save</button> '+
+        '<button class="e-cancel">Cancel</button></td></tr>';
+    }
+    return '<tr data-row="'+a._row+'"><td>'+esc(a.section||'—')+'</td>'+
+      '<td class="act">'+esc(a.activity||'')+'</td>'+
+      '<td class="mono">'+(a.manpower||0)+'</td>'+
+      '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button></td></tr>';
+  }
+
+  // Inline-edit clicks (delegated — the list is re-rendered as innerHTML).
+  $('areas').addEventListener('click', function(ev){
+    var btn = ev.target;
+    var tr = btn.closest && btn.closest('tr[data-row]');
+    if (!tr) return;
+    var rowId = Number(tr.getAttribute('data-row'));
+    if (btn.classList.contains('e-edit')){ editingRow = rowId; render(); }
+    else if (btn.classList.contains('e-cancel')){ editingRow = null; render(); }
+    else if (btn.classList.contains('e-save')){ saveEdit(rowId, tr); }
+  });
+
+  function saveEdit(rowId, tr){
+    var a = actByRow(rowId); if(!a) return;
+    var newSec = tr.querySelector('.e-sec').value;
+    var newAct = tr.querySelector('.e-act').value;
+    var newMp  = Number(tr.querySelector('.e-mp').value) || 0;
+    var edit = { row: rowId, date: a.date, section: newSec, activity: newAct, manpower: newMp,
+      orig: { section: a.section, activity: a.activity, manpower: a.manpower } };
+    tr.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
+    if (!(window.google && google.script && google.script.run)){
+      // Offline/mock: just update in memory.
+      a.section=newSec; a.activity=newAct; a.manpower=newMp; editingRow=null; render(); toast('Saved (local)'); return;
+    }
+    google.script.run
+      .withSuccessHandler(function(total){
+        a.section=newSec; a.activity=newAct; a.manpower=newMp;
+        editingRow=null;
+        // keep the KPI's manpower in sync with the recomputed total from the server
+        var p = prodForDate(a.date); if (p && typeof total==='number') p.totalManpower = total;
+        render(); toast('Saved.');
+      })
+      .withFailureHandler(function(e){
+        tr.querySelectorAll('button').forEach(function(b){ b.disabled = false; });
+        toast('Save failed: ' + (e && e.message || e));
+      })
+      .saveActivityEdit(edit);
   }
 
   function renderConcreteChart(){
