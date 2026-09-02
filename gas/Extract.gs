@@ -163,98 +163,101 @@ function normalizeExtracted_(r, source) {
 }
 
 /* ======================================================================
- * WORK SUMMARY — cross-compare RTO field notes vs the AIS daily report and
- * produce an executive summary for directors. AI path (Claude) with a
- * deterministic fallback built from the parsed records.
+ * PRODUCTIVITY & SUMMARY — merge + dedupe activities from RTO and AIS and
+ * extract quantitative productivity metrics (DW / BP / BT / CW counts,
+ * concrete m3, manpower). AI path (Claude) with a deterministic fallback.
  * ==================================================================== */
 
 /**
- * @param {string} rtoText  RTO (Resident Technical Officer) raw notes
- * @param {string} aisText  AIS Daily Report raw data
- * @return {Object} canonical summary (see normalizeSummary_)
+ * @param {string} rtoText  RTO raw notes
+ * @param {string} aisText  AIS Daily Report text
+ * @param {string} dateHint ISO yyyy-mm-dd to scope to (optional)
+ * @return {Object} { date, mergedActivities[], productivityData{}, source }
  */
-function generateWorkSummary(rtoText, aisText, dateHint) {
+function generateProductivity(rtoText, aisText, dateHint) {
   var key = getApiKey_();
   if (key) {
     try {
-      var s = callClaudeSummary_(rtoText, aisText, key, dateHint);
-      if (s) return s;
+      var p = callClaudeProductivity_(rtoText, aisText, key, dateHint);
+      if (p) return p;
     } catch (err) {
-      try { console.error('AI summary failed, using fallback: ' + err); } catch (e) {}
+      try { console.error('AI productivity failed, using fallback: ' + err); } catch (e) {}
     }
   }
-  return summaryFromRecords_(rtoText, aisText, dateHint);
+  return productivityFromRecords_(rtoText, aisText, dateHint);
 }
 
-/** Claude forced-tool cross-comparison. */
-function callClaudeSummary_(rtoText, aisText, key, dateHint) {
+/** Claude forced-tool: merge/dedupe + metrics. */
+function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
   var tool = {
-    name: 'emit_summary',
-    description: 'Return the executive cross-comparison of the RTO notes vs the AIS daily report.',
+    name: 'emit_productivity',
+    description: 'Return merged daily activities and productivity metrics for project N106.',
     input_schema: {
       type: 'object',
       properties: {
         date: { type: 'string', description: 'report date, ISO yyyy-mm-dd' },
-        executiveSummary: {
-          type: 'array', items: { type: 'string' },
-          description: '3-5 concise high-level bullet points of the day'
-        },
-        sectionBreakdown: {
+        mergedActivities: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
               area: { type: 'string', description: 'Area 1-4 (or "")' },
-              section: { type: 'string', description: 'Section/segment e.g. Sec-C/Mb' },
-              work: { type: 'string', description: 'work completed there' }
+              section: { type: 'string', description: 'Section/segment/location, e.g. Sec-C/Mb' },
+              activity: { type: 'string', description: 'unified work description' },
+              manpower: { type: 'integer', description: 'manpower for this activity (0 if unknown)' }
             },
-            required: ['area', 'section', 'work']
+            required: ['area', 'section', 'activity', 'manpower']
           }
         },
-        rtoVsAisDiscrepancies: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              item: { type: 'string', description: 'location/topic of the difference' },
-              rto: { type: 'string', description: 'what the RTO notes say' },
-              ais: { type: 'string', description: 'what the AIS report says' },
-              severity: { type: 'string', description: 'low | medium | high' }
-            },
-            required: ['item', 'rto', 'ais', 'severity']
-          }
-        },
-        manpowerAndRemarks: {
-          type: 'array', items: { type: 'string' },
-          description: 'key manpower, equipment, safety/quality highlights'
+        productivityData: {
+          type: 'object',
+          properties: {
+            activeDWalls: { type: 'array', items: { type: 'string' }, description: 'Diaphragm Wall IDs e.g. DW1547, DW04' },
+            dWallCount: { type: 'integer' },
+            activeBoredPiles: { type: 'array', items: { type: 'string' }, description: 'Bored Pile IDs e.g. BP-T9-3' },
+            bPileCount: { type: 'integer' },
+            activeButtressWalls: { type: 'array', items: { type: 'string' }, description: 'Buttress Wall IDs e.g. BT20-2' },
+            bWallCount: { type: 'integer' },
+            activeCrossWalls: { type: 'array', items: { type: 'string' }, description: 'Cross Wall IDs e.g. CW323' },
+            cWallCount: { type: 'integer' },
+            totalConcreteVolumeM3: { type: 'number', description: 'sum of concrete cast volumes in m3' },
+            totalManpower: { type: 'integer', description: 'sum of all manpower reported (deduped)' }
+          },
+          required: ['activeDWalls', 'dWallCount', 'activeBoredPiles', 'bPileCount',
+                     'activeButtressWalls', 'bWallCount', 'activeCrossWalls', 'cWallCount',
+                     'totalConcreteVolumeM3', 'totalManpower']
         }
       },
-      required: ['date', 'executiveSummary', 'sectionBreakdown', 'rtoVsAisDiscrepancies', 'manpowerAndRemarks']
+      required: ['date', 'mergedActivities', 'productivityData']
     }
   };
 
   var prompt =
-    'You are preparing an executive daily site summary for project N106 management. ' +
-    'Cross-compare two inputs: (A) the RTO (Resident Technical Officer) field notes and ' +
-    '(B) the AIS Daily Report. Sections are Sec-A..E with site-plan segment codes ' +
-    '(Mb, Ub, Ld, Ta...) grouped into Area 1-4. Produce:\n' +
-    '- executiveSummary: 3-5 concise bullets of the day\'s key site activities.\n' +
-    '- sectionBreakdown: work completed, grouped by Area/Section.\n' +
-    '- rtoVsAisDiscrepancies: locations/items where RTO and AIS disagree or are ' +
-    'unverified (differing quantities, work reported by only one source, conflicting ' +
-    'status). Empty array if fully aligned.\n' +
-    '- manpowerAndRemarks: key manpower, equipment, safety/quality highlights.\n' +
-    (dateHint ? ('This summary is for ' + dateHint + '. Only include work for that date.\n') : '') +
-    'Call emit_summary once.\n\n' +
+    'You build a daily productivity dashboard for construction project N106 from two ' +
+    'inputs: (A) RTO field notes and (B) the AIS Daily Report. Do BOTH:\n' +
+    '1) MERGE & DEDUPE activities from both texts. If the same activity/location appears ' +
+    'in both, output ONE unified entry; keep entries unique to either source. Put the ' +
+    'Area (Area 1-4) in "area", the section/segment/location in "section", the unified ' +
+    'work in "activity", and that activity\'s manpower in "manpower" (0 if none).\n' +
+    '2) EXTRACT productivity metrics across the merged day:\n' +
+    '   - activeDWalls: all Diaphragm Wall IDs worked on (e.g. DW1547, DW04, DW-64).\n' +
+    '   - activeBoredPiles: all Bored Pile IDs (e.g. BP-T9-3, and pile refs like T9-3).\n' +
+    '   - activeButtressWalls: all Buttress Wall IDs (e.g. BT20-2, BT24-1).\n' +
+    '   - activeCrossWalls: all Cross Wall IDs (e.g. CW323, CW320).\n' +
+    '   Deduplicate each list; the *Count fields must equal each list\'s length.\n' +
+    '   - totalConcreteVolumeM3: sum of every concrete cast volume in m3/m³.\n' +
+    '   - totalManpower: sum of manpower across the merged (deduped) activities.\n' +
+    (dateHint ? ('This report is for ' + dateHint + '. Only include work for that date.\n') : '') +
+    'Call emit_productivity once.\n\n' +
     '=== RTO NOTES ===\n' + (rtoText || '(none)') +
     '\n\n=== AIS DAILY REPORT ===\n' + (aisText || '(none)');
 
   var body = {
     model: getModel_(),
-    max_tokens: 4096,
+    max_tokens: 8192,
     output_config: { effort: 'low' },
     tools: [tool],
-    tool_choice: { type: 'tool', name: 'emit_summary' },
+    tool_choice: { type: 'tool', name: 'emit_productivity' },
     messages: [{ role: 'user', content: prompt }]
   };
 
@@ -269,88 +272,119 @@ function callClaudeSummary_(rtoText, aisText, key, dateHint) {
 
   var raw = null;
   (data.content || []).forEach(function (b) { if (b.type === 'tool_use' && b.input) raw = b.input; });
-  if (!raw) throw new Error('No summary returned');
-  return normalizeSummary_(raw, 'ai');
+  if (!raw) throw new Error('No productivity data returned');
+  return normalizeProductivity_(raw, dateHint, 'ai');
 }
 
-/** Coerce any summary object into the canonical shape the app/viewer expect. */
-function normalizeSummary_(raw, source) {
+/** Coerce any productivity object into the canonical shape; recompute counts. */
+function normalizeProductivity_(raw, dateHint, source) {
   raw = raw || {};
+  var pd = raw.productivityData || {};
   function arr(v) { return Array.isArray(v) ? v : []; }
   function str(v) { return String(v == null ? '' : v).trim(); }
+  function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
 
-  var discrepancies = arr(raw.rtoVsAisDiscrepancies).map(function (d) {
-    return { item: str(d.item), rto: str(d.rto), ais: str(d.ais),
-             severity: (str(d.severity) || 'medium').toLowerCase() };
-  }).filter(function (d) { return d.item || d.rto || d.ais; });
+  var dw = uniqCodes_(arr(pd.activeDWalls).map(str).filter(Boolean));
+  var bp = uniqCodes_(arr(pd.activeBoredPiles).map(str).filter(Boolean));
+  var bt = uniqCodes_(arr(pd.activeButtressWalls).map(str).filter(Boolean));
+  var cw = uniqCodes_(arr(pd.activeCrossWalls).map(str).filter(Boolean));
+
+  var merged = arr(raw.mergedActivities).map(function (a) {
+    return { area: str(a.area), section: str(a.section), activity: str(a.activity),
+             manpower: num(a.manpower) };
+  }).filter(function (a) { return a.activity; });
+
+  var totalManpower = num(pd.totalManpower);
+  if (!totalManpower) totalManpower = merged.reduce(function (s, a) { return s + (a.manpower || 0); }, 0);
 
   return {
-    date: normalizeDate_(raw.date) || str(raw.date),
-    status: discrepancies.length ? 'Discrepancy' : 'Aligned',
-    executiveSummary: arr(raw.executiveSummary).map(str).filter(Boolean).slice(0, 6),
-    sectionBreakdown: arr(raw.sectionBreakdown).map(function (s) {
-      return { area: str(s.area), section: str(s.section), work: str(s.work) };
-    }).filter(function (s) { return s.section || s.work; }),
-    discrepancies: discrepancies,
-    manpowerAndRemarks: arr(raw.manpowerAndRemarks).map(str).filter(Boolean),
+    date: normalizeDate_(raw.date) || dateHint || str(raw.date),
+    mergedActivities: merged,
+    productivityData: {
+      activeDWalls: dw, dWallCount: dw.length,
+      activeBoredPiles: bp, bPileCount: bp.length,
+      activeButtressWalls: bt, bWallCount: bt.length,
+      activeCrossWalls: cw, cWallCount: cw.length,
+      totalConcreteVolumeM3: Math.round(num(pd.totalConcreteVolumeM3) * 100) / 100,
+      totalManpower: totalManpower
+    },
     source: source || 'ai'
   };
 }
 
 /**
- * Deterministic fallback: build the same summary shape from the parsed records
- * and their comparison — no AI, always available.
+ * Deterministic fallback (no AI): parse both texts, merge/dedupe activities, and
+ * regex-extract DW/BP/BT/CW codes, concrete m3 and manpower.
  */
-function summaryFromRecords_(rtoText, aisText, dateHint) {
+function productivityFromRecords_(rtoText, aisText, dateHint) {
   var rto = parseWhatsApp(rtoText, 'RTO');
   var ais = parseWhatsApp(aisText, 'AIS');
   if (dateHint) { rto = filterByDates_(rto, [dateHint]); ais = filterByDates_(ais, [dateHint]); }
-  var cmp = compareRecords(rto, ais);
-  var rows = cmp.rows, o = cmp.overall;
+  var all = rto.concat(ais);
+  var date = dateHint || mostCommonDate_(all);
 
-  var date = mostCommonDate_(rto.concat(ais));
-
-  var areasActive = uniqueValues_(rows.map(function (r) { return r.areaGroup; }).filter(Boolean));
-  var exec = [
-    o.total + ' site location' + (o.total === 1 ? '' : 's') + ' reported across ' +
-      (areasActive.length ? areasActive.sort().join(', ') : 'site') + '.',
-    o.matched + ' aligned, ' + o.conflicts + ' with discrepancies, ' + o.missing +
-      ' reported by only one source.',
-    'RTO vs AIS accuracy ' + o.accuracyPct + '% for the day.'
-  ];
-
-  var sectionBreakdown = rows.map(function (r) {
-    return { area: r.areaGroup || '', section: r.area,
-             work: r.rtoActivity || r.samsungActivity || '' };
-  });
-
-  var discrepancies = rows.filter(function (r) { return r.status !== 'Match'; })
-    .map(function (r) {
-      return {
-        item: (r.areaGroup ? r.areaGroup + ' · ' : '') + r.area,
-        rto: r.rtoActivity || (r.status === 'MissingRTO' ? '(not reported by RTO)' : ''),
-        ais: r.samsungActivity || (r.status === 'MissingSamsung' ? '(not reported by AIS)' : ''),
-        severity: r.status === 'Conflict' ? 'medium' : 'high'
-      };
+  var seen = {}, merged = [];
+  all.forEach(function (r) {
+    var k = String(r.area + '|' + r.activity).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (seen[k]) return;
+    seen[k] = true;
+    merged.push({
+      area: r.areaGroup || '',
+      section: r.area || '',
+      activity: r.activity || '',
+      manpower: firstManpower_((r.remark || '') + ' ' + (r.activity || ''))
     });
-
-  var manpower = [];
-  rto.concat(ais).forEach(function (r) {
-    if (/manpower|pax|crane|excavat|delivery|safety/i.test(r.remark + ' ' + r.activity)) {
-      var note = (r.area ? r.area + ': ' : '') + (r.remark || r.activity);
-      if (note && manpower.indexOf(note) === -1) manpower.push(note);
-    }
   });
+
+  var text = merged.map(function (m) { return m.section + ' ' + m.activity; }).join(' \n ');
+  var dw = uniqCodes_(matchAll_(text, /\bDW[-\s]?\d+[A-Za-z]?\b/gi));
+  var bp = uniqCodes_(matchAll_(text, /\bBP[-\s]?[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?\b/gi)
+                       .concat(matchAll_(text, /\bT\d+-\d+\b/gi)));
+  var bt = uniqCodes_(matchAll_(text, /\bBT[-\s]?\d+(?:-\d+)?\b/gi));
+  var cw = uniqCodes_(matchAll_(text, /\bCW[-\s]?\d+\b/gi));
+  var concrete = sumConcreteM3_(text);
+  var manpower = merged.reduce(function (s, m) { return s + (m.manpower || 0); }, 0);
 
   return {
     date: date,
-    status: discrepancies.length ? 'Discrepancy' : 'Aligned',
-    executiveSummary: exec,
-    sectionBreakdown: sectionBreakdown,
-    discrepancies: discrepancies,
-    manpowerAndRemarks: manpower.slice(0, 8),
+    mergedActivities: merged,
+    productivityData: {
+      activeDWalls: dw, dWallCount: dw.length,
+      activeBoredPiles: bp, bPileCount: bp.length,
+      activeButtressWalls: bt, bWallCount: bt.length,
+      activeCrossWalls: cw, cWallCount: cw.length,
+      totalConcreteVolumeM3: Math.round(concrete * 100) / 100,
+      totalManpower: manpower
+    },
     source: 'fallback'
   };
+}
+
+function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
+
+/** Normalise a structural code and dedupe case-insensitively (keep first form). */
+function uniqCodes_(list) {
+  var seen = {}, out = [];
+  list.forEach(function (c) {
+    var norm = String(c).toUpperCase().replace(/\s+/g, '');
+    if (!norm || seen[norm]) return;
+    seen[norm] = true;
+    out.push(norm);
+  });
+  return out;
+}
+
+function firstManpower_(t) {
+  var m = /(\d+)\s*pax\b/i.exec(t) || /man\s*power[^0-9]{0,8}(\d+)/i.exec(t);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+function sumConcreteM3_(t) {
+  // Number followed by a concrete-volume unit; the (?![a-z0-9]) end-guard works
+  // for "m³" (³ is not a \b word char, so \b would miss it).
+  var re = /(\d+(?:\.\d+)?)\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi, m, sum = 0;
+  while ((m = re.exec(String(t))) !== null) sum += parseFloat(m[1]);
+  return sum;
 }
 
 function mostCommonDate_(records) {
@@ -363,18 +397,14 @@ function mostCommonDate_(records) {
   return best;
 }
 
-function uniqueValues_(list) {
-  var seen = {}, out = [];
-  list.forEach(function (v) { if (!seen[v]) { seen[v] = 1; out.push(v); } });
-  return out;
-}
-
 // Export for the Node test harness (ignored by Apps Script).
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     normalizeExtracted_: normalizeExtracted_,
-    normalizeSummary_: normalizeSummary_,
-    summaryFromRecords_: summaryFromRecords_,
-    generateWorkSummary: generateWorkSummary
+    generateProductivity: generateProductivity,
+    normalizeProductivity_: normalizeProductivity_,
+    productivityFromRecords_: productivityFromRecords_,
+    uniqCodes_: uniqCodes_,
+    sumConcreteM3_: sumConcreteM3_
   };
 }

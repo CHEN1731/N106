@@ -152,67 +152,42 @@
     $('btnSave').disabled = false;
     $('results').classList.remove('hidden');
 
-    var o = res.overall;
-    $('scAccuracy').textContent = o.accuracyPct + '%';
-    $('scMatched').textContent = o.matched;
-    $('scConflict').textContent = o.conflicts;
-    $('scMissing').textContent = o.missing;
-    $('scTotal').textContent = o.total;
-    var msg = 'Parsed ' + res.rtoCount + ' RTO and ' + res.samsungCount + ' AIS records'
-      + (res.reportDate ? ' for ' + res.reportDate : '') + '.';
-    // Explain an empty / all-missing comparison so it isn't confusing.
-    if (res.samsungCount === 0) {
+    var p = res.productivityData || {};
+    $('scDW').textContent = p.dWallCount || 0;
+    $('scBP').textContent = p.bPileCount || 0;
+    $('scBT').textContent = p.bWallCount || 0;
+    $('scCW').textContent = p.cWallCount || 0;
+    $('scCon').textContent = p.totalConcreteVolumeM3 || 0;
+    $('scMP').textContent = p.totalManpower || 0;
+
+    var acts = res.mergedActivities || [];
+    var msg = 'Merged ' + acts.length + ' activit' + (acts.length === 1 ? 'y' : 'ies')
+      + (res.reportDate ? ' for ' + res.reportDate : '')
+      + ' · ' + (res.usedAi ? 'AI extraction' : 'offline parser') + '.';
+    if (!acts.length) {
       msg += res.usedAi
-        ? '  ⚠ AIS parsed 0 records — check the report has content for this date.'
-        : '  ⚠ AIS parsed 0 records — set ANTHROPIC_API_KEY so the Word report can be read (offline can\'t parse it).';
-    } else if (res.rtoCount === 0) {
-      msg += '  ⚠ No RTO messages for this date — pick a date your RTO chat covers, or clear the Report date.';
-    } else if (o.matched === 0 && o.conflicts === 0 && o.missing > 0) {
-      msg += '  ⚠ No overlap — RTO and AIS have no common date/section. Use the same day on both sides.';
+        ? '  ⚠ 0 activities — check the reports have content for this date.'
+        : '  ⚠ 0 activities — set ANTHROPIC_API_KEY so the Word report can be read (offline can\'t parse a .docx).';
     }
     $('parseNote').textContent = msg;
-
-    // Populate the date filter.
-    var dates = res.daily.map(function (d) { return d.date; });
-    var sel = $('fltDate');
-    sel.innerHTML = '<option value="">All</option>' +
-      dates.map(function (d) { return '<option>' + d + '</option>'; }).join('');
 
     renderRows();
   }
 
-  ['fltDate', 'fltStatus'].forEach(function (id) {
-    $(id).addEventListener('change', renderRows);
-  });
-
   function renderRows() {
     if (!lastResult) return;
-    var d = $('fltDate').value, st = $('fltStatus').value;
     var body = $('cmpTable').querySelector('tbody');
     body.innerHTML = '';
-    lastResult.rows
-      .filter(function (r) { return (!d || r.date === d) && (!st || r.status === st); })
-      .forEach(function (r) {
-        var tr = document.createElement('tr');
-        tr.className = r.status;
-        tr.innerHTML =
-          td(r.date) + td(r.area) +
-          '<td><span class="pill ' + r.status + '">' + label(r.status) + '</span></td>' +
-          td(r.similarity) +
-          td(r.rtoActivity) + td(r.samsungActivity) +
-          td(r.rtoRemark) + td(r.samsungRemark) +
-          td((r.rtoPhotos || 0) + ' / ' + (r.samsungPhotos || 0));
-        body.appendChild(tr);
-      });
+    (lastResult.mergedActivities || []).forEach(function (a) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = td(a.area) + td(a.section) + td(a.activity) + td(a.manpower || 0);
+      body.appendChild(tr);
+    });
   }
 
   function td(v) {
     return '<td>' + String(v == null ? '' : v)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>';
-  }
-  function label(s) {
-    return s === 'MissingRTO' ? 'Missing · RTO'
-      : s === 'MissingSamsung' ? 'Missing · AIS' : s;
   }
 
   $('btnSave').addEventListener('click', function () {

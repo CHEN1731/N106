@@ -33,49 +33,43 @@ dashboard.
 2. **Google Sheet — the data bridge.** Schema in
    [`dashboard/sheet-schema.md`](dashboard/sheet-schema.md).
 
-3. **Interactive Viewer (director & team) — the same web app at `?page=view`.**
-   Reads the Sheet live and shows accuracy scorecards, a daily trend, a status
-   breakdown, and a detail table with **full activity text**, **filters/drill-down**
-   (Date · Area 1–4 · Section), **search**, **photo counts**, and **inline editing**
-   that saves corrections back to the Sheet. Layout preview:
-   [`dashboard/preview.html`](dashboard/preview.html). A Looker Studio dashboard is
-   still available as an option ([`dashboard/looker-setup-guide.md`](dashboard/looker-setup-guide.md)).
+3. **Productivity & Summary Dashboard (director & team) — the same web app at
+   `?page=view`.** Reads the Sheet live and shows **KPI cards** (DW / BP / BT / CW
+   counts, concrete m³, total manpower), a **7-day concrete-volume bar chart**, a
+   **DW/BP/BT/CW doughnut** (Chart.js), and the **merged activities** list —
+   filterable by Date, Area and search.
 
-## How accuracy is judged
+## What the AI does
 
-Messages are **free-form** (no fixed template needed). Each N106 message opens with
-a locator line like `Sec-C/ER15(Mb)` or `Sec-D/CCL/Ub/Base Slab/Kian Hup:`. The
-parser reads the **Section** (A–E) and the **segment code** (the site-plan labels:
-`Mb`, `Ub`, `Ld`, `Ta`, …) from it and keys records on **Date + `Sec-X/Segment`**
-(e.g. `2026-08-05 · Sec-C/Mb`), so RTO and Samsung line up even when the wording
-differs. Messages with no recognisable locator but real site content go to a
-**`General`** bucket; greetings/acknowledgements are skipped; WhatsApp's invisible
-bidi marks and `~ ` sender prefix are handled. Each distinct key resolves to:
+The two reports (RTO + AIS) are sent to Claude, which **merges and de-duplicates**
+the activities (one unified entry when both mention the same work) and **extracts
+productivity metrics**: active structural elements — Diaphragm Walls (DW), Bored
+Piles (BP), Buttress Walls (BT), Cross Walls (CW) — plus concrete cast volume (m³)
+and manpower. Output is a forced-JSON tool call:
 
-| Status | Meaning |
-|--------|---------|
-| **Match** | present both sides, wording agrees, no number mismatch |
-| **Conflict** | present both sides but details differ (e.g. 25 m³ vs 30 m³) |
-| **Missing · RTO** | reported only by Samsung |
-| **Missing · Samsung** | reported only by RTO |
+```
+{ date, mergedActivities:[{area,section,activity,manpower}],
+  productivityData:{ activeDWalls[], dWallCount, activeBoredPiles[], bPileCount,
+    activeButtressWalls[], bWallCount, activeCrossWalls[], cWallCount,
+    totalConcreteVolumeM3, totalManpower } }
+```
 
-**Accuracy % = Matches ÷ total distinct keys**, per day and overall. Because the
-same work is often paraphrased differently, the text-similarity bar is lenient —
-but a difference in any cited **quantity** always counts as a Conflict, which is the
-point of the check.
+Without an API key a **deterministic fallback** (`productivityFromRecords_` in
+`gas/Extract.gs`) parses the WhatsApp side and regex-extracts the same metrics, so
+the app always produces a result (a `.docx` AIS report still needs the AI path).
 
 ## Repository layout
 
 ```
 gas/                 Apps Script project (clasp-compatible)
   appsscript.json    manifest (web app + external_request scope)
-  Code.gs            doGet routing + runComparison + saveToSheet + getReport/saveRecordEdit
+  Code.gs            doGet routing + runComparison + saveToSheet + getReport (Activities/Productivity tabs)
   Docx.gs            read an uploaded AIS Word (.docx) report into text (Utilities.unzip)
-  Extract.gs         AI extraction (Claude via UrlFetchApp) + parser fallback
+  Extract.gs         AI merge+metrics (Claude via UrlFetchApp) + deterministic fallback
   Parser.gs          WhatsApp .txt -> records  (CONFIG block at top to tune)
-  Compare.gs         match on Date+Section/segment, score accuracy
-  Index.html         uploader: two editable panes + results (+Styles/JavaScript)
-  Viewer.html        directors' interactive report (+ViewerStyles/ViewerJs)
+  Compare.gs         (legacy) record-matching utility, no longer used by the app
+  Index.html         uploader: two editable panes + productivity preview (+Styles/JavaScript)
+  Viewer.html        Productivity Dashboard: KPIs + Chart.js graphs + activity list (+ViewerStyles/ViewerJs)
 docs/
   report-template.md     recommended message format for the site teams
 dashboard/
@@ -83,7 +77,7 @@ dashboard/
   looker-setup-guide.md  optional Looker build
   preview.html           self-contained viewer/dashboard mockup
 samples/             example exports (rto / samsung)
-test/run-tests.js    Node harness validating parser + comparison
+test/run-tests.js    Node harness validating parser + productivity extraction
 ```
 
 ## Run the tests

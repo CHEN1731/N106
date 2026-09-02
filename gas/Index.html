@@ -42,31 +42,19 @@
 
     <section id="results" class="results hidden">
       <div class="scorecards">
-        <div class="card"><div class="num" id="scAccuracy">–</div><div class="lbl">Accuracy</div></div>
-        <div class="card"><div class="num" id="scMatched">–</div><div class="lbl">Matched</div></div>
-        <div class="card"><div class="num" id="scConflict">–</div><div class="lbl">Conflicts</div></div>
-        <div class="card"><div class="num" id="scMissing">–</div><div class="lbl">Missing</div></div>
-        <div class="card"><div class="num" id="scTotal">–</div><div class="lbl">Total keys</div></div>
+        <div class="card"><div class="num" id="scDW">–</div><div class="lbl">DW</div></div>
+        <div class="card"><div class="num" id="scBP">–</div><div class="lbl">BP</div></div>
+        <div class="card"><div class="num" id="scBT">–</div><div class="lbl">BT</div></div>
+        <div class="card"><div class="num" id="scCW">–</div><div class="lbl">CW</div></div>
+        <div class="card"><div class="num" id="scCon">–</div><div class="lbl">Concrete m³</div></div>
+        <div class="card"><div class="num" id="scMP">–</div><div class="lbl">Manpower</div></div>
       </div>
-
-      <div class="filters">
-        <label>Date <select id="fltDate"><option value="">All</option></select></label>
-        <label>Status <select id="fltStatus">
-          <option value="">All</option>
-          <option>Match</option><option>Conflict</option>
-          <option value="MissingRTO">Missing · RTO</option><option value="MissingSamsung">Missing · AIS</option>
-        </select></label>
-        <span id="parseNote" class="note"></span>
-      </div>
+      <p id="parseNote" class="note"></p>
 
       <div class="tablewrap">
         <table id="cmpTable">
           <thead>
-            <tr>
-              <th>Date</th><th>Area / Section</th><th>Status</th><th>Sim</th>
-              <th>RTO activity</th><th>AIS activity</th>
-              <th>RTO remark</th><th>AIS remark</th><th>Photos</th>
-            </tr>
+            <tr><th>Area</th><th>Section</th><th>Activity</th><th>Manpower</th></tr>
           </thead>
           <tbody></tbody>
         </table>

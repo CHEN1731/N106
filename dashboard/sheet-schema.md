@@ -1,86 +1,38 @@
-# Google Sheet schema — the Looker Studio data source
+# Google Sheet schema — Productivity & Summary Dashboard
 
-The GAS web app writes these tabs on **Save to Sheet**. **All tabs upsert by
+The GAS web app writes these tabs on **Save to Sheet**. Both tabs **upsert by
 date** — a day's upload replaces only that date's rows and keeps every other day,
-so history accumulates across daily uploads and re-uploading a day corrects just
-that day. Looker Studio (or the built-in Viewer) reads these tabs.
+so history accumulates for the charts. The Viewer (`?page=view`) reads them.
 
-> Column names below are the exact header text the app writes — match them when
-> you set field types in Looker.
+## Tab: `Activities`
 
-## Tab: `Records`
-
-One row per parsed record (both sources combined). Feeds record counts and the
-raw activity feed.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `source` | Text | `RTO` or `Samsung` |
-| `date` | Date (yyyy-mm-dd) | normalised from the message/label |
-| `area_group` | Text | Area 1–4 (from the segment→area map; blank if unmapped) |
-| `section` | Text | Section A–E, e.g. `Sec-C` |
-| `segment` | Text | site-plan segment code, e.g. `Mb`, `Ub`, `Ld` |
-| `area` | Text | the match key locator, e.g. `Sec-C/Mb` |
-| `activity` | Text | extracted activity description |
-| `remark` | Text | manpower / trailing notes |
-| `photos` | Number | attachments credited to the record |
-| `sender` | Text | WhatsApp sender name |
-| `raw_ts` | Text | original date + time from the export |
-
-## Tab: `Comparison` — primary dashboard source
-
-One row per **distinct Date + Area key**, with both sides side by side.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `date` | Date (yyyy-mm-dd) | |
-| `area_group` | Text | Area 1–4 (blank if unmapped) — the higher-level filter |
-| `area` | Text | match-key locator, e.g. `Sec-C/Mb` |
-| `status` | Text | `Match` \| `Conflict` \| `MissingRTO` \| `MissingSamsung` |
-| `similarity` | Number | 0–1 token/number similarity (blank meaning for missing) |
-| `rto_activity` | Text | |
-| `samsung_activity` | Text | |
-| `rto_remark` | Text | |
-| `samsung_remark` | Text | |
-| `rto_photos` | Number | |
-| `samsung_photos` | Number | |
-
-## Tab: `DailySummary` — scorecards & trend source
-
-One row per day. Pre-aggregated so scorecards and the trend line need no
-Looker-side calc.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `date` | Date (yyyy-mm-dd) | |
-| `total_keys` | Number | distinct keys that day |
-| `matched` | Number | status = Match |
-| `conflicts` | Number | status = Conflict |
-| `missing` | Number | MissingRTO + MissingSamsung |
-| `accuracy_pct` | Number | matched ÷ total_keys × 100 |
-
-## Tab: `WorkSummary` — executive RTO-vs-AIS cross-comparison
-
-One row **per date** (upserted, so history accumulates). Drives the Viewer's
-Executive Work Summary panel. The full structured summary is in the `json` column;
-the flat columns are for at-a-glance reading and any Looker use.
+One row per **merged** activity (RTO + AIS combined and de-duplicated).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `date` | Date (yyyy-mm-dd) | report date (upsert key) |
-| `status` | Text | `Aligned` \| `Discrepancy` (RTO vs AIS) |
-| `executive_summary` | Text | 3–5 bullets, joined with `•` newlines |
-| `discrepancy_count` | Number | number of RTO↔AIS discrepancies |
-| `source` | Text | `ai` (Claude) or `fallback` (deterministic) |
-| `json` | Text | full summary object: `executiveSummary[]`, `sectionBreakdown[{area,section,work}]`, `discrepancies[{item,rto,ais,severity}]`, `manpowerAndRemarks[]` |
+| `area` | Text | Area 1–4 (or blank) |
+| `section` | Text | section / segment / location, e.g. `Sec-C/Mb` |
+| `activity` | Text | unified work description |
+| `manpower` | Number | manpower for this activity |
 
-## Suggested Looker calculated fields
+## Tab: `Productivity` — one row per date (drives the charts)
 
-On the `Comparison` source, add these for convenience:
+| Column | Type | Notes |
+|--------|------|-------|
+| `date` | Date (yyyy-mm-dd) | upsert key |
+| `dwall_count` | Number | # Diaphragm Walls active |
+| `bpile_count` | Number | # Bored Piles active |
+| `bwall_count` | Number | # Buttress Walls active |
+| `cwall_count` | Number | # Cross Walls active |
+| `concrete_m3` | Number | total concrete cast (m³) |
+| `total_manpower` | Number | total manpower (deduped) |
+| `active_dwalls` | Text | comma-separated DW IDs (e.g. `DW1547, DW04`) |
+| `active_bpiles` | Text | comma-separated BP IDs |
+| `active_bwalls` | Text | comma-separated BT IDs |
+| `active_crosswalls` | Text | comma-separated CW IDs |
 
-- **Is Matched** = `CASE WHEN status = "Match" THEN 1 ELSE 0 END`
-- **Is Conflict** = `CASE WHEN status = "Conflict" THEN 1 ELSE 0 END`
-- **Is Missing** = `CASE WHEN REGEXP_MATCH(status, "^Missing.*") THEN 1 ELSE 0 END`
-- **Accuracy %** (record-level agg) = `SUM(Is Matched) / COUNT(status)`
-- **Status (label)** = `CASE WHEN status="MissingRTO" THEN "Missing · RTO"
-  WHEN status="MissingSamsung" THEN "Missing · Samsung" ELSE status END`
+The Viewer builds: the **7-day concrete bar chart** from the last 7 `Productivity`
+rows' `concrete_m3`; the **DW/BP/BT/CW doughnut** and **KPI cards** from the
+selected date's row; and the **activities list** (filterable by Area) from
+`Activities`.

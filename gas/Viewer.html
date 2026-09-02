@@ -2,100 +2,58 @@
 <html>
   <head>
     <base target="_top">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <?!= include('ViewerStyles'); ?>
   </head>
   <body>
     <div class="wrap">
       <header>
         <div>
-          <h1>N106 · Site Record Report</h1>
-          <p class="note">RTO vs AIS daily reports · matched on Date + Section/segment</p>
+          <h1>N106 · Productivity &amp; Summary Dashboard</h1>
+          <p class="note">Daily site productivity — merged RTO + AIS activities</p>
         </div>
         <span class="badge" id="src">loading…</span>
       </header>
 
       <div class="filters">
-        <label>Date <select id="fDate"><option value="">All dates</option></select></label>
-        <label>Area (1–4) <select id="fGroup"><option value="">All groups</option></select></label>
-        <label>Section <select id="fArea"><option value="">All sections</option></select></label>
-        <label>Status <select id="fStatus">
-          <option value="">All</option><option>Match</option><option>Conflict</option>
-          <option value="MissingRTO">Missing · RTO</option><option value="MissingSamsung">Missing · AIS</option></select></label>
-        <label>Search <input type="search" id="fSearch" placeholder="activity / remark…"></label>
+        <label>Date <select id="fDate"></select></label>
+        <label>Area <select id="fArea"><option value="">All areas</option></select></label>
+        <label>Search <input type="search" id="fSearch" placeholder="activity / section…"></label>
         <button id="reload">↻ Refresh</button>
         <span class="note" id="ctx"></span>
       </div>
 
-      <section class="exec" id="exec" hidden>
-        <div class="exec-head">
-          <div>
-            <h2>Executive Work Summary <span class="cjk">工作总结看板</span></h2>
-            <p class="sub" id="execMeta">—</p>
-          </div>
-          <span class="statusflag" id="execStatus">—</span>
-        </div>
-        <div class="exec-grid">
-          <div class="exec-block">
-            <h3>Key work items</h3>
-            <ul id="execKey" class="bullets"></ul>
-          </div>
-          <div class="exec-block">
-            <h3>Work by section</h3>
-            <div id="execSections" class="kv"></div>
-          </div>
-          <div class="exec-block">
-            <h3>RTO vs AIS discrepancies</h3>
-            <div id="execDisc" class="kv"></div>
-          </div>
-          <div class="exec-block">
-            <h3>Manpower &amp; highlights</h3>
-            <ul id="execManpower" class="bullets"></ul>
-          </div>
-        </div>
-      </section>
-
-      <div class="cards">
-        <div class="card"><div class="k">Accuracy</div><div class="v" id="cAcc">–</div></div>
-        <div class="card"><div class="k"><span class="dot" style="background:var(--good)"></span>Matched</div><div class="v" id="cMatch">–</div></div>
-        <div class="card"><div class="k"><span class="dot" style="background:var(--warning)"></span>Conflicts</div><div class="v" id="cConf">–</div></div>
-        <div class="card"><div class="k"><span class="dot" style="background:var(--critical)"></span>Missing</div><div class="v" id="cMiss">–</div></div>
-        <div class="card"><div class="k">Total keys</div><div class="v" id="cTotal">–</div></div>
+      <div class="kpis">
+        <div class="kpi dw"><div class="v" id="kDW">–</div><div class="k">Diaphragm Walls (DW)</div></div>
+        <div class="kpi bp"><div class="v" id="kBP">–</div><div class="k">Bored Piles (BP)</div></div>
+        <div class="kpi bt"><div class="v" id="kBT">–</div><div class="k">Buttress Walls (BT)</div></div>
+        <div class="kpi cw"><div class="v" id="kCW">–</div><div class="k">Cross Walls (CW)</div></div>
+        <div class="kpi con"><div class="v" id="kCon">–</div><div class="k">Concrete (m³)</div></div>
+        <div class="kpi mp"><div class="v" id="kMP">–</div><div class="k">Total Manpower</div></div>
       </div>
 
       <div class="row2">
         <div class="panel">
-          <h2>Daily accuracy</h2><p class="sub">Matched ÷ total keys, per day</p>
-          <svg id="trend" viewBox="0 0 480 200" role="img" aria-label="Daily accuracy trend"></svg>
+          <h2>Concrete volume (m³) — last 7 days</h2>
+          <p class="sub">Daily concrete casting trend</p>
+          <div class="chartbox"><canvas id="concreteChart"></canvas></div>
         </div>
         <div class="panel">
-          <h2>Status breakdown by day</h2><p class="sub">How each day's records resolved</p>
-          <svg id="bars" viewBox="0 0 480 200" role="img" aria-label="Status breakdown by day"></svg>
-          <div class="legend">
-            <span><span class="dot" style="background:var(--good)"></span>Match</span>
-            <span><span class="dot" style="background:var(--warning)"></span>Conflict</span>
-            <span><span class="dot" style="background:var(--critical)"></span>Missing</span>
-          </div>
+          <h2>Active structures — <span id="doughDate">today</span></h2>
+          <p class="sub">DW / BP / BT / CW counts</p>
+          <div class="chartbox"><canvas id="structChart"></canvas></div>
         </div>
       </div>
 
-      <div class="panel" style="margin-top:12px">
-        <h2>Highlighted site activity</h2>
-        <p class="sub">Full activity text · click Edit to correct a record and save it back</p>
-        <div class="tablewrap">
-          <table id="tbl">
-            <thead><tr>
-              <th>Date</th><th>Area</th><th>Section</th><th>Status</th>
-              <th>RTO activity</th><th>AIS activity</th>
-              <th>Photos<br><span class="note">R / S</span></th><th></th>
-            </tr></thead>
-            <tbody></tbody>
-          </table>
+      <div class="actwrap">
+        <div class="panel"><h2>Merged activities</h2>
+          <p class="sub" id="actMeta">Combined &amp; de-duplicated from RTO + AIS, grouped by Area</p>
         </div>
+        <div id="areas"></div>
       </div>
     </div>
     <div id="toast" class="toast hidden"></div>
     <script>
-      // Server-injected data + version (set by doGet). Robust: no client round-trip.
       window.__APPV__ = "<?= appVersion ?>";
       window.__REPORT__ = <?!= reportJson ?>;
     </script>

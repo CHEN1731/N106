@@ -1,248 +1,137 @@
 <script>
-  var DATA = [];          // comparison rows (from the Sheet)
-  var SUMMARIES = [];     // executive work summaries (newest first)
-  var editingKey = null;  // date||area currently being edited
+  var ACTS = [];   // merged activities [{date,area,section,activity,manpower}]
+  var PROD = [];    // productivity history (asc by date)
+  var concreteChart = null, structChart = null;
 
   function $(id){ return document.getElementById(id); }
   function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function toast(m){ var t=$('toast'); t.textContent=m; t.classList.remove('hidden');
     clearTimeout(t._h); t._h=setTimeout(function(){t.classList.add('hidden');},2600); }
-  var ICON={Match:'✓',Conflict:'!',MissingRTO:'✕',MissingSamsung:'✕'};
-  var LABEL={Match:'Match',Conflict:'Conflict',MissingRTO:'Missing · RTO',MissingSamsung:'Missing · AIS'};
-  function isMissing(s){ return s==='MissingRTO'||s==='MissingSamsung'; }
-  function keyOf(r){ return r.date+'||'+r.area; }
+  function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888'; }
 
-  // Load: use google.script.run in GAS; a page-injected __MOCK__ for local testing.
   function load(){
     if (window.__MOCK__){ onData(window.__MOCK__); return; }
-    // Preferred: data injected into the page by doGet (no client round-trip).
     if (typeof window.__REPORT__ !== 'undefined' && window.__REPORT__ !== null){
-      if (window.__REPORT__.error){ $('src').textContent = 'ERROR: ' + window.__REPORT__.error; return; }
+      if (window.__REPORT__.error){ $('src').textContent='ERROR: '+window.__REPORT__.error; return; }
       onData(window.__REPORT__); return;
     }
-    // Fallback: fetch via google.script.run (older deployments).
-    if (!(window.google && google.script && google.script.run)){
-      $('src').textContent='no data source'; return;
-    }
+    if (!(window.google && google.script && google.script.run)){ $('src').textContent='no data source'; return; }
     $('src').textContent='loading…';
     google.script.run.withSuccessHandler(onData)
-      .withFailureHandler(function(e){
-        $('src').textContent = 'ERROR: ' + (e && e.message ? e.message : e);
-        toast('Load failed: ' + (e && e.message ? e.message : e));
-      })
+      .withFailureHandler(function(e){ $('src').textContent='ERROR: '+(e&&e.message||e); })
       .getReport();
   }
 
   function onData(report){
-    DATA = (report && report.comparison) || [];
-    SUMMARIES = (report && report.summaries) || [];
-    var name = (report && report.spreadsheetName) || '(no sheet name)';
+    ACTS = (report && report.activities) || [];
+    PROD = ((report && report.productivity) || []).slice().sort(function(a,b){
+      return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
+    var name = (report && report.spreadsheetName) || '(no sheet)';
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
-    $('src').textContent = DATA.length + ' records · ' + name + ver;
-    $('src').title = (report && report.spreadsheetUrl) || '';
-    buildFilters();
+    $('src').textContent = PROD.length + ' days · ' + name + ver;
+
+    // Date options: newest first; default = latest.
+    var dates = PROD.map(function(p){return p.date;});
+    if (!dates.length) dates = uniq(ACTS.map(function(a){return String(a.date);}));
+    dates = dates.slice().sort().reverse();
+    $('fDate').innerHTML = dates.map(function(d){return '<option>'+esc(d)+'</option>';}).join('')
+      || '<option value="">(no data)</option>';
+    // Area options from activities.
+    var areas = uniq(ACTS.map(function(a){return String(a.area||'');}).filter(Boolean)).sort();
+    $('fArea').innerHTML = '<option value="">All areas</option>' +
+      areas.map(function(a){return '<option>'+esc(a)+'</option>';}).join('');
+
     render();
   }
 
-  function opts(sel, vals){ sel.innerHTML = sel.children[0].outerHTML +
-    vals.map(function(v){return '<option>'+esc(v)+'</option>';}).join(''); }
-  function uniq(key){ var s={}; DATA.forEach(function(r){ if(r[key]!=='' && r[key]!=null) s[r[key]]=1; });
-    return Object.keys(s).sort(); }
+  function uniq(list){ var s={},o=[]; list.forEach(function(v){ if(v!=='' && !s[v]){s[v]=1;o.push(v);} }); return o; }
 
-  function buildFilters(){
-    opts($('fDate'), uniq('date'));
-    opts($('fGroup'), uniq('area_group'));
-    opts($('fArea'), uniq('area'));
-  }
-  ['fDate','fGroup','fArea','fStatus'].forEach(function(id){ $(id).addEventListener('change', render); });
+  ['fDate','fArea'].forEach(function(id){ $(id).addEventListener('change', render); });
   $('fSearch').addEventListener('input', render);
-  // Reload the whole page so doGet re-reads the sheet and re-injects fresh data.
   $('reload').addEventListener('click', function(){
-    if (window.__REPORT__ !== undefined && !window.__MOCK__) { location.reload(); }
-    else { load(); }
+    if (window.__REPORT__ !== undefined && !window.__MOCK__) location.reload(); else load();
   });
 
-  function filtered(){
-    var d=$('fDate').value, g=$('fGroup').value, a=$('fArea').value,
-        st=$('fStatus').value, q=$('fSearch').value.trim().toLowerCase();
-    return DATA.filter(function(r){
-      if(d && String(r.date)!==d) return false;
-      if(g && r.area_group!==g) return false;
-      if(a && r.area!==a) return false;
-      if(st && r.status!==st) return false;
-      if(q){
-        var hay=(r.rto_activity+' '+r.samsung_activity+' '+r.rto_remark+' '+r.samsung_remark).toLowerCase();
-        if(hay.indexOf(q)===-1) return false;
-      }
-      return true;
-    });
+  function prodForDate(d){
+    for (var i=0;i<PROD.length;i++) if (String(PROD[i].date)===String(d)) return PROD[i];
+    return null;
   }
 
   function render(){
-    var rows=filtered();
-    var m=rows.filter(function(r){return r.status==='Match';}).length;
-    var c=rows.filter(function(r){return r.status==='Conflict';}).length;
-    var x=rows.filter(function(r){return isMissing(r.status);}).length;
-    var t=rows.length;
-    $('cAcc').textContent = t? (Math.round(m/t*1000)/10)+'%' : '–';
-    $('cMatch').textContent=m; $('cConf').textContent=c; $('cMiss').textContent=x; $('cTotal').textContent=t;
-    $('ctx').textContent = t+' record'+(t===1?'':'s')+' shown';
-    renderExec();
-    renderTable(rows);
-    renderCharts();
+    var d = $('fDate').value;
+    var p = prodForDate(d) || {dWallCount:0,bPileCount:0,bWallCount:0,cWallCount:0,concreteM3:0,totalManpower:0};
+    $('kDW').textContent = p.dWallCount||0;
+    $('kBP').textContent = p.bPileCount||0;
+    $('kBT').textContent = p.bWallCount||0;
+    $('kCW').textContent = p.cWallCount||0;
+    $('kCon').textContent = p.concreteM3||0;
+    $('kMP').textContent = p.totalManpower||0;
+    $('doughDate').textContent = d || 'today';
+
+    renderActivities(d);
+    renderConcreteChart();
+    renderStructChart(p);
   }
 
-  /* Executive summary panel: the selected date's summary, else the latest. */
-  function pickSummary(){
-    if(!SUMMARIES.length) return null;
-    var d=$('fDate').value;
-    if(d){ for(var i=0;i<SUMMARIES.length;i++){ if(String(SUMMARIES[i].date)===d) return SUMMARIES[i]; } return null; }
-    return SUMMARIES[0]; // newest (getReport sorts desc)
+  function renderActivities(d){
+    var area=$('fArea').value, q=$('fSearch').value.trim().toLowerCase();
+    var rows = ACTS.filter(function(a){
+      if (d && String(a.date)!==String(d)) return false;
+      if (area && String(a.area)!==area) return false;
+      if (q){ var hay=(a.section+' '+a.activity).toLowerCase(); if(hay.indexOf(q)===-1) return false; }
+      return true;
+    });
+    $('ctx').textContent = rows.length + ' activit' + (rows.length===1?'y':'ies');
+    // group by area
+    var groups={}, order=[];
+    rows.forEach(function(a){ var g=a.area||'(Unassigned)'; if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(a); });
+    order.sort();
+    var host=$('areas');
+    if(!rows.length){ host.innerHTML='<div class="areagroup"><div class="empty">No activities for this filter.</div></div>'; return; }
+    host.innerHTML = order.map(function(g){
+      var body = groups[g].map(function(a){
+        return '<tr><td>'+esc(a.section||'—')+'</td><td class="act">'+esc(a.activity||'')+
+          '</td><td class="mono">'+(a.manpower||0)+'</td></tr>';
+      }).join('');
+      return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+
+        '<div class="tablewrap"><table><thead><tr><th>Section</th><th>Activity</th><th>Manpower</th></tr></thead>'+
+        '<tbody>'+body+'</tbody></table></div></div>';
+    }).join('');
   }
 
-  function renderExec(){
-    var s=pickSummary(), panel=$('exec');
-    if(!s){ panel.hidden=true; return; }
-    panel.hidden=false;
-    var st=s.status||'Aligned';
-    var flag=$('execStatus'); flag.textContent=st; flag.className='statusflag '+st;
-    $('execMeta').textContent = (s.date? s.date+' · ':'') +
-      'RTO vs AIS cross-comparison' + (s.source==='fallback'? ' · auto (no AI key)':'');
-
-    $('execKey').innerHTML = list_(s.executiveSummary, 'No summary points.');
-    $('execManpower').innerHTML = list_(s.manpowerAndRemarks, 'None noted.');
-
-    var g=$('fGroup').value, a=$('fArea').value;
-    var secs=(s.sectionBreakdown||[]).filter(function(x){
-      return (!g||x.area===g)&&(!a||x.section===a); });
-    $('execSections').innerHTML = secs.length ? secs.map(function(x){
-      return '<div class="item"><span class="lbl">'+esc(x.section||x.area||'—')+
-        (x.area?' <span class="d">('+esc(x.area)+')</span>':'')+'</span>'+
-        '<div class="d">'+esc(x.work||'')+'</div></div>'; }).join('')
-      : '<div class="empty">No section work for this filter.</div>';
-
-    var disc=s.discrepancies||[];
-    $('execDisc').innerHTML = disc.length ? disc.map(function(x){
-      var sev=(x.severity||'medium').toLowerCase();
-      return '<div class="item"><span class="lbl">'+esc(x.item||'—')+
-        '</span><span class="sev '+sev+'">'+esc(sev)+'</span>'+
-        '<div class="d">RTO: '+esc(x.rto||'—')+'</div>'+
-        '<div class="d">AIS: '+esc(x.ais||'—')+'</div></div>'; }).join('')
-      : '<div class="empty">✓ RTO and AIS aligned — no discrepancies.</div>';
-  }
-
-  function list_(arr, emptyMsg){
-    arr = arr||[];
-    return arr.length ? arr.map(function(x){return '<li>'+esc(x)+'</li>';}).join('')
-      : '<li class="empty">'+esc(emptyMsg)+'</li>';
-  }
-
-  function renderTable(rows){
-    var body=$('tbl').querySelector('tbody'); body.innerHTML='';
-    rows.forEach(function(r){
-      if (keyOf(r)===editingKey){ body.appendChild(editRow(r)); return; }
-      var tr=document.createElement('tr');
-      tr.innerHTML =
-        '<td class="mono">'+esc(r.date)+'</td>'+
-        '<td>'+esc(r.area_group||'—')+'</td>'+
-        '<td>'+esc(r.area)+'</td>'+
-        '<td><span class="pill '+r.status+'"><span class="ico">'+ICON[r.status]+'</span>'+LABEL[r.status]+'</span></td>'+
-        '<td class="activity">'+esc(cell(r.rto_activity,r.rto_remark))+'</td>'+
-        '<td class="activity">'+esc(cell(r.samsung_activity,r.samsung_remark))+'</td>'+
-        '<td class="mono photos">'+(r.rto_photos||0)+' / '+(r.samsung_photos||0)+'</td>'+
-        '<td><button class="linkish">Edit</button></td>';
-      tr.querySelector('button').addEventListener('click', function(){ editingKey=keyOf(r); render(); });
-      body.appendChild(tr);
+  function renderConcreteChart(){
+    if (typeof Chart === 'undefined') return;
+    var last7 = PROD.slice(-7);
+    var labels = last7.map(function(p){return String(p.date).slice(5);}); // MM-DD
+    var vals = last7.map(function(p){return p.concreteM3||0;});
+    if (concreteChart) concreteChart.destroy();
+    var ctx = $('concreteChart').getContext('2d');
+    concreteChart = new Chart(ctx, {
+      type:'bar',
+      data:{ labels:labels, datasets:[{ label:'Concrete m³', data:vals,
+        backgroundColor:cssVar('--con'), borderRadius:4 }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false} },
+        scales:{ y:{ beginAtZero:true, ticks:{color:cssVar('--ink2')}, grid:{color:cssVar('--grid')} },
+                 x:{ ticks:{color:cssVar('--ink2')}, grid:{display:false} } } }
     });
   }
 
-  function cell(act, rem){
-    act=act||''; rem=rem||'';
-    return rem ? (act+'\n— '+rem) : act;
-  }
-
-  function editRow(r){
-    var tr=document.createElement('tr'); tr.className='editrow';
-    var td=document.createElement('td'); td.colSpan=8;
-    td.innerHTML =
-      '<strong>'+esc(r.date)+' · '+esc(r.area)+'</strong>'+
-      '<label class="note">Status'+
-        '<select class="edit-field" data-f="status">'+
-          ['Match','Conflict','MissingRTO','MissingSamsung'].map(function(s){
-            return '<option'+(s===r.status?' selected':'')+'>'+s+'</option>';}).join('')+
-        '</select></label>'+
-      '<label class="note">RTO activity<textarea class="edit-field" data-f="rto_activity">'+esc(r.rto_activity||'')+'</textarea></label>'+
-      '<label class="note">Samsung activity<textarea class="edit-field" data-f="samsung_activity">'+esc(r.samsung_activity||'')+'</textarea></label>'+
-      '<label class="note">RTO remark<textarea class="edit-field" data-f="rto_remark">'+esc(r.rto_remark||'')+'</textarea></label>'+
-      '<label class="note">Samsung remark<textarea class="edit-field" data-f="samsung_remark">'+esc(r.samsung_remark||'')+'</textarea></label>'+
-      '<div class="edit-actions"><button class="primary" data-a="save">Save</button>'+
-        '<button data-a="cancel">Cancel</button></div>';
-    td.querySelector('[data-a="cancel"]').addEventListener('click', function(){ editingKey=null; render(); });
-    td.querySelector('[data-a="save"]').addEventListener('click', function(){ saveEdits(r, td); });
-    tr.appendChild(td); return tr;
-  }
-
-  function saveEdits(r, td){
-    var changes=[];
-    td.querySelectorAll('.edit-field').forEach(function(el){
-      var f=el.getAttribute('data-f'); var v=el.value;
-      if (String(v)!==String(r[f]==null?'':r[f])) changes.push({field:f, value:v});
+  function renderStructChart(p){
+    if (typeof Chart === 'undefined') return;
+    var data=[p.dWallCount||0,p.bPileCount||0,p.bWallCount||0,p.cWallCount||0];
+    if (structChart) structChart.destroy();
+    var ctx = $('structChart').getContext('2d');
+    structChart = new Chart(ctx, {
+      type:'doughnut',
+      data:{ labels:['DW','BP','BT','CW'],
+        datasets:[{ data:data,
+          backgroundColor:[cssVar('--dw'),cssVar('--bp'),cssVar('--bt'),cssVar('--cw')],
+          borderColor:cssVar('--surface'), borderWidth:2 }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{position:'bottom', labels:{color:cssVar('--ink2')}} } }
     });
-    if(!changes.length){ editingKey=null; render(); return; }
-
-    function applyLocal(){ changes.forEach(function(ch){ r[ch.field]=ch.value; }); editingKey=null; render(); }
-
-    if (window.__MOCK__ || !(window.google && google.script && google.script.run)){
-      applyLocal(); toast('Saved (local preview)'); return;
-    }
-    td.querySelector('[data-a="save"]').disabled=true;
-    var pending=changes.length, failed=0;
-    changes.forEach(function(ch){
-      google.script.run
-        .withSuccessHandler(function(){ if(--pending===0) finish(); })
-        .withFailureHandler(function(){ failed++; if(--pending===0) finish(); })
-        .saveRecordEdit({ date:r.date, area:r.area, field:ch.field, value:ch.value });
-    });
-    function finish(){ applyLocal(); toast(failed? (failed+' change(s) failed') : 'Saved to Sheet'); }
-  }
-
-  /* ---- charts (computed from the filtered rows, so they follow edits) ---- */
-  function daily(){
-    var g=$('fGroup').value, a=$('fArea').value;
-    var src=DATA.filter(function(r){ return (!g||r.area_group===g)&&(!a||r.area===a); });
-    var by={};
-    src.forEach(function(r){ var d=by[r.date]||(by[r.date]={date:r.date,m:0,c:0,x:0,t:0});
-      d.t++; if(r.status==='Match')d.m++; else if(r.status==='Conflict')d.c++; else d.x++; });
-    return Object.keys(by).sort().map(function(k){return by[k];});
-  }
-
-  function renderCharts(){
-    var d=daily(), W=480,H=200,L=40,R=16,T=16,B=34, iw=W-L-R, ih=H-T-B;
-    var xs = d.length>1 ? d.map(function(_,i){return L+iw*i/(d.length-1);}) : [L+iw/2];
-    // trend
-    var y=function(v){return T+ih*(1-v/100);};
-    var g='';[0,25,50,75,100].forEach(function(v){ g+='<line class="gl" x1="'+L+'" y1="'+y(v)+'" x2="'+(W-R)+'" y2="'+y(v)+'"/>'+
-      '<text class="axl" x="'+(L-6)+'" y="'+(y(v)+3)+'" text-anchor="end">'+v+'%</text>'; });
-    var acc=d.map(function(o){return o.t? o.m/o.t*100:0;});
-    var path=d.map(function(o,i){return (i?'L':'M')+xs[i].toFixed(1)+','+y(acc[i]).toFixed(1);}).join(' ');
-    var marks='';d.forEach(function(o,i){
-      marks+='<circle cx="'+xs[i].toFixed(1)+'" cy="'+y(acc[i]).toFixed(1)+'" r="5" fill="var(--trend)" stroke="var(--surface)" stroke-width="2"></circle>';
-      marks+='<text class="axl" x="'+xs[i].toFixed(1)+'" y="'+(H-14)+'" text-anchor="middle">'+esc(String(o.date).slice(5))+'</text>';
-      marks+='<text class="axl" x="'+xs[i].toFixed(1)+'" y="'+(y(acc[i])-10)+'" text-anchor="middle" fill="var(--ink2)">'+Math.round(acc[i])+'%</text>';});
-    $('trend').innerHTML = g+'<path d="'+path+'" fill="none" stroke="var(--trend)" stroke-width="2"/>'+marks;
-    // bars
-    var max=Math.max(1,Math.max.apply(null,d.map(function(o){return o.t;}).concat([1])));
-    var yb=function(v){return T+ih*(1-v/max);};
-    var bg='';for(var v=0;v<=max;v++){ bg+='<line class="gl" x1="'+L+'" y1="'+yb(v)+'" x2="'+(W-R)+'" y2="'+yb(v)+'"/>'+
-      '<text class="axl" x="'+(L-6)+'" y="'+(yb(v)+3)+'" text-anchor="end">'+v+'</text>'; }
-    var bw=Math.min(60,iw/Math.max(1,d.length)*0.5), bars='';
-    d.forEach(function(o,i){ var cx=d.length>1?L+iw*i/(d.length-1):L+iw/2, x=cx-bw/2, top=T+ih;
-      [['var(--good)',o.m],['var(--warning)',o.c],['var(--critical)',o.x]].forEach(function(seg){
-        if(!seg[1])return; var h=ih*seg[1]/max; top-=h;
-        bars+='<rect x="'+x+'" y="'+top+'" width="'+bw+'" height="'+Math.max(0,h-2)+'" rx="3" fill="'+seg[0]+'"></rect>'; });
-      bars+='<text class="axl" x="'+cx+'" y="'+(H-14)+'" text-anchor="middle">'+esc(String(o.date).slice(5))+'</text>'; });
-    $('bars').innerHTML = bg+bars;
   }
 
   load();

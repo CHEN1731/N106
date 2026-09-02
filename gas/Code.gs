@@ -17,10 +17,8 @@
 var SPREADSHEET_ID = '1njkQDQ8gGjojRx9otdO6JXU210WNpj5QggChTmkFXv8';
 
 var TABS = {
-  records: 'Records',
-  comparison: 'Comparison',
-  summary: 'DailySummary',
-  workSummary: 'WorkSummary'   // executive RTO-vs-AIS cross-comparison, one row per date
+  activities: 'Activities',      // one row per merged activity (per date)
+  productivity: 'Productivity'   // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
 };
 
 /**
@@ -34,9 +32,6 @@ function debugSheet() {
   Logger.log('SPREADSHEET_ID setting = "' + SPREADSHEET_ID + '"');
   Logger.log('Opened spreadsheet: "' + ss.getName() + '"');
   Logger.log('URL: ' + ss.getUrl());
-  var c = ss.getSheetByName(TABS.comparison);
-  Logger.log('Comparison tab exists? ' + !!c + '  rows (incl header): ' +
-    (c ? c.getDataRange().getValues().length : 'N/A'));
   Logger.log('--- all tabs in this spreadsheet ---');
   ss.getSheets().forEach(function (s) {
     Logger.log('tab "' + s.getName() + '"  lastRow=' + s.getLastRow());
@@ -52,18 +47,14 @@ function debugSheet() {
 function debugGetReport() {
   var r = getReport();
   Logger.log('getReport spreadsheet: "' + r.spreadsheetName + '"');
-  Logger.log('comparison rows: ' + r.comparison.length);
-  Logger.log('records rows: ' + r.records.length);
-  Logger.log('summaries: ' + r.summaries.length);
-  if (r.comparison[0]) {
-    Logger.log('first comparison row keys: ' + JSON.stringify(Object.keys(r.comparison[0])));
-    Logger.log('first comparison row: ' + JSON.stringify(r.comparison[0]));
-  }
+  Logger.log('activities rows: ' + r.activities.length);
+  Logger.log('productivity days: ' + r.productivity.length);
+  if (r.productivity[0]) Logger.log('latest productivity: ' + JSON.stringify(r.productivity[r.productivity.length - 1]));
 }
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-8 · server-injected';
+var APP_VERSION = 'build-9 · productivity';
 
 /**
  * Route:
@@ -102,83 +93,51 @@ function include(filename) {
 }
 
 /**
- * Parse + compare. Called from the client with the (possibly edited) text of
- * both panes. Uses AI extraction when an API key is set (Extract.gs), else the
- * regex parser. Returns a plain object the client renders; nothing is persisted.
+ * Analyse the two pasted reports -> merged activities + productivity metrics.
+ * Uses AI (Extract.gs) when an API key is set, else a deterministic fallback.
+ * Nothing is persisted here; the client re-sends the result to saveToSheet.
  */
-function runComparison(rtoText, samsungText, reportDate) {
-  // The AIS daily report is one day; the RTO WhatsApp export is often the whole
-  // chat history. Scope RTO to the report's date so each day compares cleanly
-  // (and the AI only processes that day). Priority: an explicit reportDate, else
-  // the date(s) found in the AIS report, else no scoping.
-  var ais = extractRecords('AIS', samsungText);
-  var target = targetDates_(reportDate, ais);
-  var rtoScoped = target ? sliceChatByDate_(rtoText, target) : rtoText;
-
-  var rto = extractRecords('RTO', rtoScoped);
-  if (target) { rto = filterByDates_(rto, target); ais = filterByDates_(ais, target); }
-
-  var cmp = compareRecords(rto, ais);
-  var summary = generateWorkSummary(rtoScoped, samsungText, target && target[0]);
+function runComparison(rtoText, aisText, reportDate) {
+  // Scope a full-history RTO chat to the report date so only that day is used.
+  var target = reportDate ? normalizeDate_(reportDate) : '';
+  var rtoScoped = target ? sliceChatByDate_(rtoText, [target]) : rtoText;
+  var prod = generateProductivity(rtoScoped, aisText, target);
   return {
-    rtoCount: rto.length,
-    samsungCount: ais.length,
+    date: prod.date,
+    reportDate: target || prod.date || '',
     usedAi: !!getApiKey_(),
-    reportDate: (target && target[0]) || '',
-    rows: cmp.rows,
-    daily: cmp.daily,
-    overall: cmp.overall,
-    records: rto.concat(ais),
-    summary: summary
+    source: prod.source,
+    mergedActivities: prod.mergedActivities,
+    productivityData: prod.productivityData
   };
 }
 
-/** Resolve which date(s) this run covers: explicit reportDate, else AIS dates. */
-function targetDates_(reportDate, aisRecords) {
-  if (reportDate) {
-    var d = normalizeDate_(reportDate);
-    return d ? [d] : null;
-  }
-  var seen = {}, out = [];
-  (aisRecords || []).forEach(function (r) {
-    if (r.date && !seen[r.date]) { seen[r.date] = true; out.push(r.date); }
-  });
-  return out.length ? out : null;
-}
+var ACTIVITY_HEADER = ['date', 'area', 'section', 'activity', 'manpower'];
+var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 'cwall_count',
+  'concrete_m3', 'total_manpower', 'active_dwalls', 'active_bpiles', 'active_bwalls', 'active_crosswalls'];
 
 /**
- * Persist a comparison result to the spreadsheet. `result` is exactly what
- * runComparison returned (re-sent from the client so the user saves what they
- * reviewed). Returns the spreadsheet URL.
+ * Persist the productivity result. `result` is what runComparison returned.
+ * Upserts by date so history accumulates for the charts. Returns the sheet URL.
  */
 function saveToSheet(result) {
   var ss = getSpreadsheet_();
+  var date = result.date || result.reportDate || '';
 
-  // Upsert by date so history accumulates across daily uploads: rows for the
-  // date(s) in this upload replace only those dates; other days are untouched.
-  upsertByDate_(ss, TABS.records,
-    ['source', 'date', 'area_group', 'section', 'segment', 'area', 'activity',
-     'remark', 'photos', 'sender', 'raw_ts'], 1,
-    (result.records || []).map(function (r) {
-      return [r.source, r.date, r.areaGroup || '', r.section || '', r.segment || '',
-              r.area, r.activity, r.remark, r.photos, r.sender, r.rawTs];
+  // Activities: one row per merged activity (all rows for this date replaced).
+  upsertByDate_(ss, TABS.activities, ACTIVITY_HEADER, 0,
+    (result.mergedActivities || []).map(function (a) {
+      return [date, a.area || '', a.section || '', a.activity || '', a.manpower || 0];
     }));
 
-  upsertByDate_(ss, TABS.comparison,
-    ['date', 'area_group', 'area', 'status', 'similarity', 'rto_activity',
-     'samsung_activity', 'rto_remark', 'samsung_remark', 'rto_photos', 'samsung_photos'], 0,
-    (result.rows || []).map(function (r) {
-      return [r.date, r.areaGroup || '', r.area, r.status, r.similarity, r.rtoActivity,
-              r.samsungActivity, r.rtoRemark, r.samsungRemark, r.rtoPhotos, r.samsungPhotos];
-    }));
-
-  upsertByDate_(ss, TABS.summary,
-    ['date', 'total_keys', 'matched', 'conflicts', 'missing', 'accuracy_pct'], 0,
-    (result.daily || []).map(function (d) {
-      return [d.date, d.total, d.matched, d.conflicts, d.missing, d.accuracyPct];
-    }));
-
-  if (result.summary) upsertWorkSummary_(ss, result.summary);
+  // Productivity: one row per date (metrics for the charts).
+  var p = result.productivityData || {};
+  upsertByDate_(ss, TABS.productivity, PRODUCTIVITY_HEADER, 0, [[
+    date, p.dWallCount || 0, p.bPileCount || 0, p.bWallCount || 0, p.cWallCount || 0,
+    p.totalConcreteVolumeM3 || 0, p.totalManpower || 0,
+    (p.activeDWalls || []).join(', '), (p.activeBoredPiles || []).join(', '),
+    (p.activeButtressWalls || []).join(', '), (p.activeCrossWalls || []).join(', ')
+  ]]);
 
   return ss.getUrl();
 }
@@ -192,20 +151,16 @@ function upsertByDate_(ss, name, header, dateCol, rows) {
   var existing = [];
   if (sheet) {
     var values = sheet.getDataRange().getValues();
-    if (values.length > 1) existing = values.slice(1); // drop header
+    if (values.length > 1) existing = values.slice(1);
   }
-  var merged = mergeByDate_(existing, rows, dateCol);
-  writeTable_(ss, name, header, merged);
+  writeTable_(ss, name, header, mergeByDate_(existing, rows, dateCol));
 }
 
-/**
- * Pure merge: drop existing rows whose date is among the incoming rows' dates,
- * then append the incoming rows; sorted by date. Exposed for testing.
- */
+/** Pure merge: incoming rows replace their dates; other dates kept; sorted. */
 function mergeByDate_(existingRows, newRows, dateCol) {
-  var incomingDates = {};
-  newRows.forEach(function (r) { incomingDates[String(r[dateCol])] = true; });
-  var kept = existingRows.filter(function (r) { return !incomingDates[String(r[dateCol])]; });
+  var incoming = {};
+  newRows.forEach(function (r) { incoming[String(r[dateCol])] = true; });
+  var kept = existingRows.filter(function (r) { return !incoming[String(r[dateCol])]; });
   var out = kept.concat(newRows);
   out.sort(function (a, b) {
     var x = String(a[dateCol]), y = String(b[dateCol]);
@@ -215,67 +170,38 @@ function mergeByDate_(existingRows, newRows, dateCol) {
 }
 
 /**
- * Upsert one executive summary row keyed by date (keeps history across days,
- * unlike the other tabs which reflect only the latest upload). The full summary
- * object is stored as JSON in the `json` column; flat columns aid at-a-glance
- * reading and any Looker use.
- */
-function upsertWorkSummary_(ss, summary) {
-  var header = ['date', 'status', 'executive_summary', 'discrepancy_count', 'source', 'json'];
-  var sheet = ss.getSheetByName(TABS.workSummary);
-  if (!sheet) {
-    sheet = ss.insertSheet(TABS.workSummary);
-    sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
-    sheet.setFrozenRows(1);
-  }
-  var row = [
-    summary.date || '',
-    summary.status || '',
-    (summary.executiveSummary || []).map(function (b) { return '• ' + b; }).join('\n'),
-    (summary.discrepancies || []).length,
-    summary.source || '',
-    JSON.stringify(summary)
-  ];
-  var values = sheet.getDataRange().getValues();
-  for (var r = 1; r < values.length; r++) {
-    if (String(values[r][0]) === String(summary.date) && summary.date) {
-      sheet.getRange(r + 1, 1, 1, header.length).setValues([row]);
-      return;
-    }
-  }
-  sheet.appendRow(row);
-}
-
-/**
- * Read the saved report for the Viewer page: the Comparison + DailySummary tabs
- * as arrays of objects (header row -> keys). Returns {} shape the viewer renders.
+ * Read the productivity dashboard data for the Viewer: merged activities and the
+ * productivity metric history (parsed for the charts), newest date first.
  */
 function getReport() {
   var ss = getSpreadsheet_();
+  var prod = readTable_(ss, TABS.productivity).map(function (row) {
+    return {
+      date: String(row.date),
+      dWallCount: Number(row.dwall_count) || 0,
+      bPileCount: Number(row.bpile_count) || 0,
+      bWallCount: Number(row.bwall_count) || 0,
+      cWallCount: Number(row.cwall_count) || 0,
+      concreteM3: Number(row.concrete_m3) || 0,
+      totalManpower: Number(row.total_manpower) || 0,
+      activeDWalls: splitList_(row.active_dwalls),
+      activeBoredPiles: splitList_(row.active_bpiles),
+      activeButtressWalls: splitList_(row.active_bwalls),
+      activeCrossWalls: splitList_(row.active_crosswalls)
+    };
+  }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+
   return {
-    comparison: readTable_(ss, TABS.comparison),
-    daily: readTable_(ss, TABS.summary),
-    records: readTable_(ss, TABS.records),
-    summaries: readWorkSummaries_(ss),
-    // Which spreadsheet the viewer actually read — so a "0 records" while the
-    // sheet clearly has data instantly reveals a wrong-spreadsheet mismatch.
+    activities: readTable_(ss, TABS.activities),
+    productivity: prod,
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };
 }
 
-/** Read the WorkSummary tab back into full summary objects (newest first). */
-function readWorkSummaries_(ss) {
-  return readTable_(ss, TABS.workSummary).map(function (row) {
-    try { return JSON.parse(row.json); }
-    catch (e) {
-      return { date: row.date, status: row.status,
-               executiveSummary: String(row.executive_summary || '').split('\n')
-                 .map(function (s) { return s.replace(/^•\s*/, ''); }).filter(Boolean),
-               sectionBreakdown: [], discrepancies: [], manpowerAndRemarks: [],
-               source: row.source };
-    }
-  }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+function splitList_(v) {
+  return String(v == null ? '' : v).split(/[,;]\s*/).map(function (s) { return s.trim(); })
+    .filter(Boolean);
 }
 
 function readTable_(ss, name) {
@@ -289,31 +215,6 @@ function readTable_(ss, name) {
     header.forEach(function (h, i) { o[h] = row[i]; });
     return o;
   });
-}
-
-/**
- * Save an inline correction from the Viewer back to the Comparison tab.
- * `edit` = { date, area, field, value } — updates the matching row's column.
- * Returns true on success.
- */
-function saveRecordEdit(edit) {
-  var ss = getSpreadsheet_();
-  var sheet = ss.getSheetByName(TABS.comparison);
-  if (!sheet) throw new Error('No Comparison tab to edit.');
-  var values = sheet.getDataRange().getValues();
-  var header = values[0];
-  var dateCol = header.indexOf('date');
-  var areaCol = header.indexOf('area');
-  var fieldCol = header.indexOf(edit.field);
-  if (fieldCol < 0) throw new Error('Unknown field: ' + edit.field);
-  for (var r = 1; r < values.length; r++) {
-    if (String(values[r][dateCol]) === String(edit.date) &&
-        String(values[r][areaCol]) === String(edit.area)) {
-      sheet.getRange(r + 1, fieldCol + 1).setValue(edit.value);
-      return true;
-    }
-  }
-  throw new Error('Row not found for ' + edit.date + ' / ' + edit.area);
 }
 
 function getSpreadsheet_() {
