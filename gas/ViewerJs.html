@@ -35,7 +35,7 @@
     var dates = PROD.map(function(p){return p.date;});
     if (!dates.length) dates = uniq(ACTS.map(function(a){return String(a.date);}));
     dates = dates.slice().sort().reverse();
-    $('fDate').innerHTML = dates.map(function(d){return '<option>'+esc(d)+'</option>';}).join('')
+    $('fDate').innerHTML = dates.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('')
       || '<option value="">(no data)</option>';
     // Area options from activities.
     var areas = uniq(ACTS.map(function(a){return String(a.area||'');}).filter(Boolean)).sort();
@@ -46,6 +46,14 @@
   }
 
   function uniq(list){ var s={},o=[]; list.forEach(function(v){ if(v!=='' && !s[v]){s[v]=1;o.push(v);} }); return o; }
+
+  // "2026-08-22" -> "22 Aug 2026"; anything else returned unchanged.
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtDate(d){
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d||''));
+    if (!m) return String(d||'');
+    return String(Number(m[3])) + ' ' + MONTHS[Number(m[2])-1] + ' ' + m[1];
+  }
 
   ['fDate','fArea'].forEach(function(id){ $(id).addEventListener('change', render); });
   $('fSearch').addEventListener('input', render);
@@ -67,7 +75,7 @@
     $('kCW').textContent = p.cWallCount||0;
     $('kCon').textContent = p.concreteM3||0;
     $('kMP').textContent = p.totalManpower||0;
-    $('doughDate').textContent = d || 'today';
+    $('doughDate').textContent = fmtDate(d) || 'today';
 
     renderActivities(d);
     renderConcreteChart();
@@ -103,7 +111,7 @@
   function renderConcreteChart(){
     if (typeof Chart === 'undefined') return;
     var last7 = PROD.slice(-7);
-    var labels = last7.map(function(p){return String(p.date).slice(5);}); // MM-DD
+    var labels = last7.map(function(p){ return fmtDate(p.date).replace(/ \d{4}$/,''); }); // "22 Aug"
     var vals = last7.map(function(p){return p.concreteM3||0;});
     if (concreteChart) concreteChart.destroy();
     var ctx = $('concreteChart').getContext('2d');
