@@ -21,21 +21,22 @@
     }
     $('src').textContent='loading…';
     google.script.run.withSuccessHandler(onData)
-      .withFailureHandler(function(e){ $('src').textContent='error'; toast('Load failed: '+e.message); })
+      .withFailureHandler(function(e){
+        // Surface the real server error so we stop guessing.
+        $('src').textContent = 'ERROR: ' + (e && e.message ? e.message : e);
+        toast('Load failed: ' + (e && e.message ? e.message : e));
+      })
       .getReport();
   }
 
   function onData(report){
     DATA = (report && report.comparison) || [];
     SUMMARIES = (report && report.summaries) || [];
-    if (DATA.length) {
-      $('src').textContent = DATA.length + ' records';
-    } else {
-      // Empty while the sheet has data => viewer is reading the wrong sheet.
-      var name = report && report.spreadsheetName;
-      $('src').textContent = '0 records' + (name ? ' — reading "' + name + '"' : '');
-      $('src').title = (report && report.spreadsheetUrl) || '';
-    }
+    // Always show what was read + which sheet, so a wrong-sheet / wrong-project
+    // deployment is obvious at a glance.
+    var name = (report && report.spreadsheetName) || '(no sheet name)';
+    $('src').textContent = DATA.length + ' records · ' + name;
+    $('src').title = (report && report.spreadsheetUrl) || '';
     buildFilters();
     render();
   }
