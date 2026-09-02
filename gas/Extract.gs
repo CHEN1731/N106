@@ -12,7 +12,7 @@
  */
 
 var ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-var DEFAULT_MODEL = 'claude-sonnet5';
+var DEFAULT_MODEL = 'claude-sonnet-5';
 
 /**
  * The single entry point the app uses. Returns records shaped exactly like
