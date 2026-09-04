@@ -16,7 +16,8 @@ vm.createContext(sandbox);
 });
 const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
-        normalizeProductivity_, productivityFromRecords_, uniqCodes_, sumConcreteM3_ } = sandbox;
+        normalizeProductivity_, productivityFromRecords_, areaFromSection_,
+        uniqCodes_, sumConcreteM3_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -54,6 +55,27 @@ assert(mergedTyped.length === 1 && mergedTyped[0][1] === 'new',
 console.log('\nProductivity metric helpers:');
 assert(sumConcreteM3_('cast 42 m3 and 30 m³ today') === 72, 'sumConcreteM3 sums m3 + m³ (got ' + sumConcreteM3_('cast 42 m3 and 30 m³ today') + ')');
 assert(uniqCodes_(['DW04', 'dw04', 'DW 04']).length === 1, 'uniqCodes dedupes case/space-insensitively');
+
+console.log('\nArea auto-fill from section code (site-plan map):');
+assert(areaFromSection_('Sec-C/Mb') === 'Area 2', 'Mb -> Area 2');
+assert(areaFromSection_('Sec-D/Ub') === 'Area 3', 'Ub -> Area 3');
+assert(areaFromSection_('Ja') === 'Area 1', 'Ja -> Area 1');
+assert(areaFromSection_('.../P5') === 'Area 4', 'P5 -> Area 4 (not P/Area 2)');
+assert(areaFromSection_('CUBE 8 (Qb)') === 'Area 1', 'Qb inside free text -> Area 1');
+assert(areaFromSection_('Sec-D/EI12') === '', 'unmapped code -> "" (blank)');
+assert(areaFromSection_('Area 3') === 'Area 3', 'already "Area 3" kept');
+
+console.log('\nArea auto-fill applied by the normaliser (missing area filled):');
+const na = normalizeProductivity_({
+  date: '2026-08-22',
+  mergedActivities: [
+    { area: '', section: 'Sec-C/Mb', activity: 'Dwall', manpower: 5 },   // missing -> Area 2
+    { area: 'Area 9', section: 'La2', activity: 'Slab', manpower: 3 }     // wrong -> corrected to Area 4
+  ],
+  productivityData: {}
+}, '', 'ai');
+assert(na.mergedActivities[0].area === 'Area 2', 'blank area filled from Mb -> Area 2');
+assert(na.mergedActivities[1].area === 'Area 4', 'wrong area corrected from La2 -> Area 4');
 
 console.log('\nProductivity AI normaliser (counts recomputed from arrays):');
 const norm = normalizeProductivity_({

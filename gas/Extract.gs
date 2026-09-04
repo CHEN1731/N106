@@ -163,6 +163,55 @@ function normalizeExtracted_(r, source) {
 }
 
 /* ======================================================================
+ * AREA FILLING — derive the Area (1-4) from a section/segment code using the
+ * N106 site-plan map (PARSER_CONFIG.locator.segmentArea), so records that are
+ * missing their Area get it filled deterministically on every path.
+ * ==================================================================== */
+
+/** Lowercased segment -> "Area N" lookup (built from the single source map). */
+function areaMapLower_() {
+  var map = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.segmentArea) || {};
+  var lower = {};
+  Object.keys(map).forEach(function (k) { lower[k.toLowerCase()] = map[k]; });
+  return lower;
+}
+
+/** First whole token of `str` that is a known segment (longer tokens win: P5 before P). */
+function scanTokens_(str, lower) {
+  var tokens = String(str).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  tokens.sort(function (a, b) { return b.length - a.length; });
+  for (var i = 0; i < tokens.length; i++) {
+    var v = lower[tokens[i].toLowerCase()];
+    if (v) return v;
+  }
+  return '';
+}
+
+/**
+ * Return "Area 1".."Area 4" for a section/segment string, or "" if none maps.
+ * Already-correct "Area N" input is kept. The segment after the last "/" is
+ * tried first (e.g. "Sec-C/Mb" -> "Mb" -> Area 2), then the whole string.
+ */
+function areaFromSection_(section) {
+  var s = String(section == null ? '' : section).trim();
+  if (!s) return '';
+  var am = /^area\s*([1-4])$/i.exec(s);
+  if (am) return 'Area ' + am[1];
+  var lower = areaMapLower_();
+  var slash = s.lastIndexOf('/');
+  var cand = slash >= 0 ? s.slice(slash + 1) : s;
+  return scanTokens_(cand, lower) || scanTokens_(s, lower);
+}
+
+/** The area->segments mapping as prompt text, e.g. "Area 1: Ja, Jb, ...". */
+function areaListText_() {
+  var map = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.segmentArea) || {};
+  var groups = {};
+  Object.keys(map).forEach(function (k) { (groups[map[k]] = groups[map[k]] || []).push(k); });
+  return Object.keys(groups).sort().map(function (g) { return g + ': ' + groups[g].join(', '); }).join('\n');
+}
+
+/* ======================================================================
  * PRODUCTIVITY & SUMMARY — merge + dedupe activities from RTO and AIS and
  * extract quantitative productivity metrics (DW / BP / BT / CW counts,
  * concrete m3, manpower). AI path (Claude) with a deterministic fallback.
@@ -239,6 +288,9 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'in both, output ONE unified entry; keep entries unique to either source. Put the ' +
     'Area (Area 1-4) in "area", the section/segment/location in "section", the unified ' +
     'work in "activity", and that activity\'s manpower in "manpower" (0 if none).\n' +
+    '   ALWAYS fill "area" — derive it from the section/segment code using this N106 ' +
+    'site-plan map (the code determines the Area). Use exactly "Area 1".."Area 4"; leave ' +
+    '"area" empty only if the section has no code from this list:\n' + areaListText_() + '\n' +
     '2) EXTRACT productivity metrics across the merged day:\n' +
     '   - activeDWalls: all Diaphragm Wall IDs worked on (e.g. DW1547, DW04, DW-64).\n' +
     '   - activeBoredPiles: all Bored Pile IDs (e.g. BP-T9-3, and pile refs like T9-3).\n' +
@@ -290,8 +342,11 @@ function normalizeProductivity_(raw, dateHint, source) {
   var cw = uniqCodes_(arr(pd.activeCrossWalls).map(str).filter(Boolean));
 
   var merged = arr(raw.mergedActivities).map(function (a) {
-    return { area: str(a.area), section: str(a.section), activity: str(a.activity),
-             manpower: num(a.manpower) };
+    var section = str(a.section);
+    // Deterministic site-plan map fills/corrects the Area from the section code;
+    // fall back to whatever the AI put when the section has no mappable code.
+    var area = areaFromSection_(section) || str(a.area);
+    return { area: area, section: section, activity: str(a.activity), manpower: num(a.manpower) };
   }).filter(function (a) { return a.activity; });
 
   var totalManpower = num(pd.totalManpower);
@@ -329,7 +384,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
     if (seen[k]) return;
     seen[k] = true;
     merged.push({
-      area: r.areaGroup || '',
+      area: r.areaGroup || areaFromSection_(r.area) || '',
       section: r.area || '',
       activity: r.activity || '',
       manpower: firstManpower_((r.remark || '') + ' ' + (r.activity || ''))
@@ -404,6 +459,7 @@ if (typeof module !== 'undefined' && module.exports) {
     generateProductivity: generateProductivity,
     normalizeProductivity_: normalizeProductivity_,
     productivityFromRecords_: productivityFromRecords_,
+    areaFromSection_: areaFromSection_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_
   };
