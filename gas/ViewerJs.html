@@ -1,6 +1,7 @@
 <script>
   var ACTS = [];   // merged activities [{_row,date,area,section,activity,manpower}]
   var PROD = [];    // productivity history (asc by date)
+  var ALL_DATES = [];  // every known date, oldest -> newest
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
 
@@ -34,12 +35,14 @@
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
     $('src').textContent = PROD.length + ' days · ' + name + ver;
 
-    // Date options: newest first; default = latest.
-    var dates = uniq(PROD.map(function(p){return p.date;}));
-    if (!dates.length) dates = uniq(ACTS.map(function(a){return String(a.date);}));
-    dates = dates.slice().sort().reverse();
-    $('fDate').innerHTML = dates.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('')
-      || '<option value="">(no data)</option>';
+    // All known dates, oldest -> newest, for the From / To range pickers.
+    ALL_DATES = uniq(PROD.map(function(p){return p.date;}).concat(ACTS.map(function(a){return String(a.date);})))
+      .sort();
+    // From: "(earliest)" + dates; To: "(latest)" + dates. Default = All dates.
+    $('fFrom').innerHTML = '<option value="">(earliest)</option>' +
+      ALL_DATES.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('');
+    $('fTo').innerHTML = '<option value="">(latest)</option>' +
+      ALL_DATES.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('');
     // Area options from activities.
     var areas = uniq(ACTS.map(function(a){return String(a.area||'');}).filter(Boolean)).sort();
     $('fArea').innerHTML = '<option value="">All areas</option>' +
@@ -58,8 +61,9 @@
     return String(Number(m[3])) + ' ' + MONTHS[Number(m[2])-1] + ' ' + m[1];
   }
 
-  ['fDate','fArea'].forEach(function(id){ $(id).addEventListener('change', render); });
+  ['fFrom','fTo','fArea'].forEach(function(id){ $(id).addEventListener('change', function(){ editingRow=null; render(); }); });
   $('fSearch').addEventListener('input', render);
+  $('fAll').addEventListener('click', function(){ $('fFrom').value=''; $('fTo').value=''; editingRow=null; render(); });
   $('reload').addEventListener('click', function(){
     if (window.__REPORT__ !== undefined && !window.__MOCK__) location.reload(); else load();
   });
@@ -69,26 +73,70 @@
     return null;
   }
 
+  // The dates currently selected by the From/To range (blank bound = open).
+  function selectedDates(){
+    var from=$('fFrom').value, to=$('fTo').value;
+    return ALL_DATES.filter(function(d){ return (!from||d>=from) && (!to||d<=to); });
+  }
+
+  function rangeLabel(dates){
+    if (!dates.length) return 'no data';
+    if (dates.length===1) return fmtDate(dates[0]);
+    return fmtDate(dates[0]) + ' – ' + fmtDate(dates[dates.length-1]);
+  }
+
+  // Aggregate productivity over a set of dates. Counts = distinct active codes
+  // across the period (union of the stored lists); concrete & manpower = sums.
+  function aggregateProd(dates){
+    if (dates.length===1){
+      return prodForDate(dates[0]) ||
+        {dWallCount:0,bPileCount:0,bWallCount:0,cWallCount:0,concreteM3:0,totalManpower:0};
+    }
+    var u={dw:{},bp:{},bt:{},cw:{}}, con=0, mp=0, mx={dw:0,bp:0,bt:0,cw:0};
+    dates.forEach(function(d){
+      var p=prodForDate(d); if(!p) return;
+      con += p.concreteM3||0; mp += p.totalManpower||0;
+      (p.activeDWalls||[]).forEach(function(x){ if(x) u.dw[x.toLowerCase()]=1; });
+      (p.activeBoredPiles||[]).forEach(function(x){ if(x) u.bp[x.toLowerCase()]=1; });
+      (p.activeButtressWalls||[]).forEach(function(x){ if(x) u.bt[x.toLowerCase()]=1; });
+      (p.activeCrossWalls||[]).forEach(function(x){ if(x) u.cw[x.toLowerCase()]=1; });
+      mx.dw=Math.max(mx.dw,p.dWallCount||0); mx.bp=Math.max(mx.bp,p.bPileCount||0);
+      mx.bt=Math.max(mx.bt,p.bWallCount||0); mx.cw=Math.max(mx.cw,p.cWallCount||0);
+    });
+    return {
+      dWallCount: Object.keys(u.dw).length || mx.dw,
+      bPileCount: Object.keys(u.bp).length || mx.bp,
+      bWallCount: Object.keys(u.bt).length || mx.bt,
+      cWallCount: Object.keys(u.cw).length || mx.cw,
+      concreteM3: con, totalManpower: mp
+    };
+  }
+
   function render(){
-    var d = $('fDate').value;
-    var p = prodForDate(d) || {dWallCount:0,bPileCount:0,bWallCount:0,cWallCount:0,concreteM3:0,totalManpower:0};
+    var dates = selectedDates();
+    var selSet={}; dates.forEach(function(d){ selSet[d]=1; });
+    var multi = dates.length !== 1;
+    var p = aggregateProd(dates);
     $('kDW').textContent = p.dWallCount||0;
     $('kBP').textContent = p.bPileCount||0;
     $('kBT').textContent = p.bWallCount||0;
     $('kCW').textContent = p.cWallCount||0;
     $('kCon').textContent = p.concreteM3||0;
     $('kMP').textContent = p.totalManpower||0;
-    $('doughDate').textContent = fmtDate(d) || 'today';
+    $('doughDate').textContent = rangeLabel(dates);
+    if ($('concSub')) $('concSub').textContent = multi
+      ? ('Concrete cast per day · ' + rangeLabel(dates))
+      : 'Daily concrete casting';
 
-    renderActivities(d);
-    renderConcreteChart();
+    renderActivities(selSet, multi);
+    renderConcreteChart(dates);
     renderStructChart(p);
   }
 
-  function renderActivities(d){
+  function renderActivities(selSet, multi){
     var area=$('fArea').value, q=$('fSearch').value.trim().toLowerCase();
     var rows = ACTS.filter(function(a){
-      if (d && String(a.date)!==String(d)) return false;
+      if (selSet && !selSet[String(a.date)]) return false;
       if (area && String(a.area)!==area) return false;
       if (q){ var hay=(a.section+' '+a.activity).toLowerCase(); if(hay.indexOf(q)===-1) return false; }
       return true;
@@ -98,28 +146,33 @@
     var groups={}, order=[];
     rows.forEach(function(a){ var g=a.area||'(Unassigned)'; if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(a); });
     order.sort();
+    // within a group, newest date first when several days are shown
+    if (multi) order.forEach(function(g){ groups[g].sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); }); });
     var host=$('areas');
     if(!rows.length){ host.innerHTML='<div class="areagroup"><div class="empty">No activities for this filter.</div></div>'; return; }
+    var dateHead = multi ? '<th>Date</th>' : '';
     host.innerHTML = order.map(function(g){
-      var body = groups[g].map(function(a){ return activityRowHtml(a); }).join('');
+      var body = groups[g].map(function(a){ return activityRowHtml(a, multi); }).join('');
       return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+
-        '<div class="tablewrap"><table><thead><tr><th>Section</th><th>Activity</th>'+
+        '<div class="tablewrap"><table><thead><tr>'+dateHead+'<th>Section</th><th>Activity</th>'+
         '<th>Manpower</th><th class="acts"></th></tr></thead>'+
         '<tbody>'+body+'</tbody></table></div></div>';
     }).join('');
   }
 
   // One activity row: read-only, or an editable form when it is the editing row.
-  function activityRowHtml(a){
+  // `multi` adds a leading Date column when several days are shown.
+  function activityRowHtml(a, multi){
+    var dateCell = multi ? '<td class="mono">'+esc(fmtDate(a.date))+'</td>' : '';
     if (a._row === editingRow){
-      return '<tr class="editing" data-row="'+a._row+'">'+
+      return '<tr class="editing" data-row="'+a._row+'">'+ dateCell +
         '<td><input class="e-sec" value="'+attr(a.section||'')+'"></td>'+
         '<td><input class="e-act" value="'+attr(a.activity||'')+'"></td>'+
         '<td><input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></td>'+
         '<td class="acts"><button class="e-save">Save</button> '+
         '<button class="e-cancel">Cancel</button></td></tr>';
     }
-    return '<tr data-row="'+a._row+'"><td>'+esc(a.section||'—')+'</td>'+
+    return '<tr data-row="'+a._row+'">'+ dateCell +'<td>'+esc(a.section||'—')+'</td>'+
       '<td class="act">'+esc(a.activity||'')+'</td>'+
       '<td class="mono">'+(a.manpower||0)+'</td>'+
       '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button></td></tr>';
@@ -163,11 +216,12 @@
       .saveActivityEdit(edit);
   }
 
-  function renderConcreteChart(){
+  function renderConcreteChart(dates){
     if (typeof Chart === 'undefined') return;
-    var last7 = PROD.slice(-7);
-    var labels = last7.map(function(p){ return fmtDate(p.date).replace(/ \d{4}$/,''); }); // "22 Aug"
-    var vals = last7.map(function(p){return p.concreteM3||0;});
+    // Show the selected day(s); for a single day, show the last 7 days for context.
+    var days = (dates && dates.length > 1) ? dates : ALL_DATES.slice(-7);
+    var labels = days.map(function(d){ return fmtDate(d).replace(/ \d{4}$/,''); }); // "22 Aug"
+    var vals = days.map(function(d){ var p=prodForDate(d); return p ? (p.concreteM3||0) : 0; });
     if (concreteChart) concreteChart.destroy();
     var ctx = $('concreteChart').getContext('2d');
     concreteChart = new Chart(ctx, {

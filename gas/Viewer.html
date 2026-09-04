@@ -16,7 +16,9 @@
       </header>
 
       <div class="filters">
-        <label>Date <select id="fDate"></select></label>
+        <label>From <select id="fFrom"></select></label>
+        <label>To <select id="fTo"></select></label>
+        <button id="fAll" class="linky" type="button">All dates</button>
         <label>Area <select id="fArea"><option value="">All areas</option></select></label>
         <label>Search <input type="search" id="fSearch" placeholder="activity / section…"></label>
         <button id="reload">↻ Refresh</button>
@@ -34,8 +36,8 @@
 
       <div class="row2">
         <div class="panel">
-          <h2>Concrete volume (m³) — last 7 days</h2>
-          <p class="sub">Daily concrete casting trend</p>
+          <h2>Concrete volume (m³)</h2>
+          <p class="sub" id="concSub">Daily concrete casting trend</p>
           <div class="chartbox"><canvas id="concreteChart"></canvas></div>
         </div>
         <div class="panel">
