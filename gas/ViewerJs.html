@@ -35,7 +35,7 @@
     $('src').textContent = PROD.length + ' days · ' + name + ver;
 
     // Date options: newest first; default = latest.
-    var dates = PROD.map(function(p){return p.date;});
+    var dates = uniq(PROD.map(function(p){return p.date;}));
     if (!dates.length) dates = uniq(ACTS.map(function(a){return String(a.date);}));
     dates = dates.slice().sort().reverse();
     $('fDate').innerHTML = dates.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('')

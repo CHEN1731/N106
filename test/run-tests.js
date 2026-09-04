@@ -45,6 +45,11 @@ assert(filterByDates_(parseWhatsApp(multiDay, 'RTO'), ['2026-08-06']).length ===
 const merged = mergeByDate_([['2026-08-05', 'a'], ['2026-08-04', 'keep']], [['2026-08-05', 'new']], 0);
 assert(merged.length === 2 && merged.some(r => r[1] === 'keep') && merged.some(r => r[1] === 'new'),
   'mergeByDate replaces the upload date, keeps other days');
+// Regression: existing rows come back from Sheets as Date objects, new rows are
+// ISO strings — they must still be recognised as the same day (no append-dup).
+const mergedTyped = mergeByDate_([[new Date(2026, 7, 22), 'old']], [['2026-08-22', 'new']], 0);
+assert(mergedTyped.length === 1 && mergedTyped[0][1] === 'new',
+  'mergeByDate dedupes a Date-object day against the same ISO-string day');
 
 console.log('\nProductivity metric helpers:');
 assert(sumConcreteM3_('cast 42 m3 and 30 m³ today') === 72, 'sumConcreteM3 sums m3 + m³ (got ' + sumConcreteM3_('cast 42 m3 and 30 m³ today') + ')');

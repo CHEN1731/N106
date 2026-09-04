@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-12 · productivity + edit';
+var APP_VERSION = 'build-13 · dedupe dates + edit';
 
 /**
  * Route:
@@ -219,14 +219,19 @@ function upsertByDate_(ss, name, header, dateCol, rows) {
   writeTable_(ss, name, header, mergeByDate_(existing, rows, dateCol));
 }
 
-/** Pure merge: incoming rows replace their dates; other dates kept; sorted. */
+/**
+ * Pure merge: incoming rows replace their dates; other dates kept; sorted.
+ * Keys are compared by NORMALISED date (toDateStr_) because existing rows come
+ * back from Sheets as Date objects while new rows are ISO strings — comparing
+ * raw String() values never matched, so every save used to append a duplicate.
+ */
 function mergeByDate_(existingRows, newRows, dateCol) {
   var incoming = {};
-  newRows.forEach(function (r) { incoming[String(r[dateCol])] = true; });
-  var kept = existingRows.filter(function (r) { return !incoming[String(r[dateCol])]; });
+  newRows.forEach(function (r) { incoming[toDateStr_(r[dateCol])] = true; });
+  var kept = existingRows.filter(function (r) { return !incoming[toDateStr_(r[dateCol])]; });
   var out = kept.concat(newRows);
   out.sort(function (a, b) {
-    var x = String(a[dateCol]), y = String(b[dateCol]);
+    var x = toDateStr_(a[dateCol]), y = toDateStr_(b[dateCol]);
     return x < y ? -1 : (x > y ? 1 : 0);
   });
   return out;
@@ -240,6 +245,9 @@ function getReport() {
   var ss = getSpreadsheet_();
   // Activities: normalise the date so it always matches the Viewer's date filter
   // (Google Sheets may store "2026-08-05" as a Date object, not text).
+  // Activities: drop exact-duplicate rows (artifacts of the old append bug) but
+  // keep every genuinely distinct activity. Keep the last copy's sheet row.
+  var actSeen = {};
   var activities = readTable_(ss, TABS.activities).map(function (row, i) {
     return {
       _row: i + 2,                       // 1-based sheet row (row 1 = header) for inline edits
@@ -249,10 +257,18 @@ function getReport() {
       activity: String(row.activity == null ? '' : row.activity),
       manpower: Number(row.manpower) || 0
     };
+  }).filter(function (a) {
+    var k = a.date + '|' + a.area + '|' + a.section + '|' + a.activity + '|' + a.manpower;
+    if (actSeen[k]) return false; actSeen[k] = true; return true;
   });
-  var prod = readTable_(ss, TABS.productivity).map(function (row) {
-    return {
-      date: toDateStr_(row.date),
+
+  // Productivity: one row per date. If old duplicate rows exist, keep the last
+  // (most recently saved) for each date so the dropdown/charts aren't repeated.
+  var byDate = {};
+  readTable_(ss, TABS.productivity).forEach(function (row) {
+    var d = toDateStr_(row.date);
+    byDate[d] = {
+      date: d,
       dWallCount: Number(row.dwall_count) || 0,
       bPileCount: Number(row.bpile_count) || 0,
       bWallCount: Number(row.bwall_count) || 0,
@@ -264,7 +280,9 @@ function getReport() {
       activeButtressWalls: splitList_(row.active_bwalls),
       activeCrossWalls: splitList_(row.active_crosswalls)
     };
-  }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  });
+  var prod = Object.keys(byDate).map(function (k) { return byDate[k]; })
+    .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
   return {
     activities: activities,
@@ -272,6 +290,40 @@ function getReport() {
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };
+}
+
+/**
+ * MAINTENANCE — run once from the editor to physically remove duplicate rows the
+ * old append bug left in the sheet (Activities: exact-duplicate rows; Productivity:
+ * extra rows for the same date, keeping the last). Also normalises the stored date
+ * to text. getReport already hides duplicates, but running this keeps inline edits
+ * from resurfacing an old copy.
+ */
+function cleanupDuplicates() {
+  var ss = getSpreadsheet_();
+  var seen = {}, arows = [];
+  readTable_(ss, TABS.activities).forEach(function (r) {
+    var row = [toDateStr_(r.date), r.area || '', r.section || '', r.activity || '', Number(r.manpower) || 0];
+    var k = row.join('|');
+    if (!seen[k]) { seen[k] = 1; arows.push(row); }
+  });
+  arows.sort(function (a, b) { return String(a[0]) < String(b[0]) ? -1 : (String(a[0]) > String(b[0]) ? 1 : 0); });
+  writeTable_(ss, TABS.activities, ACTIVITY_HEADER, arows);
+
+  var byDate = {};
+  readTable_(ss, TABS.productivity).forEach(function (r) {
+    byDate[toDateStr_(r.date)] = [
+      toDateStr_(r.date), Number(r.dwall_count) || 0, Number(r.bpile_count) || 0,
+      Number(r.bwall_count) || 0, Number(r.cwall_count) || 0, Number(r.concrete_m3) || 0,
+      Number(r.total_manpower) || 0, r.active_dwalls || '', r.active_bpiles || '',
+      r.active_bwalls || '', r.active_crosswalls || ''
+    ];
+  });
+  var prows = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+  writeTable_(ss, TABS.productivity, PRODUCTIVITY_HEADER, prows);
+
+  Logger.log('Cleanup done: ' + arows.length + ' activity rows, ' + prows.length + ' productivity days.');
+  return { activities: arows.length, days: prows.length };
 }
 
 /** Normalise a cell value to "YYYY-MM-DD" whether Sheets returns text or a Date. */
