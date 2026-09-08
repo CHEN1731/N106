@@ -162,15 +162,28 @@
 
   // One activity row: read-only, or an editable form when it is the editing row.
   // `multi` adds a leading Date column when several days are shown.
+  function areaOptions(cur){
+    var opts = ['', 'Area 1', 'Area 2', 'Area 3', 'Area 4'];
+    if (cur && opts.indexOf(cur) === -1) opts.push(cur);   // keep any non-standard value
+    return opts.map(function(o){
+      return '<option value="'+attr(o)+'"'+(o===(cur||'')?' selected':'')+'>'+
+        esc(o===''?'(unassigned)':o)+'</option>';
+    }).join('');
+  }
+
   function activityRowHtml(a, multi){
     var dateCell = multi ? '<td class="mono">'+esc(fmtDate(a.date))+'</td>' : '';
     if (a._row === editingRow){
-      return '<tr class="editing" data-row="'+a._row+'">'+ dateCell +
-        '<td><input class="e-sec" value="'+attr(a.section||'')+'"></td>'+
-        '<td><input class="e-act" value="'+attr(a.activity||'')+'"></td>'+
-        '<td><input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></td>'+
-        '<td class="acts"><button class="e-save">Save</button> '+
-        '<button class="e-cancel">Cancel</button></td></tr>';
+      var cols = multi ? 5 : 4;
+      return '<tr class="editing" data-row="'+a._row+'"><td colspan="'+cols+'">'+
+        '<div class="editrow">'+
+          (multi ? '<span class="edate">'+esc(fmtDate(a.date))+'</span>' : '')+
+          '<label>Area <select class="e-area">'+areaOptions(a.area)+'</select></label>'+
+          '<label>Section <input class="e-sec" value="'+attr(a.section||'')+'"></label>'+
+          '<label class="grow">Activity <input class="e-act" value="'+attr(a.activity||'')+'"></label>'+
+          '<label>Manpower <input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></label>'+
+          '<button class="e-save">Save</button> <button class="e-cancel">Cancel</button>'+
+        '</div></td></tr>';
     }
     return '<tr data-row="'+a._row+'">'+ dateCell +'<td>'+esc(a.section||'—')+'</td>'+
       '<td class="act">'+esc(a.activity||'')+'</td>'+
@@ -252,19 +265,21 @@
 
   function saveEdit(rowId, tr){
     var a = actByRow(rowId); if(!a) return;
+    var areaEl = tr.querySelector('.e-area');
+    var newArea = areaEl ? areaEl.value : a.area;
     var newSec = tr.querySelector('.e-sec').value;
     var newAct = tr.querySelector('.e-act').value;
     var newMp  = Number(tr.querySelector('.e-mp').value) || 0;
-    var edit = { row: rowId, date: a.date, section: newSec, activity: newAct, manpower: newMp,
+    var edit = { row: rowId, date: a.date, area: newArea, section: newSec, activity: newAct, manpower: newMp,
       orig: { section: a.section, activity: a.activity, manpower: a.manpower } };
     tr.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
     if (!(window.google && google.script && google.script.run)){
       // Offline/mock: just update in memory.
-      a.section=newSec; a.activity=newAct; a.manpower=newMp; editingRow=null; render(); toast('Saved (local)'); return;
+      a.area=newArea; a.section=newSec; a.activity=newAct; a.manpower=newMp; editingRow=null; render(); toast('Saved (local)'); return;
     }
     google.script.run
       .withSuccessHandler(function(total){
-        a.section=newSec; a.activity=newAct; a.manpower=newMp;
+        a.area=newArea; a.section=newSec; a.activity=newAct; a.manpower=newMp;
         editingRow=null;
         // keep the KPI's manpower in sync with the recomputed total from the server
         var p = prodForDate(a.date); if (p && typeof total==='number') p.totalManpower = total;

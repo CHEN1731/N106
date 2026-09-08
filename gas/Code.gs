@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-17 · add/delete activity';
+var APP_VERSION = 'build-18 · edit area';
 
 /**
  * Route:
@@ -166,6 +166,10 @@ function saveActivityEdit(edit) {
         (Number(edit.orig.manpower) || 0) !== (Number(cur[4]) || 0)) {
       throw new Error('This row changed since you loaded it — click Refresh, then edit again.');
     }
+  }
+  // Area (col 2) is written only when the edit carries one (backward compatible).
+  if (Object.prototype.hasOwnProperty.call(edit, 'area')) {
+    sheet.getRange(row, 2).setValue(edit.area == null ? '' : edit.area);
   }
   sheet.getRange(row, 3, 1, 3).setValues([[
     edit.section == null ? '' : edit.section,
