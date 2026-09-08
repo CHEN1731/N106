@@ -18,7 +18,8 @@ var SPREADSHEET_ID = '1ZMqhmKmLIdUWYV9bJ20udK7yi9uwFxQx337oMb-TFhY';
 
 var TABS = {
   activities: 'Activities',      // one row per merged activity (per date)
-  productivity: 'Productivity'   // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
+  productivity: 'Productivity',  // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
+  safety: 'Safety'               // one row per safety finding (id-keyed; append/edit/delete)
 };
 
 /**
@@ -55,7 +56,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-18 · edit area';
+var APP_VERSION = 'build-19 · safety findings';
 
 /**
  * Route:
@@ -109,13 +110,15 @@ function runComparison(rtoText, aisText, reportDate) {
     usedAi: !!getApiKey_(),
     source: prod.source,
     mergedActivities: prod.mergedActivities,
-    productivityData: prod.productivityData
+    productivityData: prod.productivityData,
+    safetyFindings: prod.safetyFindings || []
   };
 }
 
 var ACTIVITY_HEADER = ['date', 'area', 'section', 'activity', 'manpower'];
 var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 'cwall_count',
   'concrete_m3', 'total_manpower', 'active_dwalls', 'active_bpiles', 'active_bwalls', 'active_crosswalls'];
+var SAFETY_HEADER = ['id', 'date', 'area', 'section', 'description', 'severity', 'status', 'raised_by', 'source'];
 
 /**
  * Persist the productivity result. `result` is what runComparison returned.
@@ -140,7 +143,35 @@ function saveToSheet(result) {
     (p.activeButtressWalls || []).join(', '), (p.activeCrossWalls || []).join(', ')
   ]]);
 
+  // Safety findings: append (never upsert) so manual Viewer entries are never
+  // wiped; duplicates (same date+description) are skipped.
+  appendSafety_(ss, date, result.safetyFindings || []);
+
   return ss.getUrl();
+}
+
+/** Append AI safety findings for `date`, skipping any duplicate date+description. */
+function appendSafety_(ss, date, findings) {
+  if (!findings || !findings.length) return;
+  var sheet = ss.getSheetByName(TABS.safety);
+  if (!sheet || sheet.getLastRow() === 0) {
+    writeTable_(ss, TABS.safety, SAFETY_HEADER, []);
+    sheet = ss.getSheetByName(TABS.safety);
+  }
+  var existing = {};
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    existing[toDateStr_(values[i][1]) + '|' + String(values[i][4]).trim().toLowerCase()] = true;
+  }
+  findings.forEach(function (f) {
+    var desc = String(f.description == null ? '' : f.description).trim();
+    if (!desc) return;
+    var key = String(date) + '|' + desc.toLowerCase();
+    if (existing[key]) return;
+    existing[key] = true;
+    sheet.appendRow([Utilities.getUuid(), date, f.area || '', f.section || '', desc,
+      f.severity || 'Medium', f.status || 'Open', f.raisedBy || '', 'ai']);
+  });
 }
 
 /**
@@ -255,6 +286,62 @@ function ensureProductivityRow_(ss, date) {
   sheet.appendRow([date, 0, 0, 0, 0, 0, 0, '', '', '', '']);
 }
 
+/* ---- Safety findings (id-keyed: add / edit / delete from the Viewer) ---- */
+
+/** Add a safety finding from the Viewer. Returns the new id. */
+function addSafety(rec) {
+  var ss = getSpreadsheet_();
+  var date = toDateStr_(rec && rec.date);
+  if (!date) throw new Error('Pick a date for the finding.');
+  var desc = String(rec.description == null ? '' : rec.description).trim();
+  if (!desc) throw new Error('Description is required.');
+  var section = String(rec.section == null ? '' : rec.section).trim();
+  var area = String(rec.area == null ? '' : rec.area).trim() || areaFromSection_(section) || '';
+  var sheet = ss.getSheetByName(TABS.safety);
+  if (!sheet || sheet.getLastRow() === 0) {
+    writeTable_(ss, TABS.safety, SAFETY_HEADER, []);
+    sheet = ss.getSheetByName(TABS.safety);
+  }
+  var id = Utilities.getUuid();
+  sheet.appendRow([id, date, area, section, desc,
+    rec.severity || 'Medium', rec.status || 'Open', rec.raisedBy || '', 'manual']);
+  return id;
+}
+
+/** Edit a safety finding by id (area/section/description/severity/status/raised_by). */
+function saveSafetyEdit(edit) {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(TABS.safety);
+  if (!sheet) throw new Error('No Safety tab yet.');
+  var id = String((edit && edit.id) || '');
+  if (!id) throw new Error('Missing finding id.');
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === id) {
+      var section = String(edit.section == null ? '' : edit.section);
+      var area = edit.area != null ? String(edit.area) : String(values[i][2] || '');
+      sheet.getRange(i + 1, 3, 1, 6).setValues([[
+        area, section, String(edit.description == null ? '' : edit.description),
+        edit.severity || 'Medium', edit.status || 'Open', edit.raisedBy || ''
+      ]]);
+      return true;
+    }
+  }
+  throw new Error('Finding not found — click Refresh, then edit again.');
+}
+
+/** Delete a safety finding by id. */
+function deleteSafety(id) {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(TABS.safety);
+  if (!sheet) throw new Error('No Safety tab.');
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(id)) { sheet.deleteRow(i + 1); return true; }
+  }
+  throw new Error('Finding not found — click Refresh.');
+}
+
 /** Sum the manpower column of the Activities tab for one date. */
 function sumManpowerForDate_(sheet, date) {
   var values = sheet.getDataRange().getValues();
@@ -358,9 +445,27 @@ function getReport() {
   var prod = Object.keys(byDate).map(function (k) { return byDate[k]; })
     .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
+  // Safety findings (id-keyed), area filled from section, newest date first.
+  var safety = readTable_(ss, TABS.safety).map(function (row) {
+    var section = String(row.section == null ? '' : row.section);
+    return {
+      id: String(row.id == null ? '' : row.id),
+      date: toDateStr_(row.date),
+      area: String(row.area == null ? '' : row.area) || areaFromSection_(section) || '',
+      section: section,
+      description: String(row.description == null ? '' : row.description),
+      severity: String(row.severity || 'Medium'),
+      status: String(row.status || 'Open'),
+      raisedBy: String(row.raised_by == null ? '' : row.raised_by),
+      source: String(row.source == null ? '' : row.source)
+    };
+  }).filter(function (s) { return s.id && s.description; })
+    .sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+
   return {
     activities: activities,
     productivity: prod,
+    safety: safety,
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };

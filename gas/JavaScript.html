@@ -171,6 +171,20 @@
     }
     $('parseNote').textContent = msg;
 
+    var sf = res.safetyFindings || [];
+    var sn = $('safetyNote');
+    if (sn) {
+      if (!sf.length) { sn.textContent = 'No safety findings detected.'; }
+      else {
+        sn.innerHTML = '⚠ <b>' + sf.length + '</b> safety finding' + (sf.length===1?'':'s') +
+          ' detected (saved to the Safety tab): ' +
+          sf.slice(0,4).map(function(f){
+            return '<i>[' + (f.severity||'Medium') + '] ' +
+              String(f.description||'').replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</i>';
+          }).join(' · ') + (sf.length>4 ? ' …' : '');
+      }
+    }
+
     renderRows();
   }
 

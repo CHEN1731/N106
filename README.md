@@ -41,6 +41,10 @@ dashboard.
    Activities are fully editable in the Viewer: **✎ Edit**, **🗑 Delete**, and
    **＋ Add activity** all write straight back to the `Activities` tab (and keep
    the day's manpower KPI in sync), so corrections are stored permanently.
+   A **Safety findings** panel shows warnings/findings (near-miss, unsafe act,
+   PPE, hazard…) with severity + status — extracted by the AI on Compare and/or
+   added/edited by hand — plus a red **banner** when Open High/Critical findings
+   exist in the selected range. All safety edits persist to the `Safety` tab.
 
 ## What the AI does
 

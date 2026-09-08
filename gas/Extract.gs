@@ -292,9 +292,25 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
           required: ['activeDWalls', 'dWallCount', 'activeBoredPiles', 'bPileCount',
                      'activeButtressWalls', 'bWallCount', 'activeCrossWalls', 'cWallCount',
                      'totalConcreteVolumeM3', 'totalManpower']
+        },
+        safetyFindings: {
+          type: 'array',
+          description: 'Explicit safety findings/warnings mentioned in the reports (empty if none).',
+          items: {
+            type: 'object',
+            properties: {
+              area: { type: 'string', description: 'Area 1-4 (or "")' },
+              section: { type: 'string', description: 'location/section, e.g. Sec-C/Mb' },
+              description: { type: 'string', description: 'what the safety issue is and where' },
+              severity: { type: 'string', description: 'Low | Medium | High | Critical' },
+              status: { type: 'string', description: 'Open | Closed' },
+              raisedBy: { type: 'string', description: 'who raised it, or ""' }
+            },
+            required: ['area', 'section', 'description', 'severity', 'status', 'raisedBy']
+          }
         }
       },
-      required: ['date', 'mergedActivities', 'productivityData']
+      required: ['date', 'mergedActivities', 'productivityData', 'safetyFindings']
     }
   };
 
@@ -318,6 +334,13 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     '   Deduplicate each list; the *Count fields must equal each list\'s length.\n' +
     '   - totalConcreteVolumeM3: sum of every concrete cast volume in m3/m³.\n' +
     '   - totalManpower: sum of manpower across the merged (deduped) activities.\n' +
+    '3) SAFETY: list any EXPLICIT safety findings/warnings mentioned — near-miss, unsafe ' +
+    'act, unsafe condition, PPE issue, hazard, incident, stop-work, fall, exposed rebar, ' +
+    'poor housekeeping, safety violation. For each: "description" (what & where), ' +
+    '"severity" (Low/Medium/High/Critical — use your judgement, default Medium), "status" ' +
+    '(Open unless the text clearly says resolved/closed), "raisedBy" (who raised it or ""), ' +
+    'and area/section from its location. Do NOT invent safety items; return an empty list ' +
+    'if the reports mention none.\n' +
     (dateHint ? ('This report is for ' + dateHint + '. Only include work for that date.\n') : '') +
     'Call emit_productivity once.\n\n' +
     '=== RTO NOTES ===\n' + (rtoText || '(none)') +
@@ -382,9 +405,52 @@ function normalizeProductivity_(raw, dateHint, source) {
       totalConcreteVolumeM3: Math.round(num(pd.totalConcreteVolumeM3) * 100) / 100,
       totalManpower: totalManpower
     },
+    safetyFindings: normalizeSafetyList_(raw.safetyFindings),
     source: source || 'ai'
   };
 }
+
+var SAFETY_SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+
+/** Clamp any severity value to one of the four, defaulting to Medium. */
+function normSeverity_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  for (var i = 0; i < SAFETY_SEVERITIES.length; i++) {
+    if (SAFETY_SEVERITIES[i].toLowerCase() === s) return SAFETY_SEVERITIES[i];
+  }
+  if (/crit|fatal/.test(s)) return 'Critical';
+  if (/high|serious|major|severe/.test(s)) return 'High';
+  if (/low|minor|trivial/.test(s)) return 'Low';
+  return 'Medium';
+}
+
+/** Normalise a status to Open/Closed (default Open). */
+function normStatus_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  return (s === 'closed' || s === 'close' || s === 'resolved' || s === 'done' || s === 'fixed')
+    ? 'Closed' : 'Open';
+}
+
+/** Canonicalise a list of safety findings (area filled from section, empties dropped). */
+function normalizeSafetyList_(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(function (f) {
+    f = f || {};
+    var section = String(f.section == null ? '' : f.section).trim();
+    var area = String(f.area == null ? '' : f.area).trim() || areaFromSection_(section) || '';
+    return {
+      area: area,
+      section: section,
+      description: String(f.description == null ? '' : f.description).trim(),
+      severity: normSeverity_(f.severity),
+      status: normStatus_(f.status),
+      raisedBy: String((f.raisedBy != null ? f.raisedBy : f.raised_by) || '').trim()
+    };
+  }).filter(function (f) { return f.description; });
+}
+
+// Keywords that flag a message/activity as safety-related (offline fallback).
+var SAFETY_RE = /\b(near[\s-]?miss|unsafe|un-safe|ppe|hazard|incident|accident|injur|stop[\s-]?work|danger|exposed\s+rebar|no\s+barricade|barricad|housekeeping|violation|fall(?:ing|en|s)?\b|toolbox|first\s*aid)/i;
 
 /**
  * Deterministic fallback (no AI): parse both texts, merge/dedupe activities, and
@@ -419,6 +485,14 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
   var concrete = sumConcreteM3_(text);
   var manpower = merged.reduce(function (s, m) { return s + (m.manpower || 0); }, 0);
 
+  // Offline safety scan: any merged activity whose text hits a safety keyword.
+  var safety = normalizeSafetyList_(merged.filter(function (m) {
+    return SAFETY_RE.test(m.section + ' ' + m.activity);
+  }).map(function (m) {
+    return { area: m.area, section: m.section, activity: '', description: m.activity,
+             severity: 'Medium', status: 'Open', raisedBy: '' };
+  }));
+
   return {
     date: date,
     mergedActivities: merged,
@@ -430,6 +504,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       totalConcreteVolumeM3: Math.round(concrete * 100) / 100,
       totalManpower: manpower
     },
+    safetyFindings: safety,
     source: 'fallback'
   };
 }
@@ -479,6 +554,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeProductivity_: normalizeProductivity_,
     productivityFromRecords_: productivityFromRecords_,
     areaFromSection_: areaFromSection_,
+    normalizeSafetyList_: normalizeSafetyList_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_
   };
