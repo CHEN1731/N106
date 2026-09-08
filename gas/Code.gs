@@ -14,7 +14,7 @@
 // unreliable, so pin the ID here. This is the "N106 Summary AI" sheet; change it
 // if you switch spreadsheets. Leaving it '' falls back to the active sheet
 // (works only in the bound editor, NOT reliably in the deployed Viewer).
-var SPREADSHEET_ID = '1njkQDQ8gGjojRx9otdO6JXU210WNpj5QggChTmkFXv8';
+var SPREADSHEET_ID = '1ZMqhmKmLIdUWYV9bJ20udK7yi9uwFxQx337oMb-TFhY';
 
 var TABS = {
   activities: 'Activities',      // one row per merged activity (per date)
