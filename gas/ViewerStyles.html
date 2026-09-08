@@ -49,7 +49,17 @@
   .panel .sub{color:var(--muted);font-size:11.5px;margin:0 0 10px}
   .chartbox{position:relative;height:260px}
 
+  button.primary{background:var(--dw);border-color:var(--dw);color:#fff}
   .actwrap{margin-top:12px}
+  .acthead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .addform{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px;
+    padding-top:12px;border-top:1px solid var(--grid)}
+  .addform label{display:flex;flex-direction:column;font-size:11.5px;color:var(--ink2);gap:3px}
+  .addform label.grow{flex:1;min-width:200px}
+  .addform input,.addform select{margin:0;padding:6px 9px;border-radius:8px;
+    border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:13px}
+  .addform label.grow input{width:100%}
+  td .e-del{padding:4px 9px;font-size:12px;border-radius:6px;margin-left:4px}
   .areagroup{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-top:10px;overflow:hidden}
   .areagroup > h3{font-size:13px;margin:0;padding:10px 14px;background:var(--grid);color:var(--ink)}
   table{border-collapse:collapse;width:100%;font-size:12.5px}

@@ -175,7 +175,8 @@
     return '<tr data-row="'+a._row+'">'+ dateCell +'<td>'+esc(a.section||'—')+'</td>'+
       '<td class="act">'+esc(a.activity||'')+'</td>'+
       '<td class="mono">'+(a.manpower||0)+'</td>'+
-      '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button></td></tr>';
+      '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button>'+
+      '<button class="e-del" title="Delete this record">🗑</button></td></tr>';
   }
 
   // Inline-edit clicks (delegated — the list is re-rendered as innerHTML).
@@ -187,7 +188,67 @@
     if (btn.classList.contains('e-edit')){ editingRow = rowId; render(); }
     else if (btn.classList.contains('e-cancel')){ editingRow = null; render(); }
     else if (btn.classList.contains('e-save')){ saveEdit(rowId, tr); }
+    else if (btn.classList.contains('e-del')){ deleteRow(rowId); }
   });
+
+  function deleteRow(rowId){
+    var a = actByRow(rowId); if(!a) return;
+    if (!window.confirm('Delete this activity?\n\n' + (a.section||'') + ' — ' + (a.activity||''))) return;
+    var edit = { row: rowId, orig:{ section:a.section, activity:a.activity, manpower:a.manpower } };
+    if (!(window.google && google.script && google.script.run)){
+      ACTS = ACTS.filter(function(x){ return x._row!==rowId; }); render(); toast('Deleted (local)'); return;
+    }
+    google.script.run
+      .withSuccessHandler(function(){ toast('Deleted.'); reloadData(); })
+      .withFailureHandler(function(e){ toast('Delete failed: ' + (e && e.message || e)); })
+      .deleteActivity(edit);
+  }
+
+  // Add-activity form.
+  $('addToggle').addEventListener('click', function(){
+    var f = $('addForm'); f.hidden = !f.hidden;
+    if (!f.hidden){
+      // default the date to the current single selection, else the latest day
+      var sel = selectedDates();
+      $('aDate').value = (sel.length===1 ? sel[0] : (ALL_DATES[ALL_DATES.length-1]||''));
+      $('aSection').value=''; $('aActivity').value=''; $('aManpower').value='0'; $('aArea').value='';
+      $('aActivity').focus();
+    }
+  });
+  $('aCancel').addEventListener('click', function(){ $('addForm').hidden = true; });
+  $('aSave').addEventListener('click', function(){
+    var rec = { date:$('aDate').value, area:$('aArea').value, section:$('aSection').value.trim(),
+                activity:$('aActivity').value.trim(), manpower:Number($('aManpower').value)||0 };
+    if (!rec.date){ toast('Pick a date.'); return; }
+    if (!rec.activity){ toast('Enter the activity.'); return; }
+    if (!(window.google && google.script && google.script.run)){
+      var nr = (ACTS.reduce(function(m,x){return Math.max(m,x._row||1);},1))+1;
+      ACTS.push({_row:nr, date:rec.date, area:rec.area, section:rec.section, activity:rec.activity, manpower:rec.manpower});
+      $('addForm').hidden=true; render(); toast('Added (local)'); return;
+    }
+    $('aSave').disabled=true; $('aSave').textContent='Adding…';
+    google.script.run
+      .withSuccessHandler(function(){ $('aSave').disabled=false; $('aSave').textContent='Add';
+        $('addForm').hidden=true; toast('Activity added.'); reloadData(); })
+      .withFailureHandler(function(e){ $('aSave').disabled=false; $('aSave').textContent='Add';
+        toast('Add failed: ' + (e && e.message || e)); })
+      .addActivity(rec);
+  });
+
+  // Re-fetch from the sheet after add/delete (row numbers shift), keep filters.
+  function reloadData(){
+    if (!(window.google && google.script && google.script.run)){ render(); return; }
+    var from=$('fFrom').value, to=$('fTo').value, area=$('fArea').value, q=$('fSearch').value;
+    google.script.run
+      .withSuccessHandler(function(rep){
+        editingRow=null; onData(rep);
+        if (from) $('fFrom').value=from; if (to) $('fTo').value=to;
+        if (area) $('fArea').value=area; $('fSearch').value=q;
+        render();
+      })
+      .withFailureHandler(function(e){ toast('Reload failed: ' + (e && e.message || e)); })
+      .getReport();
+  }
 
   function saveEdit(rowId, tr){
     var a = actByRow(rowId); if(!a) return;

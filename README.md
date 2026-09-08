@@ -35,9 +35,12 @@ dashboard.
 
 3. **Productivity & Summary Dashboard (director & team) — the same web app at
    `?page=view`.** Reads the Sheet live and shows **KPI cards** (DW / BP / BT / CW
-   counts, concrete m³, total manpower), a **7-day concrete-volume bar chart**, a
+   counts, concrete m³, total manpower), a **concrete-volume bar chart**, a
    **DW/BP/BT/CW doughnut** (Chart.js), and the **merged activities** list —
-   filterable by Date, Area and search.
+   with a **From/To date range** (blank = all dates), Area and search filters.
+   Activities are fully editable in the Viewer: **✎ Edit**, **🗑 Delete**, and
+   **＋ Add activity** all write straight back to the `Activities` tab (and keep
+   the day's manpower KPI in sync), so corrections are stored permanently.
 
 ## What the AI does
 

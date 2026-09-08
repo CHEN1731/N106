@@ -48,8 +48,29 @@
       </div>
 
       <div class="actwrap">
-        <div class="panel"><h2>Merged activities</h2>
-          <p class="sub" id="actMeta">Combined &amp; de-duplicated from RTO + AIS, grouped by Area — click <b>✎ Edit</b> to correct a record</p>
+        <div class="panel">
+          <div class="acthead">
+            <div>
+              <h2>Merged activities</h2>
+              <p class="sub" id="actMeta">Combined &amp; de-duplicated — <b>✎ Edit</b> / <b>🗑</b> a record, or add one. Changes save to the Google Sheet.</p>
+            </div>
+            <button id="addToggle" class="primary">＋ Add activity</button>
+          </div>
+          <div id="addForm" class="addform" hidden>
+            <label>Date <input type="date" id="aDate"></label>
+            <label>Area
+              <select id="aArea">
+                <option value="">(auto from section)</option>
+                <option>Area 1</option><option>Area 2</option>
+                <option>Area 3</option><option>Area 4</option>
+              </select>
+            </label>
+            <label>Section <input id="aSection" placeholder="e.g. Sec-C/Mb"></label>
+            <label class="grow">Activity <input id="aActivity" placeholder="work description"></label>
+            <label>Manpower <input type="number" id="aManpower" min="0" step="1" value="0"></label>
+            <button id="aSave" class="primary">Add</button>
+            <button id="aCancel">Cancel</button>
+          </div>
         </div>
         <div id="areas"></div>
       </div>

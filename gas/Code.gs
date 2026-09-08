@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-16 · area auto-fill (section+segment)';
+var APP_VERSION = 'build-17 · add/delete activity';
 
 /**
  * Route:
@@ -179,6 +179,76 @@ function saveActivityEdit(edit) {
   var total = sumManpowerForDate_(sheet, date);
   updateProductivityManpower_(ss, date, total);
   return total;
+}
+
+/**
+ * Add a new activity from the Viewer. `rec` = {date, area, section, activity,
+ * manpower}. Appends to the Activities tab (creating it if needed), derives the
+ * Area from the section when blank, ensures a Productivity row exists for the
+ * date, and refreshes that date's total manpower. Returns the new totalManpower.
+ */
+function addActivity(rec) {
+  var ss = getSpreadsheet_();
+  var date = toDateStr_(rec && rec.date);
+  if (!date) throw new Error('Pick a date for the new activity.');
+  var activity = String(rec.activity == null ? '' : rec.activity).trim();
+  if (!activity) throw new Error('Activity description is required.');
+  var section = String(rec.section == null ? '' : rec.section).trim();
+  var area = String(rec.area == null ? '' : rec.area).trim() || areaFromSection_(section) || '';
+
+  var sheet = ss.getSheetByName(TABS.activities);
+  if (!sheet || sheet.getLastRow() === 0) {
+    writeTable_(ss, TABS.activities, ACTIVITY_HEADER, []);
+    sheet = ss.getSheetByName(TABS.activities);
+  }
+  sheet.appendRow([date, area, section, activity, Number(rec.manpower) || 0]);
+
+  ensureProductivityRow_(ss, date);
+  var total = sumManpowerForDate_(sheet, date);
+  updateProductivityManpower_(ss, date, total);
+  return total;
+}
+
+/**
+ * Delete one Activities row from the Viewer. `edit` = {row, orig:{section,
+ * activity, manpower}}. The orig snapshot guards against deleting the wrong row
+ * if the sheet shifted. Refreshes that date's total manpower. Returns it.
+ */
+function deleteActivity(edit) {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(TABS.activities);
+  if (!sheet) throw new Error('No Activities tab.');
+  var row = Number(edit && edit.row);
+  if (!(row >= 2 && row <= sheet.getLastRow())) {
+    throw new Error('Row out of range — click Refresh, then delete again.');
+  }
+  var cur = sheet.getRange(row, 1, 1, 5).getValues()[0];
+  if (edit.orig) {
+    if (String(edit.orig.section) !== String(cur[2]) ||
+        String(edit.orig.activity) !== String(cur[3]) ||
+        (Number(edit.orig.manpower) || 0) !== (Number(cur[4]) || 0)) {
+      throw new Error('This row changed since you loaded it — click Refresh, then delete again.');
+    }
+  }
+  var date = toDateStr_(cur[0]);
+  sheet.deleteRow(row);
+  var total = sheet.getLastRow() > 1 ? sumManpowerForDate_(sheet, date) : 0;
+  updateProductivityManpower_(ss, date, total);
+  return total;
+}
+
+/** Ensure a Productivity row exists for `date` (zeroed if new), so KPIs show it. */
+function ensureProductivityRow_(ss, date) {
+  var sheet = ss.getSheetByName(TABS.productivity);
+  if (!sheet || sheet.getLastRow() === 0) {
+    writeTable_(ss, TABS.productivity, PRODUCTIVITY_HEADER, []);
+    sheet = ss.getSheetByName(TABS.productivity);
+  }
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    if (toDateStr_(values[i][0]) === String(date)) return;
+  }
+  sheet.appendRow([date, 0, 0, 0, 0, 0, 0, '', '', '', '']);
 }
 
 /** Sum the manpower column of the Activities tab for one date. */
