@@ -62,8 +62,18 @@ assert(areaFromSection_('Sec-D/Ub') === 'Area 3', 'Ub -> Area 3');
 assert(areaFromSection_('Ja') === 'Area 1', 'Ja -> Area 1');
 assert(areaFromSection_('.../P5') === 'Area 4', 'P5 -> Area 4 (not P/Area 2)');
 assert(areaFromSection_('CUBE 8 (Qb)') === 'Area 1', 'Qb inside free text -> Area 1');
-assert(areaFromSection_('Sec-D/EI12') === '', 'unmapped code -> "" (blank)');
+assert(areaFromSection_('Sec-D/EI12') === 'Area 3', 'EI12 -> Area 3');
+assert(areaFromSection_('P323') === '', 'unmapped code -> "" (blank)');
 assert(areaFromSection_('Area 3') === 'Area 3', 'already "Area 3" kept');
+// Section-letter fallback (records with only Sec-A..Sec-E)
+assert(areaFromSection_('Sec-A') === 'Area 1', 'Sec-A -> Area 1');
+assert(areaFromSection_('Sec-C') === 'Area 2', 'Sec-C -> Area 2');
+assert(areaFromSection_('Section D') === 'Area 3', 'Section D -> Area 3');
+assert(areaFromSection_('Sec-E') === 'Area 4', 'Sec-E -> Area 4');
+assert(areaFromSection_('OPA') === 'Area 2', 'OPA -> Area 2');
+assert(areaFromSection_('XR14') === 'Area 4', 'XR14 -> Area 4');
+// Segment wins over the section letter when both are present.
+assert(areaFromSection_('Sec-C/Sb') === 'Area 3', 'Sec-C/Sb -> segment Sb wins (Area 3)');
 
 console.log('\nArea auto-fill applied by the normaliser (missing area filled):');
 const na = normalizeProductivity_({

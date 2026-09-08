@@ -200,7 +200,16 @@ function areaFromSection_(section) {
   var lower = areaMapLower_();
   var slash = s.lastIndexOf('/');
   var cand = slash >= 0 ? s.slice(slash + 1) : s;
-  return scanTokens_(cand, lower) || scanTokens_(s, lower);
+  // 1) Prefer the finer segment/location code (Mb, Ub, OPA, EI12 ...).
+  var hit = scanTokens_(cand, lower) || scanTokens_(s, lower);
+  if (hit) return hit;
+  // 2) Fall back to the Section letter (Sec-A .. Sec-E).
+  var sec = /\bsec(?:tion)?[.\-\s]*([A-E])\b/i.exec(s);
+  if (sec) {
+    var map = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.sectionArea) || {};
+    return map[sec[1].toUpperCase()] || '';
+  }
+  return '';
 }
 
 /** The area->segments mapping as prompt text, e.g. "Area 1: Ja, Jb, ...". */
@@ -208,6 +217,14 @@ function areaListText_() {
   var map = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.segmentArea) || {};
   var groups = {};
   Object.keys(map).forEach(function (k) { (groups[map[k]] = groups[map[k]] || []).push(k); });
+  return Object.keys(groups).sort().map(function (g) { return g + ': ' + groups[g].join(', '); }).join('\n');
+}
+
+/** The Section-letter -> Area mapping as prompt text. */
+function sectionListText_() {
+  var map = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.sectionArea) || {};
+  var groups = {};
+  Object.keys(map).forEach(function (k) { (groups[map[k]] = groups[map[k]] || []).push('Sec-' + k); });
   return Object.keys(groups).sort().map(function (g) { return g + ': ' + groups[g].join(', '); }).join('\n');
 }
 
@@ -290,7 +307,9 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'work in "activity", and that activity\'s manpower in "manpower" (0 if none).\n' +
     '   ALWAYS fill "area" — derive it from the section/segment code using this N106 ' +
     'site-plan map (the code determines the Area). Use exactly "Area 1".."Area 4"; leave ' +
-    '"area" empty only if the section has no code from this list:\n' + areaListText_() + '\n' +
+    '"area" empty only if the section has no code from these lists:\n' +
+    'By segment/location code:\n' + areaListText_() + '\n' +
+    'By Section letter (when no finer code is present):\n' + sectionListText_() + '\n' +
     '2) EXTRACT productivity metrics across the merged day:\n' +
     '   - activeDWalls: all Diaphragm Wall IDs worked on (e.g. DW1547, DW04, DW-64).\n' +
     '   - activeBoredPiles: all Bored Pile IDs (e.g. BP-T9-3, and pile refs like T9-3).\n' +
