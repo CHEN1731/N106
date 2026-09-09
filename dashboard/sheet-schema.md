@@ -36,26 +36,3 @@ The Viewer builds: the **7-day concrete bar chart** from the last 7 `Productivit
 rows' `concrete_m3`; the **DW/BP/BT/CW doughnut** and **KPI cards** from the
 selected date's row; and the **activities list** (filterable by Area) from
 `Activities`.
-
-## Tab: `Safety` — one row per safety finding (id-keyed)
-
-Populated by the AI on Compare→Save (appended, deduped) and by the Viewer's
-**＋ Add finding / ✎ Edit / 🗑 Delete** (which write back here). Unlike the other
-tabs it is **append/edit/delete by `id`**, never upsert-by-date — so manual
-entries are never overwritten by a later upload.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | Text | unique id (`Utilities.getUuid()`), the edit/delete key |
-| `date` | Date (yyyy-mm-dd) | finding date |
-| `area` | Text | Area 1–4 (auto-filled from `section` if blank) |
-| `section` | Text | location / section, e.g. `Sec-C/Mb` |
-| `description` | Text | what the safety issue is and where |
-| `severity` | Text | `Low` / `Medium` / `High` / `Critical` |
-| `status` | Text | `Open` / `Closed` |
-| `raised_by` | Text | who raised it (or blank) |
-| `source` | Text | `ai` (extracted) or `manual` (entered in the Viewer) |
-
-The Viewer shows these in a **Safety findings** panel (filtered by the same
-date-range + area controls) and a red **banner** when the selected range has any
-**Open** finding of severity **High** or **Critical**.

@@ -17,7 +17,7 @@ vm.createContext(sandbox);
 const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, areaFromSection_,
-        normalizeSafetyList_, uniqCodes_, sumConcreteM3_ } = sandbox;
+        uniqCodes_, sumConcreteM3_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -86,25 +86,6 @@ const na = normalizeProductivity_({
 }, '', 'ai');
 assert(na.mergedActivities[0].area === 'Area 2', 'blank area filled from Mb -> Area 2');
 assert(na.mergedActivities[1].area === 'Area 4', 'wrong area corrected from La2 -> Area 4');
-assert(Array.isArray(na.safetyFindings) && na.safetyFindings.length === 0, 'normaliser returns a safetyFindings array');
-
-console.log('\nSafety findings normaliser:');
-const sf = normalizeSafetyList_([
-  { section: 'Sec-C/Mb', description: 'Worker without helmet', severity: 'high', status: 'open', raisedBy: 'SO' },
-  { section: 'Sec-D', description: '', severity: 'x' },                       // empty desc -> dropped
-  { area: '', section: 'La2', description: 'Exposed rebar', severity: 'weird', status: 'closed' }
-]);
-assert(sf.length === 2, 'empty-description findings dropped');
-assert(sf[0].area === 'Area 2' && sf[0].severity === 'High' && sf[0].status === 'Open',
-  'area filled from section, severity/status normalised');
-assert(sf[1].area === 'Area 4' && sf[1].severity === 'Medium' && sf[1].status === 'Closed',
-  'unknown severity -> Medium; La2 -> Area 4; closed kept');
-
-console.log('\nSafety fallback (no AI) from keyword text:');
-const safeFb = productivityFromRecords_(
-  '[5/8/26, 10:00:00] ~ Eng: Sec-C/Mb\nUnsafe scaffold near DW04, worker with no PPE\n', '', '2026-08-05');
-assert(safeFb.safetyFindings.length >= 1, 'fallback flags a safety-keyword line');
-assert(safeFb.safetyFindings[0].area === 'Area 2', 'fallback safety area filled from section (Mb -> Area 2)');
 
 console.log('\nProductivity AI normaliser (counts recomputed from arrays):');
 const norm = normalizeProductivity_({

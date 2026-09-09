@@ -1,11 +1,9 @@
 <script>
   var ACTS = [];   // merged activities [{_row,date,area,section,activity,manpower}]
   var PROD = [];    // productivity history (asc by date)
-  var SAFETY = [];  // safety findings [{id,date,area,section,description,severity,status,raisedBy}]
   var ALL_DATES = [];  // every known date, oldest -> newest
   var concreteChart = null, structChart = null;
-  var editingRow = null;      // _row of the activity being edited (or null)
-  var editingSafetyId = null; // id of the safety finding being edited (or null)
+  var editingRow = null;   // _row of the activity currently being edited (or null)
 
   function $(id){ return document.getElementById(id); }
   function esc(s){ return String(s==null?'':s)
@@ -33,15 +31,13 @@
     ACTS = (report && report.activities) || [];
     PROD = ((report && report.productivity) || []).slice().sort(function(a,b){
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
-    SAFETY = (report && report.safety) || [];
     var name = (report && report.spreadsheetName) || '(no sheet)';
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
     $('src').textContent = PROD.length + ' days · ' + name + ver;
 
     // All known dates, oldest -> newest, for the From / To range pickers.
-    ALL_DATES = uniq(PROD.map(function(p){return p.date;})
-      .concat(ACTS.map(function(a){return String(a.date);}))
-      .concat(SAFETY.map(function(s){return String(s.date);}))).sort();
+    ALL_DATES = uniq(PROD.map(function(p){return p.date;}).concat(ACTS.map(function(a){return String(a.date);})))
+      .sort();
     // From: "(earliest)" + dates; To: "(latest)" + dates. Default = All dates.
     $('fFrom').innerHTML = '<option value="">(earliest)</option>' +
       ALL_DATES.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('');
@@ -135,160 +131,7 @@
     renderActivities(selSet, multi);
     renderConcreteChart(dates);
     renderStructChart(p);
-    renderSafety(selSet, multi);
-    renderBanner(selSet);
   }
-
-  // Safety findings limited to the current date range + area filter.
-  function selectedSafety(selSet){
-    var area=$('fArea').value, q=$('fSearch').value.trim().toLowerCase();
-    return SAFETY.filter(function(s){
-      if (selSet && !selSet[String(s.date)]) return false;
-      if (area && String(s.area)!==area) return false;
-      if (q){ var hay=(s.section+' '+s.description+' '+s.raisedBy).toLowerCase(); if(hay.indexOf(q)===-1) return false; }
-      return true;
-    });
-  }
-
-  function renderBanner(selSet){
-    var open = selectedSafety(selSet).filter(function(s){
-      return s.status!=='Closed' && (s.severity==='High' || s.severity==='Critical'); });
-    var el = $('safetyBanner');
-    if (!open.length){ el.hidden = true; return; }
-    el.hidden = false;
-    el.textContent = '⚠ ' + open.length + ' open High/Critical safety finding' + (open.length===1?'':'s')
-      + ' — ' + open.slice(0,3).map(function(s){ return (s.area?s.area+': ':'') + s.description; }).join(' · ')
-      + (open.length>3 ? ' …' : '');
-  }
-
-  function sevClass(sev){ return String(sev||'Medium').toLowerCase(); }
-
-  function renderSafety(selSet, multi){
-    var rows = selectedSafety(selSet).slice().sort(function(a,b){
-      var o={Critical:0,High:1,Medium:2,Low:3};
-      return (o[a.severity]||9)-(o[b.severity]||9); });
-    var host=$('safety');
-    if(!rows.length){ host.innerHTML='<div class="areagroup"><div class="empty">No safety findings for this filter.</div></div>'; return; }
-    var dateHead = multi ? '<th>Date</th>' : '';
-    var body = rows.map(function(s){ return safetyRowHtml(s, multi); }).join('');
-    host.innerHTML = '<div class="areagroup"><div class="tablewrap"><table><thead><tr>'+
-      dateHead+'<th>Area</th><th>Location</th><th>Finding</th><th>Severity</th><th>Status</th>'+
-      '<th>Raised by</th><th class="acts"></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
-  }
-
-  function safetyRowHtml(s, multi){
-    var dateCell = multi ? '<td class="mono">'+esc(fmtDate(s.date))+'</td>' : '';
-    if (s.id === editingSafetyId){
-      var cols = multi ? 8 : 7;
-      return '<tr class="editing" data-sid="'+attr(s.id)+'"><td colspan="'+cols+'">'+
-        '<div class="editrow">'+
-          (multi ? '<span class="edate">'+esc(fmtDate(s.date))+'</span>' : '')+
-          '<label>Area <select class="s-area">'+areaOptions(s.area)+'</select></label>'+
-          '<label>Location <input class="s-sec" value="'+attr(s.section||'')+'"></label>'+
-          '<label class="grow">Finding <input class="s-desc" value="'+attr(s.description||'')+'"></label>'+
-          '<label>Severity <select class="s-sev">'+sevOptions(s.severity)+'</select></label>'+
-          '<label>Status <select class="s-stat">'+statOptions(s.status)+'</select></label>'+
-          '<label>Raised by <input class="s-by" value="'+attr(s.raisedBy||'')+'"></label>'+
-          '<button class="s-save">Save</button> <button class="s-cancel">Cancel</button>'+
-        '</div></td></tr>';
-    }
-    return '<tr class="'+(s.status==='Closed'?'closed':'')+'" data-sid="'+attr(s.id)+'">'+ dateCell +
-      '<td>'+esc(s.area||'—')+'</td><td>'+esc(s.section||'—')+'</td>'+
-      '<td class="act">'+esc(s.description||'')+'</td>'+
-      '<td><span class="sev '+sevClass(s.severity)+'">'+esc(s.severity||'Medium')+'</span></td>'+
-      '<td class="stat">'+esc(s.status||'Open')+'</td>'+
-      '<td>'+esc(s.raisedBy||'')+'</td>'+
-      '<td class="acts"><button class="s-edit" title="Edit">✎ Edit</button>'+
-      '<button class="s-del" title="Delete">🗑</button></td></tr>';
-  }
-
-  function sevOptions(cur){
-    return ['Low','Medium','High','Critical'].map(function(o){
-      return '<option'+(o===(cur||'Medium')?' selected':'')+'>'+o+'</option>'; }).join('');
-  }
-  function statOptions(cur){
-    return ['Open','Closed'].map(function(o){
-      return '<option'+(o===(cur||'Open')?' selected':'')+'>'+o+'</option>'; }).join('');
-  }
-  function safetyById(id){ for(var i=0;i<SAFETY.length;i++) if(String(SAFETY[i].id)===String(id)) return SAFETY[i]; return null; }
-
-  // Safety edit/delete (delegated).
-  $('safety').addEventListener('click', function(ev){
-    var btn=ev.target, tr=btn.closest && btn.closest('tr[data-sid]');
-    if(!tr) return;
-    var id=tr.getAttribute('data-sid');
-    if (btn.classList.contains('s-edit')){ editingSafetyId=id; render(); }
-    else if (btn.classList.contains('s-cancel')){ editingSafetyId=null; render(); }
-    else if (btn.classList.contains('s-save')){ saveSafety(id, tr); }
-    else if (btn.classList.contains('s-del')){ deleteSafetyRow(id); }
-  });
-
-  function saveSafety(id, tr){
-    var s=safetyById(id); if(!s) return;
-    var edit={ id:id,
-      area: tr.querySelector('.s-area').value,
-      section: tr.querySelector('.s-sec').value,
-      description: tr.querySelector('.s-desc').value,
-      severity: tr.querySelector('.s-sev').value,
-      status: tr.querySelector('.s-stat').value,
-      raisedBy: tr.querySelector('.s-by').value };
-    if (!edit.description.trim()){ toast('Description required.'); return; }
-    tr.querySelectorAll('button').forEach(function(b){ b.disabled=true; });
-    if (!(window.google && google.script && google.script.run)){
-      s.area=edit.area; s.section=edit.section; s.description=edit.description;
-      s.severity=edit.severity; s.status=edit.status; s.raisedBy=edit.raisedBy;
-      editingSafetyId=null; render(); toast('Saved (local)'); return;
-    }
-    google.script.run
-      .withSuccessHandler(function(){ editingSafetyId=null; toast('Saved.'); reloadData(); })
-      .withFailureHandler(function(e){ tr.querySelectorAll('button').forEach(function(b){b.disabled=false;});
-        toast('Save failed: '+(e&&e.message||e)); })
-      .saveSafetyEdit(edit);
-  }
-
-  function deleteSafetyRow(id){
-    var s=safetyById(id); if(!s) return;
-    if (!window.confirm('Delete this safety finding?\n\n'+(s.description||''))) return;
-    if (!(window.google && google.script && google.script.run)){
-      SAFETY=SAFETY.filter(function(x){return String(x.id)!==String(id);}); render(); toast('Deleted (local)'); return;
-    }
-    google.script.run
-      .withSuccessHandler(function(){ toast('Deleted.'); reloadData(); })
-      .withFailureHandler(function(e){ toast('Delete failed: '+(e&&e.message||e)); })
-      .deleteSafety(id);
-  }
-
-  // Add-finding form.
-  $('sfAddToggle').addEventListener('click', function(){
-    var f=$('sfAddForm'); f.hidden=!f.hidden;
-    if(!f.hidden){
-      var sel=selectedDates();
-      $('sfDate').value=(sel.length===1?sel[0]:(ALL_DATES[ALL_DATES.length-1]||''));
-      $('sfArea').value=''; $('sfSection').value=''; $('sfDesc').value='';
-      $('sfSeverity').value='Medium'; $('sfStatus').value='Open'; $('sfRaised').value='';
-      $('sfDesc').focus();
-    }
-  });
-  $('sfCancel').addEventListener('click', function(){ $('sfAddForm').hidden=true; });
-  $('sfSave').addEventListener('click', function(){
-    var rec={ date:$('sfDate').value, area:$('sfArea').value, section:$('sfSection').value.trim(),
-      description:$('sfDesc').value.trim(), severity:$('sfSeverity').value, status:$('sfStatus').value,
-      raisedBy:$('sfRaised').value.trim() };
-    if(!rec.date){ toast('Pick a date.'); return; }
-    if(!rec.description){ toast('Enter the finding.'); return; }
-    if (!(window.google && google.script && google.script.run)){
-      SAFETY.push({ id:'local-'+Date.now(), date:rec.date, area:rec.area, section:rec.section,
-        description:rec.description, severity:rec.severity, status:rec.status, raisedBy:rec.raisedBy, source:'manual' });
-      $('sfAddForm').hidden=true; render(); toast('Added (local)'); return;
-    }
-    $('sfSave').disabled=true; $('sfSave').textContent='Adding…';
-    google.script.run
-      .withSuccessHandler(function(){ $('sfSave').disabled=false; $('sfSave').textContent='Add';
-        $('sfAddForm').hidden=true; toast('Finding added.'); reloadData(); })
-      .withFailureHandler(function(e){ $('sfSave').disabled=false; $('sfSave').textContent='Add';
-        toast('Add failed: '+(e&&e.message||e)); })
-      .addSafety(rec);
-  });
 
   function renderActivities(selSet, multi){
     var area=$('fArea').value, q=$('fSearch').value.trim().toLowerCase();
