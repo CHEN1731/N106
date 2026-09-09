@@ -17,7 +17,7 @@ vm.createContext(sandbox);
 const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, areaFromSection_,
-        uniqCodes_, sumConcreteM3_ } = sandbox;
+        normActivityStatus_, firstElementId_, uniqCodes_, sumConcreteM3_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -87,6 +87,29 @@ const na = normalizeProductivity_({
 assert(na.mergedActivities[0].area === 'Area 2', 'blank area filled from Mb -> Area 2');
 assert(na.mergedActivities[1].area === 'Area 4', 'wrong area corrected from La2 -> Area 4');
 
+console.log('\nStrict extraction: status + elementId helpers:');
+assert(normActivityStatus_('DW1547 concreting completed') === 'Completed', '"completed" -> Completed');
+assert(normActivityStatus_('excavation ongoing') === 'In Progress', '"ongoing" -> In Progress');
+assert(normActivityStatus_('rig breakdown, waiting for mechanic') === 'Halted/Delayed', '"breakdown" -> Halted/Delayed');
+assert(normActivityStatus_('') === 'In Progress', 'empty -> In Progress (default)');
+assert(normActivityStatus_('Halted/Delayed') === 'Halted/Delayed', 'exact status kept');
+assert(firstElementId_('lowering rebar cage for DW 1547 today') === 'DW1547', 'elementId parsed from text (DW 1547 -> DW1547)');
+assert(firstElementId_('general housekeeping') === '', 'no element code -> ""');
+
+console.log('\nStrict extraction: normaliser carries elementId + status:');
+const se = normalizeProductivity_({
+  date: '2026-08-22',
+  mergedActivities: [
+    { section: 'Sec-C/Mb', elementId: '', activity: 'DW1547 concreting completed', status: 'completed', manpower: 6 },
+    { section: 'Sec-D/Ub', activity: 'BT20-2 excavation ongoing', manpower: 4 }  // no status/elementId given
+  ],
+  productivityData: {}
+}, '', 'ai');
+assert(se.mergedActivities[0].status === 'Completed', 'AI status "completed" normalised to Completed');
+assert(se.mergedActivities[0].elementId === 'DW1547', 'blank elementId backfilled from activity text');
+assert(se.mergedActivities[1].status === 'In Progress', 'missing status inferred (ongoing -> In Progress)');
+assert(se.mergedActivities[1].elementId === 'BT20-2', 'elementId inferred (BT20-2)');
+
 console.log('\nProductivity AI normaliser (counts recomputed from arrays):');
 const norm = normalizeProductivity_({
   date: '5/8/26',
@@ -117,6 +140,8 @@ assert(fb.productivityData.bWallCount === 1, 'BT count = 1 (BT20-2)');
 assert(fb.productivityData.cWallCount === 1, 'CW count = 1 (CW323)');
 assert(fb.productivityData.totalConcreteVolumeM3 === 42, 'concrete m3 = 42');
 assert(fb.productivityData.totalManpower === 23, 'manpower = 10+8+5 = 23 (got ' + fb.productivityData.totalManpower + ')');
+assert(fb.mergedActivities[0].elementId === 'DW1547' && fb.mergedActivities[0].status === 'In Progress',
+  'fallback activity carries elementId (DW1547) + status (In Progress)');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

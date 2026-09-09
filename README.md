@@ -44,14 +44,20 @@ dashboard.
 
 ## What the AI does
 
-The two reports (RTO + AIS) are sent to Claude, which **merges and de-duplicates**
-the activities (one unified entry when both mention the same work) and **extracts
-productivity metrics**: active structural elements — Diaphragm Walls (DW), Bored
-Piles (BP), Buttress Walls (BT), Cross Walls (CW) — plus concrete cast volume (m³)
-and manpower. Output is a forced-JSON tool call:
+The two reports (RTO + AIS) are sent to Claude with a strict Lead-Site-Engineer
+**system prompt** (`PRODUCTIVITY_SYSTEM` in `gas/Extract.gs`) that applies explicit
+**inclusion rules** (physical progress: drilling, excavation, concreting, casting,
+grouting…, plus volume/depth/load/manpower metrics) and **exclusion rules** (drops
+noise: "No activity", housekeeping/cleaning, generic prep, "waiting for…",
+maintenance — unless it blocks the critical path). It then **merges and
+de-duplicates** the activities (one unified entry per element, e.g. `DW1547`),
+tags each with a **status** (`Completed` / `In Progress` / `Halted/Delayed`) and an
+**elementId**, and **extracts productivity metrics**: active structural elements —
+Diaphragm Walls (DW), Bored Piles (BP), Buttress Walls (BT), Cross Walls (CW) —
+plus concrete cast volume (m³) and manpower. Output is a forced-JSON tool call:
 
 ```
-{ date, mergedActivities:[{area,section,activity,manpower}],
+{ date, mergedActivities:[{area,section,elementId,activity,status,manpower}],
   productivityData:{ activeDWalls[], dWallCount, activeBoredPiles[], bPileCount,
     activeButtressWalls[], bWallCount, activeCrossWalls[], cWallCount,
     totalConcreteVolumeM3, totalManpower } }

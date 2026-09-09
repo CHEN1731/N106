@@ -13,8 +13,15 @@ One row per **merged** activity (RTO + AIS combined and de-duplicated).
 | `date` | Date (yyyy-mm-dd) | report date (upsert key) |
 | `area` | Text | Area 1–4 (or blank) |
 | `section` | Text | section / segment / location, e.g. `Sec-C/Mb` |
+| `element_id` | Text | structural element ID, e.g. `DW1547`, `BP-T9-3` (or blank) |
 | `activity` | Text | unified work description |
+| `status` | Text | `Completed` / `In Progress` / `Halted/Delayed` |
 | `manpower` | Number | manpower for this activity |
+
+The AI applies strict **inclusion/exclusion** filtering (see `gas/Extract.gs`
+`PRODUCTIVITY_SYSTEM`) so only meaningful physical progress / critical-path items
+are extracted, and assigns each a `status`. `element_id` and `status` are also
+editable per-row in the Viewer.
 
 ## Tab: `Productivity` — one row per date (drives the charts)
 

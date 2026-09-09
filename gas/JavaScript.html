@@ -180,7 +180,8 @@
     body.innerHTML = '';
     (lastResult.mergedActivities || []).forEach(function (a) {
       var tr = document.createElement('tr');
-      tr.innerHTML = td(a.area) + td(a.section) + td(a.activity) + td(a.manpower || 0);
+      tr.innerHTML = td(a.area) + td(a.section) + td(a.elementId || '') + td(a.activity) +
+        td(a.status || '') + td(a.manpower || 0);
       body.appendChild(tr);
     });
   }

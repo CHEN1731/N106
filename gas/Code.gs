@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-18 · edit area';
+var APP_VERSION = 'build-19 · strict extraction';
 
 /**
  * Route:
@@ -113,7 +113,7 @@ function runComparison(rtoText, aisText, reportDate) {
   };
 }
 
-var ACTIVITY_HEADER = ['date', 'area', 'section', 'activity', 'manpower'];
+var ACTIVITY_HEADER = ['date', 'area', 'section', 'element_id', 'activity', 'status', 'manpower'];
 var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 'cwall_count',
   'concrete_m3', 'total_manpower', 'active_dwalls', 'active_bpiles', 'active_bwalls', 'active_crosswalls'];
 
@@ -128,7 +128,8 @@ function saveToSheet(result) {
   // Activities: one row per merged activity (all rows for this date replaced).
   upsertByDate_(ss, TABS.activities, ACTIVITY_HEADER, 0,
     (result.mergedActivities || []).map(function (a) {
-      return [date, a.area || '', a.section || '', a.activity || '', a.manpower || 0];
+      return [date, a.area || '', a.section || '', a.elementId || '', a.activity || '',
+        a.status || 'In Progress', a.manpower || 0];
     }));
 
   // Productivity: one row per date (metrics for the charts).
@@ -159,11 +160,12 @@ function saveActivityEdit(edit) {
   if (!(row >= 2 && row <= sheet.getLastRow())) {
     throw new Error('Row out of range — click Refresh, then edit again.');
   }
-  var cur = sheet.getRange(row, 1, 1, 5).getValues()[0]; // [date, area, section, activity, manpower]
+  // Columns: [date, area, section, element_id, activity, status, manpower]
+  var cur = sheet.getRange(row, 1, 1, 7).getValues()[0];
   if (edit.orig) {
     if (String(edit.orig.section) !== String(cur[2]) ||
-        String(edit.orig.activity) !== String(cur[3]) ||
-        (Number(edit.orig.manpower) || 0) !== (Number(cur[4]) || 0)) {
+        String(edit.orig.activity) !== String(cur[4]) ||
+        (Number(edit.orig.manpower) || 0) !== (Number(cur[6]) || 0)) {
       throw new Error('This row changed since you loaded it — click Refresh, then edit again.');
     }
   }
@@ -171,9 +173,11 @@ function saveActivityEdit(edit) {
   if (Object.prototype.hasOwnProperty.call(edit, 'area')) {
     sheet.getRange(row, 2).setValue(edit.area == null ? '' : edit.area);
   }
-  sheet.getRange(row, 3, 1, 3).setValues([[
+  sheet.getRange(row, 3, 1, 5).setValues([[
     edit.section == null ? '' : edit.section,
+    edit.elementId == null ? String(cur[3] || '') : edit.elementId,
     edit.activity == null ? '' : edit.activity,
+    edit.status == null ? String(cur[5] || 'In Progress') : edit.status,
     Number(edit.manpower) || 0
   ]]);
 
@@ -205,7 +209,8 @@ function addActivity(rec) {
     writeTable_(ss, TABS.activities, ACTIVITY_HEADER, []);
     sheet = ss.getSheetByName(TABS.activities);
   }
-  sheet.appendRow([date, area, section, activity, Number(rec.manpower) || 0]);
+  sheet.appendRow([date, area, section, String(rec.elementId == null ? '' : rec.elementId),
+    activity, rec.status || 'In Progress', Number(rec.manpower) || 0]);
 
   ensureProductivityRow_(ss, date);
   var total = sumManpowerForDate_(sheet, date);
@@ -226,11 +231,12 @@ function deleteActivity(edit) {
   if (!(row >= 2 && row <= sheet.getLastRow())) {
     throw new Error('Row out of range — click Refresh, then delete again.');
   }
-  var cur = sheet.getRange(row, 1, 1, 5).getValues()[0];
+  // Columns: [date, area, section, element_id, activity, status, manpower]
+  var cur = sheet.getRange(row, 1, 1, 7).getValues()[0];
   if (edit.orig) {
     if (String(edit.orig.section) !== String(cur[2]) ||
-        String(edit.orig.activity) !== String(cur[3]) ||
-        (Number(edit.orig.manpower) || 0) !== (Number(cur[4]) || 0)) {
+        String(edit.orig.activity) !== String(cur[4]) ||
+        (Number(edit.orig.manpower) || 0) !== (Number(cur[6]) || 0)) {
       throw new Error('This row changed since you loaded it — click Refresh, then delete again.');
     }
   }
@@ -260,7 +266,7 @@ function sumManpowerForDate_(sheet, date) {
   var values = sheet.getDataRange().getValues();
   var sum = 0;
   for (var i = 1; i < values.length; i++) {
-    if (toDateStr_(values[i][0]) === String(date)) sum += Number(values[i][4]) || 0;
+    if (toDateStr_(values[i][0]) === String(date)) sum += Number(values[i][6]) || 0;
   }
   return sum;
 }
@@ -328,7 +334,9 @@ function getReport() {
       date: toDateStr_(row.date),
       area: String(row.area == null ? '' : row.area),
       section: String(row.section == null ? '' : row.section),
+      elementId: String(row.element_id == null ? '' : row.element_id),
       activity: String(row.activity == null ? '' : row.activity),
+      status: String(row.status == null ? '' : row.status),
       manpower: Number(row.manpower) || 0
     };
   }).filter(function (a) {
@@ -377,7 +385,8 @@ function cleanupDuplicates() {
   var ss = getSpreadsheet_();
   var seen = {}, arows = [];
   readTable_(ss, TABS.activities).forEach(function (r) {
-    var row = [toDateStr_(r.date), r.area || '', r.section || '', r.activity || '', Number(r.manpower) || 0];
+    var row = [toDateStr_(r.date), r.area || '', r.section || '', r.element_id || '',
+      r.activity || '', r.status || '', Number(r.manpower) || 0];
     var k = row.join('|');
     if (!seen[k]) { seen[k] = 1; arows.push(row); }
   });

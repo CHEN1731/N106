@@ -253,6 +253,37 @@ function generateProductivity(rtoText, aisText, dateHint) {
   return productivityFromRecords_(rtoText, aisText, dateHint);
 }
 
+// System prompt (persona + strict filtering/status/merging rules). Kept as a
+// stable string so it also caches well as a prompt prefix.
+var PRODUCTIVITY_SYSTEM =
+  'You are an expert Lead Site Engineer. Your task is to extract and merge construction ' +
+  'daily records. You must apply strict filtering rules before outputting the JSON.\n\n' +
+  '1. INCLUSION RULES (What to Keep - High Value Data):\n' +
+  'Extract activities that contain actual physical progress or critical path delays. Look ' +
+  'for these positive keywords:\n' +
+  '- Piling & Walls (DW, BP, BT, CW): "drilling", "excavation", "lowering" (e.g., rebar ' +
+  'cages), "concreting", "casting", "grouting", "backfilling", "hacking".\n' +
+  '- Metrics: Always extract any mention of volume ("m3", "m³"), depth ("m"), load counts ' +
+  '("loads"), and "manpower".\n\n' +
+  '2. EXCLUSION RULES (What to Ignore/Filter Out - Noise):\n' +
+  'DO NOT extract or include activities if they are purely non-value-adding or ' +
+  'administrative, UNLESS they block a critical path. Ignore entries with these negative ' +
+  'keywords:\n' +
+  '- "No activity" or "No Activity observed"\n' +
+  '- "Housekeeping" or "Cleaning" (unless it is a specific major milestone)\n' +
+  '- "Preparation work" (only extract if it involves physical installation like "platform setup")\n' +
+  '- "Waiting for..." (unless it signifies a specific halt/delay status)\n' +
+  '- "Maintenance" (e.g., "crane maintenance" or "hose change", unless it stops production)\n\n' +
+  '3. STRICT STATUS CLASSIFICATION:\n' +
+  'For the activities that pass the inclusion rules, strictly assign one of the following ' +
+  'statuses:\n' +
+  '- Completed: Only if words like "completed", "done", or "finished" are explicitly used.\n' +
+  '- In Progress: For ongoing physical works ("ongoing", "in progress", "started").\n' +
+  '- Halted/Delayed: If work stopped due to "breakdown", "leaking", "rejected", or "waiting for mechanic".\n\n' +
+  '4. MERGING LOGIC:\n' +
+  'If the RTO notes and AIS report mention the same element (e.g., "DW1547"), merge them ' +
+  'into a single comprehensive activity object. Do not list "DW1547" twice.';
+
 /** Claude forced-tool: merge/dedupe + metrics. */
 function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
   var tool = {
@@ -269,10 +300,12 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
             properties: {
               area: { type: 'string', description: 'Area 1-4 (or "")' },
               section: { type: 'string', description: 'Section/segment/location, e.g. Sec-C/Mb' },
+              elementId: { type: 'string', description: 'structural element ID, e.g. DW1547, BP-T9-3, BT20-2, CW323 ("" if none)' },
               activity: { type: 'string', description: 'unified work description' },
+              status: { type: 'string', description: 'Completed | In Progress | Halted/Delayed' },
               manpower: { type: 'integer', description: 'manpower for this activity (0 if unknown)' }
             },
-            required: ['area', 'section', 'activity', 'manpower']
+            required: ['area', 'section', 'elementId', 'activity', 'status', 'manpower']
           }
         },
         productivityData: {
@@ -299,12 +332,18 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
   };
 
   var prompt =
-    'You build a daily productivity dashboard for construction project N106 from two ' +
-    'inputs: (A) RTO field notes and (B) the AIS Daily Report. Do BOTH:\n' +
-    '1) MERGE & DEDUPE activities from both texts. If the same activity/location appears ' +
-    'in both, output ONE unified entry; keep entries unique to either source. Put the ' +
-    'Area (Area 1-4) in "area", the section/segment/location in "section", the unified ' +
-    'work in "activity", and that activity\'s manpower in "manpower" (0 if none).\n' +
+    'Build a daily productivity dashboard for construction project N106 from two inputs: ' +
+    '(A) RTO field notes and (B) the AIS Daily Report. Apply the INCLUSION, EXCLUSION, ' +
+    'STATUS, and MERGING rules from your instructions strictly.\n\n' +
+    '1) For each activity that PASSES the inclusion/exclusion rules, output ONE merged, ' +
+    'de-duplicated object with:\n' +
+    '   - "area": Area 1-4 (see the site-plan map below).\n' +
+    '   - "section": the section/segment/location, e.g. Sec-C/Mb.\n' +
+    '   - "elementId": the structural element ID it concerns (DW1547, BP-T9-3, BT20-2, ' +
+    'CW323 …), or "" if none.\n' +
+    '   - "activity": the unified work description.\n' +
+    '   - "status": exactly one of Completed | In Progress | Halted/Delayed (per the STATUS rules).\n' +
+    '   - "manpower": manpower for this activity (0 if none).\n' +
     '   ALWAYS fill "area" — derive it from the section/segment code using this N106 ' +
     'site-plan map (the code determines the Area). Use exactly "Area 1".."Area 4"; leave ' +
     '"area" empty only if the section has no code from these lists:\n' +
@@ -327,6 +366,7 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     model: getModel_(),
     max_tokens: 8192,
     output_config: { effort: 'low' },
+    system: PRODUCTIVITY_SYSTEM,
     tools: [tool],
     tool_choice: { type: 'tool', name: 'emit_productivity' },
     messages: [{ role: 'user', content: prompt }]
@@ -365,7 +405,10 @@ function normalizeProductivity_(raw, dateHint, source) {
     // Deterministic site-plan map fills/corrects the Area from the section code;
     // fall back to whatever the AI put when the section has no mappable code.
     var area = areaFromSection_(section) || str(a.area);
-    return { area: area, section: section, activity: str(a.activity), manpower: num(a.manpower) };
+    var activity = str(a.activity);
+    var elementId = str(a.elementId) || firstElementId_(section + ' ' + activity);
+    return { area: area, section: section, elementId: elementId, activity: activity,
+             status: normActivityStatus_(a.status || activity), manpower: num(a.manpower) };
   }).filter(function (a) { return a.activity; });
 
   var totalManpower = num(pd.totalManpower);
@@ -402,11 +445,14 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
     var k = String(r.area + '|' + r.activity).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
     if (seen[k]) return;
     seen[k] = true;
+    var act = r.activity || '';
     merged.push({
       area: r.areaGroup || areaFromSection_(r.area) || '',
       section: r.area || '',
-      activity: r.activity || '',
-      manpower: firstManpower_((r.remark || '') + ' ' + (r.activity || ''))
+      elementId: firstElementId_((r.area || '') + ' ' + act),
+      activity: act,
+      status: normActivityStatus_((r.remark || '') + ' ' + act),
+      manpower: firstManpower_((r.remark || '') + ' ' + act)
     });
   });
 
@@ -435,6 +481,26 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
 }
 
 function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
+
+// Structural element codes, used to fill an activity's elementId from its text.
+var ELEMENT_RE = /\b(?:DW[-\s]?\d+[A-Za-z]?|BP[-\s]?[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?|BT[-\s]?\d+(?:-\d+)?|CW[-\s]?\d+|T\d+-\d+)\b/i;
+function firstElementId_(t) {
+  var m = String(t == null ? '' : t).match(ELEMENT_RE);
+  return m ? m[0].toUpperCase().replace(/\s+/g, '') : '';
+}
+
+/** Classify an activity's status: Completed | In Progress | Halted/Delayed (default In Progress). */
+function normActivityStatus_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  if (s === 'completed' || s === 'in progress' || s === 'halted/delayed') {
+    return s === 'in progress' ? 'In Progress' : (s === 'completed' ? 'Completed' : 'Halted/Delayed');
+  }
+  if (/\b(halt|delay|breakdown|broke\s?down|leak|rejected?|waiting for mechanic|stopped|standby|abort)/.test(s)) {
+    return 'Halted/Delayed';
+  }
+  if (/\b(completed?|done|finished?)\b/.test(s)) return 'Completed';
+  return 'In Progress';
+}
 
 /** Normalise a structural code and dedupe case-insensitively (keep first form). */
 function uniqCodes_(list) {
@@ -479,6 +545,8 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeProductivity_: normalizeProductivity_,
     productivityFromRecords_: productivityFromRecords_,
     areaFromSection_: areaFromSection_,
+    normActivityStatus_: normActivityStatus_,
+    firstElementId_: firstElementId_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_
   };

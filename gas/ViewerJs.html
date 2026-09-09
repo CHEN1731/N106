@@ -154,8 +154,8 @@
     host.innerHTML = order.map(function(g){
       var body = groups[g].map(function(a){ return activityRowHtml(a, multi); }).join('');
       return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+
-        '<div class="tablewrap"><table><thead><tr>'+dateHead+'<th>Section</th><th>Activity</th>'+
-        '<th>Manpower</th><th class="acts"></th></tr></thead>'+
+        '<div class="tablewrap"><table><thead><tr>'+dateHead+'<th>Section</th><th>Element</th>'+
+        '<th>Activity</th><th>Status</th><th>Manpower</th><th class="acts"></th></tr></thead>'+
         '<tbody>'+body+'</tbody></table></div></div>';
     }).join('');
   }
@@ -171,22 +171,36 @@
     }).join('');
   }
 
+  function actStatusChip(s){
+    var v = String(s||''); if(!v) return '—';
+    var c = v==='Completed' ? 'completed' : (v==='Halted/Delayed' ? 'halted' : 'progress');
+    return '<span class="st '+c+'">'+esc(v)+'</span>';
+  }
+  function actStatusOptions(cur){
+    return ['In Progress','Completed','Halted/Delayed'].map(function(o){
+      return '<option'+(o===(cur||'In Progress')?' selected':'')+'>'+o+'</option>'; }).join('');
+  }
+
   function activityRowHtml(a, multi){
     var dateCell = multi ? '<td class="mono">'+esc(fmtDate(a.date))+'</td>' : '';
     if (a._row === editingRow){
-      var cols = multi ? 5 : 4;
+      var cols = multi ? 7 : 6;
       return '<tr class="editing" data-row="'+a._row+'"><td colspan="'+cols+'">'+
         '<div class="editrow">'+
           (multi ? '<span class="edate">'+esc(fmtDate(a.date))+'</span>' : '')+
           '<label>Area <select class="e-area">'+areaOptions(a.area)+'</select></label>'+
           '<label>Section <input class="e-sec" value="'+attr(a.section||'')+'"></label>'+
+          '<label>Element <input class="e-elem" value="'+attr(a.elementId||'')+'"></label>'+
           '<label class="grow">Activity <input class="e-act" value="'+attr(a.activity||'')+'"></label>'+
+          '<label>Status <select class="e-status">'+actStatusOptions(a.status)+'</select></label>'+
           '<label>Manpower <input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></label>'+
           '<button class="e-save">Save</button> <button class="e-cancel">Cancel</button>'+
         '</div></td></tr>';
     }
     return '<tr data-row="'+a._row+'">'+ dateCell +'<td>'+esc(a.section||'—')+'</td>'+
+      '<td class="mono">'+esc(a.elementId||'—')+'</td>'+
       '<td class="act">'+esc(a.activity||'')+'</td>'+
+      '<td>'+actStatusChip(a.status)+'</td>'+
       '<td class="mono">'+(a.manpower||0)+'</td>'+
       '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button>'+
       '<button class="e-del" title="Delete this record">🗑</button></td></tr>';
@@ -224,19 +238,22 @@
       // default the date to the current single selection, else the latest day
       var sel = selectedDates();
       $('aDate').value = (sel.length===1 ? sel[0] : (ALL_DATES[ALL_DATES.length-1]||''));
-      $('aSection').value=''; $('aActivity').value=''; $('aManpower').value='0'; $('aArea').value='';
+      $('aSection').value=''; $('aElement').value=''; $('aActivity').value=''; $('aManpower').value='0';
+      $('aArea').value=''; $('aStatus').value='In Progress';
       $('aActivity').focus();
     }
   });
   $('aCancel').addEventListener('click', function(){ $('addForm').hidden = true; });
   $('aSave').addEventListener('click', function(){
     var rec = { date:$('aDate').value, area:$('aArea').value, section:$('aSection').value.trim(),
-                activity:$('aActivity').value.trim(), manpower:Number($('aManpower').value)||0 };
+                elementId:$('aElement').value.trim(), activity:$('aActivity').value.trim(),
+                status:$('aStatus').value, manpower:Number($('aManpower').value)||0 };
     if (!rec.date){ toast('Pick a date.'); return; }
     if (!rec.activity){ toast('Enter the activity.'); return; }
     if (!(window.google && google.script && google.script.run)){
       var nr = (ACTS.reduce(function(m,x){return Math.max(m,x._row||1);},1))+1;
-      ACTS.push({_row:nr, date:rec.date, area:rec.area, section:rec.section, activity:rec.activity, manpower:rec.manpower});
+      ACTS.push({_row:nr, date:rec.date, area:rec.area, section:rec.section, elementId:rec.elementId,
+        activity:rec.activity, status:rec.status, manpower:rec.manpower});
       $('addForm').hidden=true; render(); toast('Added (local)'); return;
     }
     $('aSave').disabled=true; $('aSave').textContent='Adding…';
@@ -268,18 +285,24 @@
     var areaEl = tr.querySelector('.e-area');
     var newArea = areaEl ? areaEl.value : a.area;
     var newSec = tr.querySelector('.e-sec').value;
+    var elemEl = tr.querySelector('.e-elem');
+    var newElem = elemEl ? elemEl.value.trim() : a.elementId;
     var newAct = tr.querySelector('.e-act').value;
+    var statEl = tr.querySelector('.e-status');
+    var newStatus = statEl ? statEl.value : a.status;
     var newMp  = Number(tr.querySelector('.e-mp').value) || 0;
-    var edit = { row: rowId, date: a.date, area: newArea, section: newSec, activity: newAct, manpower: newMp,
+    var edit = { row: rowId, date: a.date, area: newArea, section: newSec, elementId: newElem,
+      activity: newAct, status: newStatus, manpower: newMp,
       orig: { section: a.section, activity: a.activity, manpower: a.manpower } };
     tr.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
     if (!(window.google && google.script && google.script.run)){
       // Offline/mock: just update in memory.
-      a.area=newArea; a.section=newSec; a.activity=newAct; a.manpower=newMp; editingRow=null; render(); toast('Saved (local)'); return;
+      a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.status=newStatus; a.manpower=newMp;
+      editingRow=null; render(); toast('Saved (local)'); return;
     }
     google.script.run
       .withSuccessHandler(function(total){
-        a.area=newArea; a.section=newSec; a.activity=newAct; a.manpower=newMp;
+        a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.status=newStatus; a.manpower=newMp;
         editingRow=null;
         // keep the KPI's manpower in sync with the recomputed total from the server
         var p = prodForDate(a.date); if (p && typeof total==='number') p.totalManpower = total;
