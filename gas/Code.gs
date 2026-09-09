@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-19 · strict extraction';
+var APP_VERSION = 'build-20 · area breakdown + back-check';
 
 /**
  * Route:
@@ -108,12 +108,14 @@ function runComparison(rtoText, aisText, reportDate) {
     reportDate: target || prod.date || '',
     usedAi: !!getApiKey_(),
     source: prod.source,
+    areas: prod.areas,
+    grandTotals: prod.grandTotals,
     mergedActivities: prod.mergedActivities,
     productivityData: prod.productivityData
   };
 }
 
-var ACTIVITY_HEADER = ['date', 'area', 'section', 'element_id', 'activity', 'status', 'manpower'];
+var ACTIVITY_HEADER = ['date', 'area', 'section', 'element_id', 'activity', 'manpower', 'source_evidence'];
 var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 'cwall_count',
   'concrete_m3', 'total_manpower', 'active_dwalls', 'active_bpiles', 'active_bwalls', 'active_crosswalls'];
 
@@ -129,7 +131,7 @@ function saveToSheet(result) {
   upsertByDate_(ss, TABS.activities, ACTIVITY_HEADER, 0,
     (result.mergedActivities || []).map(function (a) {
       return [date, a.area || '', a.section || '', a.elementId || '', a.activity || '',
-        a.status || 'In Progress', a.manpower || 0];
+        a.manpower || 0, a.sourceEvidence || ''];
     }));
 
   // Productivity: one row per date (metrics for the charts).
@@ -160,12 +162,12 @@ function saveActivityEdit(edit) {
   if (!(row >= 2 && row <= sheet.getLastRow())) {
     throw new Error('Row out of range — click Refresh, then edit again.');
   }
-  // Columns: [date, area, section, element_id, activity, status, manpower]
+  // Columns: [date, area, section, element_id, activity, manpower, source_evidence]
   var cur = sheet.getRange(row, 1, 1, 7).getValues()[0];
   if (edit.orig) {
     if (String(edit.orig.section) !== String(cur[2]) ||
         String(edit.orig.activity) !== String(cur[4]) ||
-        (Number(edit.orig.manpower) || 0) !== (Number(cur[6]) || 0)) {
+        (Number(edit.orig.manpower) || 0) !== (Number(cur[5]) || 0)) {
       throw new Error('This row changed since you loaded it — click Refresh, then edit again.');
     }
   }
@@ -173,11 +175,10 @@ function saveActivityEdit(edit) {
   if (Object.prototype.hasOwnProperty.call(edit, 'area')) {
     sheet.getRange(row, 2).setValue(edit.area == null ? '' : edit.area);
   }
-  sheet.getRange(row, 3, 1, 5).setValues([[
+  sheet.getRange(row, 3, 1, 4).setValues([[
     edit.section == null ? '' : edit.section,
     edit.elementId == null ? String(cur[3] || '') : edit.elementId,
     edit.activity == null ? '' : edit.activity,
-    edit.status == null ? String(cur[5] || 'In Progress') : edit.status,
     Number(edit.manpower) || 0
   ]]);
 
@@ -210,7 +211,7 @@ function addActivity(rec) {
     sheet = ss.getSheetByName(TABS.activities);
   }
   sheet.appendRow([date, area, section, String(rec.elementId == null ? '' : rec.elementId),
-    activity, rec.status || 'In Progress', Number(rec.manpower) || 0]);
+    activity, Number(rec.manpower) || 0, String(rec.sourceEvidence == null ? '' : rec.sourceEvidence)]);
 
   ensureProductivityRow_(ss, date);
   var total = sumManpowerForDate_(sheet, date);
@@ -231,12 +232,12 @@ function deleteActivity(edit) {
   if (!(row >= 2 && row <= sheet.getLastRow())) {
     throw new Error('Row out of range — click Refresh, then delete again.');
   }
-  // Columns: [date, area, section, element_id, activity, status, manpower]
+  // Columns: [date, area, section, element_id, activity, manpower, source_evidence]
   var cur = sheet.getRange(row, 1, 1, 7).getValues()[0];
   if (edit.orig) {
     if (String(edit.orig.section) !== String(cur[2]) ||
         String(edit.orig.activity) !== String(cur[4]) ||
-        (Number(edit.orig.manpower) || 0) !== (Number(cur[6]) || 0)) {
+        (Number(edit.orig.manpower) || 0) !== (Number(cur[5]) || 0)) {
       throw new Error('This row changed since you loaded it — click Refresh, then delete again.');
     }
   }
@@ -266,7 +267,7 @@ function sumManpowerForDate_(sheet, date) {
   var values = sheet.getDataRange().getValues();
   var sum = 0;
   for (var i = 1; i < values.length; i++) {
-    if (toDateStr_(values[i][0]) === String(date)) sum += Number(values[i][6]) || 0;
+    if (toDateStr_(values[i][0]) === String(date)) sum += Number(values[i][5]) || 0;
   }
   return sum;
 }
@@ -336,8 +337,8 @@ function getReport() {
       section: String(row.section == null ? '' : row.section),
       elementId: String(row.element_id == null ? '' : row.element_id),
       activity: String(row.activity == null ? '' : row.activity),
-      status: String(row.status == null ? '' : row.status),
-      manpower: Number(row.manpower) || 0
+      manpower: Number(row.manpower) || 0,
+      sourceEvidence: String(row.source_evidence == null ? '' : row.source_evidence)
     };
   }).filter(function (a) {
     var k = a.date + '|' + a.area + '|' + a.section + '|' + a.activity + '|' + a.manpower;
@@ -386,7 +387,7 @@ function cleanupDuplicates() {
   var seen = {}, arows = [];
   readTable_(ss, TABS.activities).forEach(function (r) {
     var row = [toDateStr_(r.date), r.area || '', r.section || '', r.element_id || '',
-      r.activity || '', r.status || '', Number(r.manpower) || 0];
+      r.activity || '', Number(r.manpower) || 0, r.source_evidence || ''];
     var k = row.join('|');
     if (!seen[k]) { seen[k] = 1; arows.push(row); }
   });

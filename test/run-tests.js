@@ -16,8 +16,9 @@ vm.createContext(sandbox);
 });
 const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
-        normalizeProductivity_, productivityFromRecords_, areaFromSection_,
-        normActivityStatus_, firstElementId_, uniqCodes_, sumConcreteM3_ } = sandbox;
+        normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
+        areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
+        uniqCodes_, sumConcreteM3_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -75,78 +76,80 @@ assert(areaFromSection_('XR14') === 'Area 4', 'XR14 -> Area 4');
 // Segment wins over the section letter when both are present.
 assert(areaFromSection_('Sec-C/Sb') === 'Area 3', 'Sec-C/Sb -> segment Sb wins (Area 3)');
 
-console.log('\nArea auto-fill applied by the normaliser (missing area filled):');
+console.log('\nArea auto-fill applied by the normaliser (missing/blank areaName filled from section):');
 const na = normalizeProductivity_({
   date: '2026-08-22',
-  mergedActivities: [
-    { area: '', section: 'Sec-C/Mb', activity: 'Dwall', manpower: 5 },   // missing -> Area 2
-    { area: 'Area 9', section: 'La2', activity: 'Slab', manpower: 3 }     // wrong -> corrected to Area 4
+  areas: [
+    { areaName: '', kpiBreakdown: {}, activities: [
+      { elementId: '', section: 'Sec-C/Mb', activityDescription: 'Dwall', manpower: 5, sourceEvidence: '' }   // -> Area 2
+    ]},
+    { areaName: '', kpiBreakdown: {}, activities: [
+      { elementId: '', section: 'La2', activityDescription: 'Slab', manpower: 3, sourceEvidence: '' }          // -> Area 4
+    ]}
   ],
-  productivityData: {}
+  grandTotals: {}
 }, '', 'ai');
-assert(na.mergedActivities[0].area === 'Area 2', 'blank area filled from Mb -> Area 2');
-assert(na.mergedActivities[1].area === 'Area 4', 'wrong area corrected from La2 -> Area 4');
+assert(!!na.areas.filter(function(x){return x.areaName==='Area 2';}).length, 'blank areaName filled from Mb -> Area 2');
+assert(!!na.areas.filter(function(x){return x.areaName==='Area 4';}).length, 'blank areaName filled from La2 -> Area 4');
 
-console.log('\nStrict extraction: status + elementId helpers:');
-assert(normActivityStatus_('DW1547 concreting completed') === 'Completed', '"completed" -> Completed');
-assert(normActivityStatus_('excavation ongoing') === 'In Progress', '"ongoing" -> In Progress');
-assert(normActivityStatus_('rig breakdown, waiting for mechanic') === 'Halted/Delayed', '"breakdown" -> Halted/Delayed');
-assert(normActivityStatus_('') === 'In Progress', 'empty -> In Progress (default)');
-assert(normActivityStatus_('Halted/Delayed') === 'Halted/Delayed', 'exact status kept');
+console.log('\nElement + area helpers:');
 assert(firstElementId_('lowering rebar cage for DW 1547 today') === 'DW1547', 'elementId parsed from text (DW 1547 -> DW1547)');
 assert(firstElementId_('general housekeeping') === '', 'no element code -> ""');
+assert(classifyElement_('DW04') === 'DW' && classifyElement_('BT20-2') === 'BT' && classifyElement_('CW323') === 'CW',
+  'classifyElement DW/BT/CW');
+assert(classifyElement_('BP-T9-3') === 'BP' && classifyElement_('T9-3') === 'BP', 'classifyElement BP (incl pile ref)');
+assert(normAreaName_('area 2') === 'Area 2' && normAreaName_('Others') === 'Others' && normAreaName_('Sec-C') === '',
+  'normAreaName maps Area N / Others / unknown');
 
-console.log('\nStrict extraction: normaliser carries elementId + status:');
+console.log('\nArea breakdown + back-check (KPI derived from activities):');
 const se = normalizeProductivity_({
   date: '2026-08-22',
-  mergedActivities: [
-    { section: 'Sec-C/Mb', elementId: '', activity: 'DW1547 concreting completed', status: 'completed', manpower: 6 },
-    { section: 'Sec-D/Ub', activity: 'BT20-2 excavation ongoing', manpower: 4 }  // no status/elementId given
+  areas: [
+    { areaName: 'Area 2', kpiBreakdown: {}, activities: [
+      { elementId: '', section: 'Sec-C/Mb', activityDescription: 'DW1547 concreting 84 m3', manpower: 6, sourceEvidence: 'raw dw1547 line' },
+      { elementId: 'DW04', section: 'Sec-C/Mb', activityDescription: 'DW04 rebar', manpower: 4, sourceEvidence: '' }
+    ]},
+    { areaName: 'Area 3', kpiBreakdown: { concreteVolumeM3: 0 }, activities: [
+      { elementId: 'BT20-2', section: 'Sec-D/Ub', activityDescription: 'BT20-2 excavation', manpower: 5, sourceEvidence: '' }
+    ]}
   ],
-  productivityData: {}
+  grandTotals: {}
 }, '', 'ai');
-assert(se.mergedActivities[0].status === 'Completed', 'AI status "completed" normalised to Completed');
+assert(se.date === '2026-08-22', 'date passed through');
+assert(se.areas.length === 2 && se.areas[0].areaName === 'Area 2', 'two areas, Area 2 first');
+assert(se.areas[0].kpiBreakdown.dWallCount === 2 &&
+  se.areas[0].kpiBreakdown.activeDWalls.join(',') === 'DW1547,DW04', 'Area 2 DW list derived from its activities');
+assert(se.areas[0].kpiBreakdown.concreteVolumeM3 === 84, 'Area 2 concrete summed from activity text (84)');
+assert(se.areas[0].kpiBreakdown.areaManpower === 10, 'Area 2 manpower = 6+4');
+assert(se.areas[1].kpiBreakdown.bWallCount === 1, 'Area 3 BT count = 1');
 assert(se.mergedActivities[0].elementId === 'DW1547', 'blank elementId backfilled from activity text');
-assert(se.mergedActivities[1].status === 'In Progress', 'missing status inferred (ongoing -> In Progress)');
-assert(se.mergedActivities[1].elementId === 'BT20-2', 'elementId inferred (BT20-2)');
-
-console.log('\nProductivity AI normaliser (counts recomputed from arrays):');
-const norm = normalizeProductivity_({
-  date: '5/8/26',
-  mergedActivities: [{ area: 'Area 2', section: 'Sec-C/Mb', activity: 'Dwall', manpower: 10 }, { activity: '' }],
-  productivityData: {
-    activeDWalls: ['DW1547', 'DW1547', 'DW04'], dWallCount: 99,   // wrong count -> recomputed
-    activeBoredPiles: ['BP-T9-3'], activeButtressWalls: ['BT20-2'], activeCrossWalls: ['CW323'],
-    totalConcreteVolumeM3: 84, totalManpower: 0
-  }
-}, '', 'ai');
-assert(norm.date === '2026-08-05', 'summary date normalised to ISO');
-assert(norm.productivityData.dWallCount === 2, 'dedupe + recompute dWallCount (99 -> 2)');
-assert(norm.productivityData.bPileCount === 1 && norm.productivityData.cWallCount === 1, 'BP/CW counts from arrays');
-assert(norm.mergedActivities.length === 1, 'empty-activity entries dropped');
-assert(norm.productivityData.totalManpower === 10, 'totalManpower defaults to sum of activity manpower');
+assert(se.mergedActivities.length === 3 && !('status' in se.mergedActivities[0]), 'flattened activities, no status field');
+assert(se.productivityData.dWallCount === 2 && se.grandTotals.totalManpower === 15, 'grand totals rolled up (DW=2, manpower=15)');
 
 console.log('\nProductivity fallback (no AI) from real-ish text:');
 const rto = '[5/8/26, 10:00:00] ~ Eng: Sec-C/Mb\nDW1547 rebar fixing; DW04 concrete casting 42 m3\nManpower: 10\n' +
             '[5/8/26, 10:05:00] ~ Eng: Sec-D/Ub\nBT20-2 excavation and CW323 kicker\nManpower: 8 pax\n';
 const ais = '[5/8/26, 11:05:00] ~ AIS: Sec-A/Ja\nBP-T9-3 boring works, T9-3 pile\nManpower - 5\n';
 const fb = productivityFromRecords_(rto, ais, '2026-08-05');
+function areaOf(res, name){ for (var i=0;i<res.areas.length;i++) if (res.areas[i].areaName===name) return res.areas[i]; return null; }
 assert(fb.source === 'fallback', 'fallback marked source=fallback');
 assert(fb.date === '2026-08-05', 'fallback uses the report date');
 assert(fb.mergedActivities.length === 3, 'merged 3 activities (Mb, Ub, Ja)');
-assert(fb.productivityData.dWallCount === 2, 'DW count = 2 (DW1547, DW04)');
-assert(fb.productivityData.bPileCount === 2, 'BP count = 2 (BP-T9-3, T9-3)');
-assert(fb.productivityData.bWallCount === 1, 'BT count = 1 (BT20-2)');
-assert(fb.productivityData.cWallCount === 1, 'CW count = 1 (CW323)');
-assert(fb.productivityData.totalConcreteVolumeM3 === 42, 'concrete m3 = 42');
-assert(fb.productivityData.totalManpower === 23, 'manpower = 10+8+5 = 23 (got ' + fb.productivityData.totalManpower + ')');
-assert(fb.mergedActivities[0].elementId === 'DW1547' && fb.mergedActivities[0].status === 'In Progress',
-  'fallback activity carries elementId (DW1547) + status (In Progress)');
+assert(fb.areas.map(a => a.areaName).join(',') === 'Area 1,Area 2,Area 3', 'areas grouped + ordered (1,2,3)');
+assert(areaOf(fb,'Area 2').kpiBreakdown.dWallCount === 2, 'Area 2 (Mb) DW count = 2 (DW1547, DW04)');
+assert(areaOf(fb,'Area 1').kpiBreakdown.bPileCount === 2, 'Area 1 (Ja) BP count = 2 (BP-T9-3, T9-3)');
+assert(fb.productivityData.dWallCount === 2, 'grand DW count = 2');
+assert(fb.productivityData.bPileCount === 2, 'grand BP count = 2');
+assert(fb.productivityData.totalConcreteVolumeM3 === 42, 'grand concrete m3 = 42');
+assert(fb.productivityData.totalManpower === 23, 'grand manpower = 10+8+5 = 23 (got ' + fb.productivityData.totalManpower + ')');
+assert(fb.mergedActivities[0].elementId === 'DW1547' && typeof fb.mergedActivities[0].sourceEvidence === 'string',
+  'fallback activity carries elementId + sourceEvidence');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');
 assert(rc.reportDate === '2026-08-05', 'runComparison reports the date');
-assert(rc.productivityData && rc.productivityData.dWallCount === 2, 'runComparison returns productivityData');
+assert(Array.isArray(rc.areas) && rc.areas.length === 3, 'runComparison returns area breakdown');
+assert(rc.productivityData && rc.productivityData.dWallCount === 2, 'runComparison returns grand productivityData');
 assert(Array.isArray(rc.mergedActivities) && rc.mergedActivities.length === 3, 'runComparison returns mergedActivities');
 
 console.log('\n' + (failures ? (failures + ' FAILED') : 'ALL PASSED'));

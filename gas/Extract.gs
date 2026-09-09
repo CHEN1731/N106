@@ -253,11 +253,12 @@ function generateProductivity(rtoText, aisText, dateHint) {
   return productivityFromRecords_(rtoText, aisText, dateHint);
 }
 
-// System prompt (persona + strict filtering/status/merging rules). Kept as a
-// stable string so it also caches well as a prompt prefix.
+// System prompt (persona + strict filtering / grouping / merging / traceability
+// rules). Kept as a stable string so it also caches well as a prompt prefix.
 var PRODUCTIVITY_SYSTEM =
-  'You are an expert Lead Site Engineer. Your task is to extract and merge construction ' +
-  'daily records. You must apply strict filtering rules before outputting the JSON.\n\n' +
+  'You are an expert Lead Site Engineer. Your task is to extract, group, and merge ' +
+  'construction daily records for project N106. Apply these rules strictly before ' +
+  'outputting the JSON.\n\n' +
   '1. INCLUSION RULES (What to Keep - High Value Data):\n' +
   'Extract activities that contain actual physical progress or critical path delays. Look ' +
   'for these positive keywords:\n' +
@@ -272,17 +273,22 @@ var PRODUCTIVITY_SYSTEM =
   '- "No activity" or "No Activity observed"\n' +
   '- "Housekeeping" or "Cleaning" (unless it is a specific major milestone)\n' +
   '- "Preparation work" (only extract if it involves physical installation like "platform setup")\n' +
-  '- "Waiting for..." (unless it signifies a specific halt/delay status)\n' +
+  '- "Waiting for..." (unless it signifies a specific halt/delay)\n' +
   '- "Maintenance" (e.g., "crane maintenance" or "hose change", unless it stops production)\n\n' +
-  '3. STRICT STATUS CLASSIFICATION:\n' +
-  'For the activities that pass the inclusion rules, strictly assign one of the following ' +
-  'statuses:\n' +
-  '- Completed: Only if words like "completed", "done", or "finished" are explicitly used.\n' +
-  '- In Progress: For ongoing physical works ("ongoing", "in progress", "started").\n' +
-  '- Halted/Delayed: If work stopped due to "breakdown", "leaking", "rejected", or "waiting for mechanic".\n\n' +
+  '3. STRICT GROUPING BY AREA:\n' +
+  'Group every kept activity under exactly one "areaName": "Area 1", "Area 2", "Area 3", ' +
+  '"Area 4", or "Others" (only when it truly maps to no area). Derive the area from the ' +
+  'section/segment code using the site-plan map given in the user message.\n\n' +
   '4. MERGING LOGIC:\n' +
   'If the RTO notes and AIS report mention the same element (e.g., "DW1547"), merge them ' +
-  'into a single comprehensive activity object. Do not list "DW1547" twice.';
+  'into a single comprehensive activity object. Do not list "DW1547" twice.\n\n' +
+  '5. TRACEABILITY (back-check):\n' +
+  'For each activity, set "elementId" to the specific structural ID it concerns (DW1547, ' +
+  'BP-T9-3, BT20-2, CW323 …) or null, and set "sourceEvidence" to the ORIGINAL verbatim ' +
+  'snippet from the input that this activity was derived from, so management can verify it. ' +
+  'Each area\'s kpiBreakdown lists (activeDWalls/BoredPiles/ButtressWalls/CrossWalls) must ' +
+  'contain exactly the element IDs that appear in that area\'s activities, and each *Count ' +
+  'must equal its list length, so the KPI numbers reconcile against the activity rows.';
 
 /** Claude forced-tool: merge/dedupe + metrics. */
 function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
@@ -293,70 +299,80 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
       type: 'object',
       properties: {
         date: { type: 'string', description: 'report date, ISO yyyy-mm-dd' },
-        mergedActivities: {
+        areas: {
           type: 'array',
+          description: 'one entry per Area worked on that day',
           items: {
             type: 'object',
             properties: {
-              area: { type: 'string', description: 'Area 1-4 (or "")' },
-              section: { type: 'string', description: 'Section/segment/location, e.g. Sec-C/Mb' },
-              elementId: { type: 'string', description: 'structural element ID, e.g. DW1547, BP-T9-3, BT20-2, CW323 ("" if none)' },
-              activity: { type: 'string', description: 'unified work description' },
-              status: { type: 'string', description: 'Completed | In Progress | Halted/Delayed' },
-              manpower: { type: 'integer', description: 'manpower for this activity (0 if unknown)' }
+              areaName: { type: 'string', description: 'exactly "Area 1", "Area 2", "Area 3", "Area 4", or "Others"' },
+              kpiBreakdown: {
+                type: 'object',
+                properties: {
+                  activeDWalls: { type: 'array', items: { type: 'string' }, description: 'Diaphragm Wall IDs in this area, e.g. DW1547, DW04' },
+                  dWallCount: { type: 'integer' },
+                  activeBoredPiles: { type: 'array', items: { type: 'string' }, description: 'Bored Pile IDs, e.g. BP-T9-3' },
+                  bPileCount: { type: 'integer' },
+                  activeButtressWalls: { type: 'array', items: { type: 'string' }, description: 'Buttress Wall IDs, e.g. BT20-2' },
+                  bWallCount: { type: 'integer' },
+                  activeCrossWalls: { type: 'array', items: { type: 'string' }, description: 'Cross Wall IDs, e.g. CW323' },
+                  cWallCount: { type: 'integer' },
+                  concreteVolumeM3: { type: 'number', description: 'concrete cast in THIS area (m3)' },
+                  areaManpower: { type: 'integer', description: 'total manpower in THIS area' }
+                },
+                required: ['activeDWalls', 'dWallCount', 'activeBoredPiles', 'bPileCount',
+                           'activeButtressWalls', 'bWallCount', 'activeCrossWalls', 'cWallCount',
+                           'concreteVolumeM3', 'areaManpower']
+              },
+              activities: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    elementId: { type: 'string', description: 'the specific ID (DW/BP/BT/CW) if applicable, else ""' },
+                    section: { type: 'string', description: 'section/segment/location, e.g. Sec-C/Mb' },
+                    activityDescription: { type: 'string', description: 'the work description' },
+                    manpower: { type: 'integer', description: 'manpower for this activity (0 if unknown)' },
+                    sourceEvidence: { type: 'string', description: 'original verbatim snippet from the input, for back-checking' }
+                  },
+                  required: ['elementId', 'section', 'activityDescription', 'manpower', 'sourceEvidence']
+                }
+              }
             },
-            required: ['area', 'section', 'elementId', 'activity', 'status', 'manpower']
+            required: ['areaName', 'kpiBreakdown', 'activities']
           }
         },
-        productivityData: {
+        grandTotals: {
           type: 'object',
           properties: {
-            activeDWalls: { type: 'array', items: { type: 'string' }, description: 'Diaphragm Wall IDs e.g. DW1547, DW04' },
-            dWallCount: { type: 'integer' },
-            activeBoredPiles: { type: 'array', items: { type: 'string' }, description: 'Bored Pile IDs e.g. BP-T9-3' },
-            bPileCount: { type: 'integer' },
-            activeButtressWalls: { type: 'array', items: { type: 'string' }, description: 'Buttress Wall IDs e.g. BT20-2' },
-            bWallCount: { type: 'integer' },
-            activeCrossWalls: { type: 'array', items: { type: 'string' }, description: 'Cross Wall IDs e.g. CW323' },
-            cWallCount: { type: 'integer' },
-            totalConcreteVolumeM3: { type: 'number', description: 'sum of concrete cast volumes in m3' },
-            totalManpower: { type: 'integer', description: 'sum of all manpower reported (deduped)' }
+            totalConcreteVolumeM3: { type: 'number' },
+            totalManpower: { type: 'integer' }
           },
-          required: ['activeDWalls', 'dWallCount', 'activeBoredPiles', 'bPileCount',
-                     'activeButtressWalls', 'bWallCount', 'activeCrossWalls', 'cWallCount',
-                     'totalConcreteVolumeM3', 'totalManpower']
+          required: ['totalConcreteVolumeM3', 'totalManpower']
         }
       },
-      required: ['date', 'mergedActivities', 'productivityData']
+      required: ['date', 'areas', 'grandTotals']
     }
   };
 
   var prompt =
     'Build a daily productivity dashboard for construction project N106 from two inputs: ' +
     '(A) RTO field notes and (B) the AIS Daily Report. Apply the INCLUSION, EXCLUSION, ' +
-    'STATUS, and MERGING rules from your instructions strictly.\n\n' +
-    '1) For each activity that PASSES the inclusion/exclusion rules, output ONE merged, ' +
-    'de-duplicated object with:\n' +
-    '   - "area": Area 1-4 (see the site-plan map below).\n' +
-    '   - "section": the section/segment/location, e.g. Sec-C/Mb.\n' +
-    '   - "elementId": the structural element ID it concerns (DW1547, BP-T9-3, BT20-2, ' +
-    'CW323 …), or "" if none.\n' +
-    '   - "activity": the unified work description.\n' +
-    '   - "status": exactly one of Completed | In Progress | Halted/Delayed (per the STATUS rules).\n' +
-    '   - "manpower": manpower for this activity (0 if none).\n' +
-    '   ALWAYS fill "area" — derive it from the section/segment code using this N106 ' +
-    'site-plan map (the code determines the Area). Use exactly "Area 1".."Area 4"; leave ' +
-    '"area" empty only if the section has no code from these lists:\n' +
+    'GROUPING, MERGING, and TRACEABILITY rules from your instructions strictly.\n\n' +
+    'Group all kept, merged activities BY AREA. Output one entry in "areas" per area worked ' +
+    'on, each with:\n' +
+    '   - "areaName": exactly "Area 1".."Area 4" or "Others".\n' +
+    '   - "activities": each = { elementId, section, activityDescription, manpower, sourceEvidence }.\n' +
+    '   - "kpiBreakdown": the counts/ID-lists for THIS area (activeDWalls + dWallCount, ' +
+    'activeBoredPiles + bPileCount, activeButtressWalls + bWallCount, activeCrossWalls + ' +
+    'cWallCount), plus concreteVolumeM3 (m3 cast in this area) and areaManpower. Each ID list ' +
+    'must contain exactly the element IDs present in this area\'s activities; each *Count = its ' +
+    'list length. (BP includes pile refs like T9-3.)\n' +
+    'Also return "grandTotals": { totalConcreteVolumeM3, totalManpower } across all areas.\n\n' +
+    'Derive "areaName" from the section/segment code using this N106 site-plan map ' +
+    '(the code determines the Area); use "Others" only when nothing matches:\n' +
     'By segment/location code:\n' + areaListText_() + '\n' +
     'By Section letter (when no finer code is present):\n' + sectionListText_() + '\n' +
-    '2) EXTRACT productivity metrics across the merged day:\n' +
-    '   - activeDWalls: all Diaphragm Wall IDs worked on (e.g. DW1547, DW04, DW-64).\n' +
-    '   - activeBoredPiles: all Bored Pile IDs (e.g. BP-T9-3, and pile refs like T9-3).\n' +
-    '   - activeButtressWalls: all Buttress Wall IDs (e.g. BT20-2, BT24-1).\n' +
-    '   - activeCrossWalls: all Cross Wall IDs (e.g. CW323, CW320).\n' +
-    '   Deduplicate each list; the *Count fields must equal each list\'s length.\n' +
-    '   - totalConcreteVolumeM3: sum of every concrete cast volume in m3/m³.\n' +
-    '   - totalManpower: sum of manpower across the merged (deduped) activities.\n' +
     (dateHint ? ('This report is for ' + dateHint + '. Only include work for that date.\n') : '') +
     'Call emit_productivity once.\n\n' +
     '=== RTO NOTES ===\n' + (rtoText || '(none)') +
@@ -387,43 +403,133 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
   return normalizeProductivity_(raw, dateHint, 'ai');
 }
 
-/** Coerce any productivity object into the canonical shape; recompute counts. */
+/**
+ * Coerce the AI's nested area response into the canonical shape. KPI id-lists,
+ * counts and totals are RECOMPUTED from the activities (buildProductivityResult_)
+ * so the KPI numbers always reconcile against the activity rows (back-check).
+ */
 function normalizeProductivity_(raw, dateHint, source) {
   raw = raw || {};
-  var pd = raw.productivityData || {};
-  function arr(v) { return Array.isArray(v) ? v : []; }
   function str(v) { return String(v == null ? '' : v).trim(); }
   function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
 
-  var dw = uniqCodes_(arr(pd.activeDWalls).map(str).filter(Boolean));
-  var bp = uniqCodes_(arr(pd.activeBoredPiles).map(str).filter(Boolean));
-  var bt = uniqCodes_(arr(pd.activeButtressWalls).map(str).filter(Boolean));
-  var cw = uniqCodes_(arr(pd.activeCrossWalls).map(str).filter(Boolean));
+  var acts = [], concreteHint = {};
+  (Array.isArray(raw.areas) ? raw.areas : []).forEach(function (ar) {
+    ar = ar || {};
+    var area = normAreaName_(ar.areaName);
+    var kb = ar.kpiBreakdown || {};
+    if (area && num(kb.concreteVolumeM3)) concreteHint[area] = num(kb.concreteVolumeM3);
+    (Array.isArray(ar.activities) ? ar.activities : []).forEach(function (a) {
+      a = a || {};
+      var section = str(a.section);
+      var activity = str(a.activityDescription != null ? a.activityDescription : a.activity);
+      var elementId = str(a.elementId) || firstElementId_(section + ' ' + activity);
+      acts.push({
+        area: area || areaFromSection_(section) || 'Others',
+        section: section, elementId: elementId, activity: activity,
+        manpower: num(a.manpower), sourceEvidence: str(a.sourceEvidence)
+      });
+    });
+  });
+  acts = acts.filter(function (a) { return a.activity; });
+  var date = normalizeDate_(raw.date) || dateHint || str(raw.date);
+  return buildProductivityResult_(date, acts, source || 'ai', concreteHint);
+}
 
-  var merged = arr(raw.mergedActivities).map(function (a) {
-    var section = str(a.section);
-    // Deterministic site-plan map fills/corrects the Area from the section code;
-    // fall back to whatever the AI put when the section has no mappable code.
-    var area = areaFromSection_(section) || str(a.area);
-    var activity = str(a.activity);
-    var elementId = str(a.elementId) || firstElementId_(section + ' ' + activity);
-    return { area: area, section: section, elementId: elementId, activity: activity,
-             status: normActivityStatus_(a.status || activity), manpower: num(a.manpower) };
-  }).filter(function (a) { return a.activity; });
+/** Normalise an area label to "Area 1".."Area 4" / "Others" / "" (unknown). */
+function normAreaName_(v) {
+  var s = String(v == null ? '' : v).trim();
+  var m = /area\s*([1-4])/i.exec(s);
+  if (m) return 'Area ' + m[1];
+  if (/^others?$/i.test(s) || /unassigned|general/i.test(s)) return 'Others';
+  return '';
+}
 
-  var totalManpower = num(pd.totalManpower);
-  if (!totalManpower) totalManpower = merged.reduce(function (s, a) { return s + (a.manpower || 0); }, 0);
+/** Which structure family an element ID belongs to: 'DW' | 'BP' | 'BT' | 'CW' | ''. */
+function classifyElement_(id) {
+  var s = String(id == null ? '' : id).toUpperCase().replace(/\s+/g, '');
+  if (/^DW/.test(s)) return 'DW';
+  if (/^BT/.test(s)) return 'BT';
+  if (/^CW/.test(s)) return 'CW';
+  if (/^BP/.test(s) || /^T\d+-\d+$/.test(s)) return 'BP';
+  return '';
+}
+
+/**
+ * Build the canonical productivity result from a flat activity list. Groups by
+ * area, derives each area's KPI id-lists/counts from the element IDs that appear
+ * in that area's activities (so counts reconcile with the rows), sums concrete
+ * (from activity + sourceEvidence text, or the AI hint) and manpower, and rolls
+ * up grand totals. Also returns a flattened mergedActivities for the Sheet.
+ */
+function buildProductivityResult_(date, acts, source, concreteHint) {
+  var ORDER = ['Area 1', 'Area 2', 'Area 3', 'Area 4', 'Others'];
+  concreteHint = concreteHint || {};
+  var byArea = {};
+  acts.forEach(function (a) {
+    a.area = normAreaName_(a.area) || areaFromSection_(a.section) || 'Others';
+    (byArea[a.area] = byArea[a.area] || []).push(a);
+  });
+  var areas = Object.keys(byArea).sort(function (x, y) {
+    var ix = ORDER.indexOf(x), iy = ORDER.indexOf(y);
+    return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy);
+  }).map(function (area) {
+    var list = byArea[area];
+    var dw = [], bp = [], bt = [], cw = [], concrete = 0, manpower = 0;
+    list.forEach(function (a) {
+      var blob = (a.elementId || '') + ' ' + (a.activity || '') + ' ' + (a.sourceEvidence || '');
+      matchAll_(blob, new RegExp(ELEMENT_RE.source, 'gi')).forEach(function (code) {
+        var t = classifyElement_(code);
+        if (t === 'DW') dw.push(code); else if (t === 'BP') bp.push(code);
+        else if (t === 'BT') bt.push(code); else if (t === 'CW') cw.push(code);
+      });
+      // max(), not sum(): sourceEvidence usually repeats the activity text.
+      concrete += Math.max(sumConcreteM3_(a.activity || ''), sumConcreteM3_(a.sourceEvidence || ''));
+      manpower += Number(a.manpower) || 0;
+    });
+    dw = uniqCodes_(dw); bp = uniqCodes_(bp); bt = uniqCodes_(bt); cw = uniqCodes_(cw);
+    if (!concrete && concreteHint[area]) concrete = concreteHint[area];
+    return {
+      areaName: area,
+      kpiBreakdown: {
+        activeDWalls: dw, dWallCount: dw.length,
+        activeBoredPiles: bp, bPileCount: bp.length,
+        activeButtressWalls: bt, bWallCount: bt.length,
+        activeCrossWalls: cw, cWallCount: cw.length,
+        concreteVolumeM3: Math.round(concrete * 100) / 100, areaManpower: manpower
+      },
+      activities: list.map(function (a) {
+        return { elementId: a.elementId || '', section: a.section || '',
+          activity: a.activity || '', manpower: Number(a.manpower) || 0,
+          sourceEvidence: a.sourceEvidence || '' };
+      })
+    };
+  });
+
+  var gdw = [], gbp = [], gbt = [], gcw = [], gConc = 0, gMan = 0;
+  areas.forEach(function (ar) {
+    var k = ar.kpiBreakdown;
+    gdw = gdw.concat(k.activeDWalls); gbp = gbp.concat(k.activeBoredPiles);
+    gbt = gbt.concat(k.activeButtressWalls); gcw = gcw.concat(k.activeCrossWalls);
+    gConc += k.concreteVolumeM3; gMan += k.areaManpower;
+  });
+  gdw = uniqCodes_(gdw); gbp = uniqCodes_(gbp); gbt = uniqCodes_(gbt); gcw = uniqCodes_(gcw);
 
   return {
-    date: normalizeDate_(raw.date) || dateHint || str(raw.date),
-    mergedActivities: merged,
+    date: date,
+    areas: areas,
+    grandTotals: { totalConcreteVolumeM3: Math.round(gConc * 100) / 100, totalManpower: gMan },
+    mergedActivities: acts.map(function (a) {
+      return { area: a.area, section: a.section || '', elementId: a.elementId || '',
+        activity: a.activity || '', manpower: Number(a.manpower) || 0,
+        sourceEvidence: a.sourceEvidence || '' };
+    }),
     productivityData: {
-      activeDWalls: dw, dWallCount: dw.length,
-      activeBoredPiles: bp, bPileCount: bp.length,
-      activeButtressWalls: bt, bWallCount: bt.length,
-      activeCrossWalls: cw, cWallCount: cw.length,
-      totalConcreteVolumeM3: Math.round(num(pd.totalConcreteVolumeM3) * 100) / 100,
-      totalManpower: totalManpower
+      activeDWalls: gdw, dWallCount: gdw.length,
+      activeBoredPiles: gbp, bPileCount: gbp.length,
+      activeButtressWalls: gbt, bWallCount: gbt.length,
+      activeCrossWalls: gcw, cWallCount: gcw.length,
+      totalConcreteVolumeM3: Math.round(gConc * 100) / 100, totalManpower: gMan
     },
     source: source || 'ai'
   };
@@ -440,44 +546,25 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
   var all = rto.concat(ais);
   var date = dateHint || mostCommonDate_(all);
 
-  var seen = {}, merged = [];
+  var seen = {}, acts = [];
   all.forEach(function (r) {
-    var k = String(r.area + '|' + r.activity).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
+    var act = r.activity || '';
+    var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
     if (seen[k]) return;
     seen[k] = true;
-    var act = r.activity || '';
-    merged.push({
+    var evidence = (r.remark ? (act + ' — ' + r.remark) : act).trim();
+    acts.push({
       area: r.areaGroup || areaFromSection_(r.area) || '',
       section: r.area || '',
       elementId: firstElementId_((r.area || '') + ' ' + act),
       activity: act,
-      status: normActivityStatus_((r.remark || '') + ' ' + act),
-      manpower: firstManpower_((r.remark || '') + ' ' + act)
+      manpower: firstManpower_((r.remark || '') + ' ' + act),
+      sourceEvidence: evidence
     });
   });
-
-  var text = merged.map(function (m) { return m.section + ' ' + m.activity; }).join(' \n ');
-  var dw = uniqCodes_(matchAll_(text, /\bDW[-\s]?\d+[A-Za-z]?\b/gi));
-  var bp = uniqCodes_(matchAll_(text, /\bBP[-\s]?[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?\b/gi)
-                       .concat(matchAll_(text, /\bT\d+-\d+\b/gi)));
-  var bt = uniqCodes_(matchAll_(text, /\bBT[-\s]?\d+(?:-\d+)?\b/gi));
-  var cw = uniqCodes_(matchAll_(text, /\bCW[-\s]?\d+\b/gi));
-  var concrete = sumConcreteM3_(text);
-  var manpower = merged.reduce(function (s, m) { return s + (m.manpower || 0); }, 0);
-
-  return {
-    date: date,
-    mergedActivities: merged,
-    productivityData: {
-      activeDWalls: dw, dWallCount: dw.length,
-      activeBoredPiles: bp, bPileCount: bp.length,
-      activeButtressWalls: bt, bWallCount: bt.length,
-      activeCrossWalls: cw, cWallCount: cw.length,
-      totalConcreteVolumeM3: Math.round(concrete * 100) / 100,
-      totalManpower: manpower
-    },
-    source: 'fallback'
-  };
+  acts = acts.filter(function (a) { return a.activity; });
+  // KPI id-lists/counts, concrete and manpower are derived from the activities.
+  return buildProductivityResult_(date, acts, 'fallback');
 }
 
 function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
@@ -487,19 +574,6 @@ var ELEMENT_RE = /\b(?:DW[-\s]?\d+[A-Za-z]?|BP[-\s]?[A-Za-z0-9]+(?:-[A-Za-z0-9]+
 function firstElementId_(t) {
   var m = String(t == null ? '' : t).match(ELEMENT_RE);
   return m ? m[0].toUpperCase().replace(/\s+/g, '') : '';
-}
-
-/** Classify an activity's status: Completed | In Progress | Halted/Delayed (default In Progress). */
-function normActivityStatus_(v) {
-  var s = String(v == null ? '' : v).trim().toLowerCase();
-  if (s === 'completed' || s === 'in progress' || s === 'halted/delayed') {
-    return s === 'in progress' ? 'In Progress' : (s === 'completed' ? 'Completed' : 'Halted/Delayed');
-  }
-  if (/\b(halt|delay|breakdown|broke\s?down|leak|rejected?|waiting for mechanic|stopped|standby|abort)/.test(s)) {
-    return 'Halted/Delayed';
-  }
-  if (/\b(completed?|done|finished?)\b/.test(s)) return 'Completed';
-  return 'In Progress';
 }
 
 /** Normalise a structural code and dedupe case-insensitively (keep first form). */
@@ -544,8 +618,10 @@ if (typeof module !== 'undefined' && module.exports) {
     generateProductivity: generateProductivity,
     normalizeProductivity_: normalizeProductivity_,
     productivityFromRecords_: productivityFromRecords_,
+    buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
-    normActivityStatus_: normActivityStatus_,
+    normAreaName_: normAreaName_,
+    classifyElement_: classifyElement_,
     firstElementId_: firstElementId_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_

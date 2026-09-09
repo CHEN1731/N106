@@ -1,15 +1,41 @@
 <script>
-  var ACTS = [];   // merged activities [{_row,date,area,section,activity,manpower}]
+  var ACTS = [];   // merged activities [{_row,date,area,section,elementId,activity,manpower,sourceEvidence}]
   var PROD = [];    // productivity history (asc by date)
   var ALL_DATES = [];  // every known date, oldest -> newest
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
+  var AREA_KPI = {};       // per-area KPI computed each render (for back-check click)
+  var kpiFilter = null;    // {area, type:'DW'|'BP'|'BT'|'CW', ids:[]} — back-check filter
 
   function $(id){ return document.getElementById(id); }
   function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
   function actByRow(r){ for(var i=0;i<ACTS.length;i++) if(ACTS[i]._row===r) return ACTS[i]; return null; }
+
+  // --- back-check helpers: derive element IDs + per-area KPI from the activities ---
+  var CE_RE = /\b(?:DW[-\s]?\d+[A-Za-z]?|BP[-\s]?[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?|BT[-\s]?\d+(?:-\d+)?|CW[-\s]?\d+|T\d+-\d+)\b/gi;
+  function elementIdsOf(a){
+    var blob = (a.elementId||'')+' '+(a.activity||'')+' '+(a.sourceEvidence||'');
+    var m = blob.match(CE_RE) || [], seen={}, out=[];
+    m.forEach(function(c){ var n=c.toUpperCase().replace(/\s+/g,''); if(!seen[n]){seen[n]=1;out.push(n);} });
+    return out;
+  }
+  function classifyEl(id){ var s=String(id).toUpperCase();
+    if(/^DW/.test(s))return'DW'; if(/^BT/.test(s))return'BT'; if(/^CW/.test(s))return'CW';
+    if(/^BP/.test(s)||/^T\d+-\d+$/.test(s))return'BP'; return''; }
+  function sumConcrete(t){ var re=/(\d+(?:\.\d+)?)\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi,m,s=0;
+    while((m=re.exec(String(t)))!==null)s+=parseFloat(m[1]); return s; }
+  function areaKpiOf(list){
+    var dw={},bp={},bt={},cw={},conc=0,man=0;
+    list.forEach(function(a){
+      elementIdsOf(a).forEach(function(id){ var t=classifyEl(id);
+        if(t==='DW')dw[id]=1; else if(t==='BP')bp[id]=1; else if(t==='BT')bt[id]=1; else if(t==='CW')cw[id]=1; });
+      conc += Math.max(sumConcrete(a.activity||''), sumConcrete(a.sourceEvidence||'')); man += Number(a.manpower)||0;
+    });
+    return { DW:Object.keys(dw), BP:Object.keys(bp), BT:Object.keys(bt), CW:Object.keys(cw),
+             concrete:Math.round(conc*100)/100, manpower:man };
+  }
   function toast(m){ var t=$('toast'); t.textContent=m; t.classList.remove('hidden');
     clearTimeout(t._h); t._h=setTimeout(function(){t.classList.add('hidden');},2600); }
   function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888'; }
@@ -142,28 +168,53 @@
       return true;
     });
     $('ctx').textContent = rows.length + ' activit' + (rows.length===1?'y':'ies');
-    // group by area
+    // group by area (Area 1..4 then Others)
+    var ORDER = ['Area 1','Area 2','Area 3','Area 4','Others'];
     var groups={}, order=[];
-    rows.forEach(function(a){ var g=a.area||'(Unassigned)'; if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(a); });
-    order.sort();
+    rows.forEach(function(a){ var g=a.area||'Others'; if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(a); });
+    order.sort(function(x,y){ var ix=ORDER.indexOf(x),iy=ORDER.indexOf(y); return (ix<0?99:ix)-(iy<0?99:iy)||(x<y?-1:1); });
     // within a group, newest date first when several days are shown
     if (multi) order.forEach(function(g){ groups[g].sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); }); });
+    AREA_KPI = {};
     var host=$('areas');
     if(!rows.length){ host.innerHTML='<div class="areagroup"><div class="empty">No activities for this filter.</div></div>'; return; }
     var dateHead = multi ? '<th>Date</th>' : '';
     host.innerHTML = order.map(function(g){
-      var body = groups[g].map(function(a){ return activityRowHtml(a, multi); }).join('');
-      return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+
+      var k = areaKpiOf(groups[g]); AREA_KPI[g] = k;
+      var shown = groups[g];
+      var filtered = kpiFilter && kpiFilter.area===g;
+      if (filtered){
+        var idset={}; kpiFilter.ids.forEach(function(id){idset[id]=1;});
+        shown = groups[g].filter(function(a){ return elementIdsOf(a).some(function(id){return idset[id];}); });
+      }
+      var kpis = '<div class="kpirow">'+
+        kpiBadge(g,'DW',k.DW.length)+kpiBadge(g,'BP',k.BP.length)+
+        kpiBadge(g,'BT',k.BT.length)+kpiBadge(g,'CW',k.CW.length)+
+        '<span class="kbadge stat">Concrete '+k.concrete+' m³</span>'+
+        '<span class="kbadge stat">Manpower '+k.manpower+'</span></div>';
+      var notice = filtered ? '<div class="kfilter">Back-check · <b>'+esc(kpiFilter.type)+'</b>: '+
+        esc(kpiFilter.ids.join(', ')||'—')+' — showing '+shown.length+' of '+groups[g].length+
+        ' <button class="kclear">✕ clear</button></div>' : '';
+      var body = shown.map(function(a){ return activityRowHtml(a, multi); }).join('') ||
+        '<tr><td class="empty" colspan="'+(multi?6:5)+'">No matching activities for this KPI.</td></tr>';
+      return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+ kpis + notice +
         '<div class="tablewrap"><table><thead><tr>'+dateHead+'<th>Section</th><th>Element</th>'+
-        '<th>Activity</th><th>Status</th><th>Manpower</th><th class="acts"></th></tr></thead>'+
+        '<th>Activity</th><th>Manpower</th><th class="acts"></th></tr></thead>'+
         '<tbody>'+body+'</tbody></table></div></div>';
     }).join('');
+  }
+
+  function kpiBadge(area, type, count){
+    var active = kpiFilter && kpiFilter.area===area && kpiFilter.type===type;
+    return '<button class="kbadge '+type.toLowerCase()+(active?' active':'')+'" data-area="'+attr(area)+
+      '" data-type="'+type+'" title="Back-check: show only '+type+' activities in this area">'+
+      count+' '+type+'</button>';
   }
 
   // One activity row: read-only, or an editable form when it is the editing row.
   // `multi` adds a leading Date column when several days are shown.
   function areaOptions(cur){
-    var opts = ['', 'Area 1', 'Area 2', 'Area 3', 'Area 4'];
+    var opts = ['', 'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Others'];
     if (cur && opts.indexOf(cur) === -1) opts.push(cur);   // keep any non-standard value
     return opts.map(function(o){
       return '<option value="'+attr(o)+'"'+(o===(cur||'')?' selected':'')+'>'+
@@ -171,20 +222,10 @@
     }).join('');
   }
 
-  function actStatusChip(s){
-    var v = String(s||''); if(!v) return '—';
-    var c = v==='Completed' ? 'completed' : (v==='Halted/Delayed' ? 'halted' : 'progress');
-    return '<span class="st '+c+'">'+esc(v)+'</span>';
-  }
-  function actStatusOptions(cur){
-    return ['In Progress','Completed','Halted/Delayed'].map(function(o){
-      return '<option'+(o===(cur||'In Progress')?' selected':'')+'>'+o+'</option>'; }).join('');
-  }
-
   function activityRowHtml(a, multi){
     var dateCell = multi ? '<td class="mono">'+esc(fmtDate(a.date))+'</td>' : '';
     if (a._row === editingRow){
-      var cols = multi ? 7 : 6;
+      var cols = multi ? 6 : 5;
       return '<tr class="editing" data-row="'+a._row+'"><td colspan="'+cols+'">'+
         '<div class="editrow">'+
           (multi ? '<span class="edate">'+esc(fmtDate(a.date))+'</span>' : '')+
@@ -192,23 +233,31 @@
           '<label>Section <input class="e-sec" value="'+attr(a.section||'')+'"></label>'+
           '<label>Element <input class="e-elem" value="'+attr(a.elementId||'')+'"></label>'+
           '<label class="grow">Activity <input class="e-act" value="'+attr(a.activity||'')+'"></label>'+
-          '<label>Status <select class="e-status">'+actStatusOptions(a.status)+'</select></label>'+
           '<label>Manpower <input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></label>'+
           '<button class="e-save">Save</button> <button class="e-cancel">Cancel</button>'+
         '</div></td></tr>';
     }
+    var info = a.sourceEvidence ? ' <span class="info" title="'+attr(a.sourceEvidence)+'">ℹ️</span>' : '';
     return '<tr data-row="'+a._row+'">'+ dateCell +'<td>'+esc(a.section||'—')+'</td>'+
       '<td class="mono">'+esc(a.elementId||'—')+'</td>'+
-      '<td class="act">'+esc(a.activity||'')+'</td>'+
-      '<td>'+actStatusChip(a.status)+'</td>'+
+      '<td class="act">'+esc(a.activity||'')+info+'</td>'+
       '<td class="mono">'+(a.manpower||0)+'</td>'+
       '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button>'+
       '<button class="e-del" title="Delete this record">🗑</button></td></tr>';
   }
 
-  // Inline-edit clicks (delegated — the list is re-rendered as innerHTML).
+  // Delegated clicks: KPI back-check badges, clear, and inline edit/delete.
   $('areas').addEventListener('click', function(ev){
     var btn = ev.target;
+    // Back-check: click a KPI badge -> filter that area's table to those element IDs.
+    if (btn.classList && btn.classList.contains('kbadge') && btn.getAttribute('data-type')){
+      var area = btn.getAttribute('data-area'), type = btn.getAttribute('data-type');
+      var ids = (AREA_KPI[area] && AREA_KPI[area][type]) || [];
+      if (kpiFilter && kpiFilter.area===area && kpiFilter.type===type) kpiFilter = null; // toggle off
+      else kpiFilter = { area:area, type:type, ids:ids };
+      render(); return;
+    }
+    if (btn.classList && btn.classList.contains('kclear')){ kpiFilter = null; render(); return; }
     var tr = btn.closest && btn.closest('tr[data-row]');
     if (!tr) return;
     var rowId = Number(tr.getAttribute('data-row'));
@@ -239,7 +288,7 @@
       var sel = selectedDates();
       $('aDate').value = (sel.length===1 ? sel[0] : (ALL_DATES[ALL_DATES.length-1]||''));
       $('aSection').value=''; $('aElement').value=''; $('aActivity').value=''; $('aManpower').value='0';
-      $('aArea').value=''; $('aStatus').value='In Progress';
+      $('aArea').value=''; if ($('aEvidence')) $('aEvidence').value='';
       $('aActivity').focus();
     }
   });
@@ -247,13 +296,13 @@
   $('aSave').addEventListener('click', function(){
     var rec = { date:$('aDate').value, area:$('aArea').value, section:$('aSection').value.trim(),
                 elementId:$('aElement').value.trim(), activity:$('aActivity').value.trim(),
-                status:$('aStatus').value, manpower:Number($('aManpower').value)||0 };
+                sourceEvidence:($('aEvidence')?$('aEvidence').value.trim():''), manpower:Number($('aManpower').value)||0 };
     if (!rec.date){ toast('Pick a date.'); return; }
     if (!rec.activity){ toast('Enter the activity.'); return; }
     if (!(window.google && google.script && google.script.run)){
       var nr = (ACTS.reduce(function(m,x){return Math.max(m,x._row||1);},1))+1;
       ACTS.push({_row:nr, date:rec.date, area:rec.area, section:rec.section, elementId:rec.elementId,
-        activity:rec.activity, status:rec.status, manpower:rec.manpower});
+        activity:rec.activity, manpower:rec.manpower, sourceEvidence:rec.sourceEvidence});
       $('addForm').hidden=true; render(); toast('Added (local)'); return;
     }
     $('aSave').disabled=true; $('aSave').textContent='Adding…';
@@ -288,21 +337,19 @@
     var elemEl = tr.querySelector('.e-elem');
     var newElem = elemEl ? elemEl.value.trim() : a.elementId;
     var newAct = tr.querySelector('.e-act').value;
-    var statEl = tr.querySelector('.e-status');
-    var newStatus = statEl ? statEl.value : a.status;
     var newMp  = Number(tr.querySelector('.e-mp').value) || 0;
     var edit = { row: rowId, date: a.date, area: newArea, section: newSec, elementId: newElem,
-      activity: newAct, status: newStatus, manpower: newMp,
+      activity: newAct, manpower: newMp,
       orig: { section: a.section, activity: a.activity, manpower: a.manpower } };
     tr.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
     if (!(window.google && google.script && google.script.run)){
       // Offline/mock: just update in memory.
-      a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.status=newStatus; a.manpower=newMp;
+      a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.manpower=newMp;
       editingRow=null; render(); toast('Saved (local)'); return;
     }
     google.script.run
       .withSuccessHandler(function(total){
-        a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.status=newStatus; a.manpower=newMp;
+        a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.manpower=newMp;
         editingRow=null;
         // keep the KPI's manpower in sync with the recomputed total from the server
         var p = prodForDate(a.date); if (p && typeof total==='number') p.totalManpower = total;
