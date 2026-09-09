@@ -18,7 +18,7 @@ const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
-        uniqCodes_, sumConcreteM3_ } = sandbox;
+        uniqCodes_, sumConcreteM3_, castVolumeOf_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -100,6 +100,24 @@ assert(classifyElement_('DW04') === 'DW' && classifyElement_('BT20-2') === 'BT' 
 assert(classifyElement_('BP-T9-3') === 'BP' && classifyElement_('T9-3') === 'BP', 'classifyElement BP (incl pile ref)');
 assert(normAreaName_('area 2') === 'Area 2' && normAreaName_('Others') === 'Others' && normAreaName_('Sec-C') === '',
   'normAreaName maps Area N / Others / unknown');
+
+console.log('\nConcrete casting rule (LSS excluded, X/Y -> X, latest per panel):');
+assert(castVolumeOf_('LSS material backfilling 30 m3') === 0, 'LSS backfilling is not concrete casting -> 0');
+assert(castVolumeOf_('backfill 25 m3') === 0, 'backfilling excluded -> 0');
+assert(castVolumeOf_('DW1547 concreting 55/100 m3') === 55, '"55/100 m3" -> current cast 55');
+assert(castVolumeOf_('concrete casting 42 m3') === 42, 'plain casting "42 m3" -> 42');
+assert(castVolumeOf_('DW1547 rebar fixing 100 m3 formwork') === 0, 'no casting context -> 0 (not counted)');
+// Per-panel: same panel reported twice -> count once at the latest/highest value.
+const pc = normalizeProductivity_({
+  date: '2026-08-22',
+  areas: [{ areaName: 'Area 2', kpiBreakdown: {}, activities: [
+    { elementId: 'DW1547', section: 'Sec-C/Mb', activityDescription: 'DW1547 concreting 40/100 m3', manpower: 5, sourceEvidence: '' },
+    { elementId: 'DW1547', section: 'Sec-C/Mb', activityDescription: 'DW1547 concreting 100/100 m3', manpower: 6, sourceEvidence: '' }
+  ]}],
+  grandTotals: {}
+}, '', 'ai');
+assert(pc.areas[0].kpiBreakdown.concreteVolumeM3 === 100, 'same panel counted once at latest (100), not 40+100');
+assert(pc.grandTotals.totalConcreteVolumeM3 === 100, 'grand concrete = 100 (deduped per panel)');
 
 console.log('\nArea breakdown + back-check (KPI derived from activities):');
 const se = normalizeProductivity_({

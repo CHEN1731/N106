@@ -26,13 +26,27 @@
     if(/^BP/.test(s)||/^T\d+-\d+$/.test(s))return'BP'; return''; }
   function sumConcrete(t){ var re=/(\d+(?:\.\d+)?)\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi,m,s=0;
     while((m=re.exec(String(t)))!==null)s+=parseFloat(m[1]); return s; }
+  // Concrete CASTING volume: exclude LSS/backfill; "X/Y m3" -> current cast X; else
+  // a plain "N m3" only in a casting context. Caller keeps the latest per panel.
+  function castVolume(t){ t=String(t||'');
+    if(/\blss\b/i.test(t)||/back\s*fill/i.test(t)) return 0;
+    var best=0,m,prog=/(\d+(?:\.\d+)?)\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
+    while((m=prog.exec(t))!==null) best=Math.max(best,parseFloat(m[1]));
+    if(best) return best;
+    if(/\b(cast|concret|pour)/i.test(t)) return sumConcrete(t);
+    return 0; }
   function areaKpiOf(list){
-    var dw={},bp={},bt={},cw={},conc=0,man=0;
+    var dw={},bp={},bt={},cw={},man=0,castByPanel={};
     list.forEach(function(a){
       elementIdsOf(a).forEach(function(id){ var t=classifyEl(id);
         if(t==='DW')dw[id]=1; else if(t==='BP')bp[id]=1; else if(t==='BT')bt[id]=1; else if(t==='CW')cw[id]=1; });
-      conc += Math.max(sumConcrete(a.activity||''), sumConcrete(a.sourceEvidence||'')); man += Number(a.manpower)||0;
+      var vol=Math.max(castVolume(a.activity||''),castVolume(a.sourceEvidence||''));
+      if(vol>0){ var panel=String(a.elementId||'').toUpperCase().replace(/\s+/g,'')||
+        ('SEC:'+(a.section||'')+'|'+String(a.activity||'').slice(0,24));
+        castByPanel[panel]=Math.max(castByPanel[panel]||0,vol); }
+      man += Number(a.manpower)||0;
     });
+    var conc=0; Object.keys(castByPanel).forEach(function(p){ conc+=castByPanel[p]; });
     return { DW:Object.keys(dw), BP:Object.keys(bp), BT:Object.keys(bt), CW:Object.keys(cw),
              concrete:Math.round(conc*100)/100, manpower:man };
   }

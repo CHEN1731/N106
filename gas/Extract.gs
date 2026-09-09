@@ -288,7 +288,18 @@ var PRODUCTIVITY_SYSTEM =
   'snippet from the input that this activity was derived from, so management can verify it. ' +
   'Each area\'s kpiBreakdown lists (activeDWalls/BoredPiles/ButtressWalls/CrossWalls) must ' +
   'contain exactly the element IDs that appear in that area\'s activities, and each *Count ' +
-  'must equal its list length, so the KPI numbers reconcile against the activity rows.';
+  'must equal its list length, so the KPI numbers reconcile against the activity rows.\n\n' +
+  '6. CONCRETE VOLUME (strict):\n' +
+  '- Count ONLY concrete CASTING (casting/concreting/pour). "LSS material backfilling" and ' +
+  'any backfilling is NOT concrete casting — exclude its volume entirely.\n' +
+  '- A reading written as "X/Y m3" means Y is the panel\'s TOTAL and X is the CURRENT cast so ' +
+  'far — use X (the number before the slash), never Y.\n' +
+  '- Count each panel\'s casting ONCE. If the same panel/element is reported several times, ' +
+  'use only the LATEST (highest cumulative) reading — e.g. if it reaches "100/100 m3", count ' +
+  '100 for that panel, not the sum of the intermediate readings.\n' +
+  '- concreteVolumeM3 per area = the sum of each panel\'s single (latest) current-cast value; ' +
+  'grandTotals.totalConcreteVolumeM3 = the sum across areas. Keep the raw figure in ' +
+  'sourceEvidence so it can be back-checked.';
 
 /** Claude forced-tool: merge/dedupe + metrics. */
 function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
@@ -413,12 +424,10 @@ function normalizeProductivity_(raw, dateHint, source) {
   function str(v) { return String(v == null ? '' : v).trim(); }
   function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
 
-  var acts = [], concreteHint = {};
+  var acts = [];
   (Array.isArray(raw.areas) ? raw.areas : []).forEach(function (ar) {
     ar = ar || {};
     var area = normAreaName_(ar.areaName);
-    var kb = ar.kpiBreakdown || {};
-    if (area && num(kb.concreteVolumeM3)) concreteHint[area] = num(kb.concreteVolumeM3);
     (Array.isArray(ar.activities) ? ar.activities : []).forEach(function (a) {
       a = a || {};
       var section = str(a.section);
@@ -433,7 +442,7 @@ function normalizeProductivity_(raw, dateHint, source) {
   });
   acts = acts.filter(function (a) { return a.activity; });
   var date = normalizeDate_(raw.date) || dateHint || str(raw.date);
-  return buildProductivityResult_(date, acts, source || 'ai', concreteHint);
+  return buildProductivityResult_(date, acts, source || 'ai');
 }
 
 /** Normalise an area label to "Area 1".."Area 4" / "Others" / "" (unknown). */
@@ -462,9 +471,8 @@ function classifyElement_(id) {
  * (from activity + sourceEvidence text, or the AI hint) and manpower, and rolls
  * up grand totals. Also returns a flattened mergedActivities for the Sheet.
  */
-function buildProductivityResult_(date, acts, source, concreteHint) {
+function buildProductivityResult_(date, acts, source) {
   var ORDER = ['Area 1', 'Area 2', 'Area 3', 'Area 4', 'Others'];
-  concreteHint = concreteHint || {};
   var byArea = {};
   acts.forEach(function (a) {
     a.area = normAreaName_(a.area) || areaFromSection_(a.section) || 'Others';
@@ -475,7 +483,7 @@ function buildProductivityResult_(date, acts, source, concreteHint) {
     return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy);
   }).map(function (area) {
     var list = byArea[area];
-    var dw = [], bp = [], bt = [], cw = [], concrete = 0, manpower = 0;
+    var dw = [], bp = [], bt = [], cw = [], manpower = 0, castByPanel = {};
     list.forEach(function (a) {
       var blob = (a.elementId || '') + ' ' + (a.activity || '') + ' ' + (a.sourceEvidence || '');
       matchAll_(blob, new RegExp(ELEMENT_RE.source, 'gi')).forEach(function (code) {
@@ -483,12 +491,19 @@ function buildProductivityResult_(date, acts, source, concreteHint) {
         if (t === 'DW') dw.push(code); else if (t === 'BP') bp.push(code);
         else if (t === 'BT') bt.push(code); else if (t === 'CW') cw.push(code);
       });
-      // max(), not sum(): sourceEvidence usually repeats the activity text.
-      concrete += Math.max(sumConcreteM3_(a.activity || ''), sumConcreteM3_(a.sourceEvidence || ''));
+      // Concrete casting: per activity take max(activity, evidence) so a repeated
+      // snippet isn't double-counted; then keep the highest per panel (count once).
+      var vol = Math.max(castVolumeOf_(a.activity || ''), castVolumeOf_(a.sourceEvidence || ''));
+      if (vol > 0) {
+        var panel = String(a.elementId || '').toUpperCase().replace(/\s+/g, '') ||
+          ('SEC:' + (a.section || '') + '|' + String(a.activity || '').slice(0, 24));
+        castByPanel[panel] = Math.max(castByPanel[panel] || 0, vol);
+      }
       manpower += Number(a.manpower) || 0;
     });
     dw = uniqCodes_(dw); bp = uniqCodes_(bp); bt = uniqCodes_(bt); cw = uniqCodes_(cw);
-    if (!concrete && concreteHint[area]) concrete = concreteHint[area];
+    var concrete = 0;
+    Object.keys(castByPanel).forEach(function (p) { concrete += castByPanel[p]; });
     return {
       areaName: area,
       kpiBreakdown: {
@@ -601,6 +616,26 @@ function sumConcreteM3_(t) {
   return sum;
 }
 
+/**
+ * Concrete-CASTING volume from one text snippet, per the site rules:
+ *  - LSS material backfilling is NOT concrete casting -> returns 0.
+ *  - Progressive "X/Y m3" means X = current cast, Y = panel total -> use X.
+ *  - Otherwise only counts a plain "N m3" when the text is a casting context
+ *    (cast/casting/concreting/pour), so mixing/soil/backfill volumes are ignored.
+ * Per-panel de-duplication (use the latest/highest per panel, count once) is done
+ * by the caller.
+ */
+function castVolumeOf_(text) {
+  var t = String(text == null ? '' : text);
+  if (/\blss\b/i.test(t) || /back\s*fill/i.test(t)) return 0;   // backfilling is not casting
+  var best = 0, m;
+  var prog = /(\d+(?:\.\d+)?)\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
+  while ((m = prog.exec(t)) !== null) best = Math.max(best, parseFloat(m[1])); // current cast = X
+  if (best) return best;
+  if (/\b(cast|concret|pour)/i.test(t)) return sumConcreteM3_(t);  // casting/concreting/poured…
+  return 0;
+}
+
 function mostCommonDate_(records) {
   var counts = {}, best = '', bestN = 0;
   records.forEach(function (r) {
@@ -624,6 +659,7 @@ if (typeof module !== 'undefined' && module.exports) {
     classifyElement_: classifyElement_,
     firstElementId_: firstElementId_,
     uniqCodes_: uniqCodes_,
-    sumConcreteM3_: sumConcreteM3_
+    sumConcreteM3_: sumConcreteM3_,
+    castVolumeOf_: castVolumeOf_
   };
 }

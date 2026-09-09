@@ -71,6 +71,19 @@ to the matching `elementId`s (a "back-check"), and an **ℹ️** by each activit
 its `sourceEvidence`. KPI numbers are derived from the stored activity rows, so they
 always reconcile.
 
+### Concrete volume rule (`castVolumeOf_` in `gas/Extract.gs`, mirrored in the Viewer)
+
+Concrete counts **completed casting only**:
+- **LSS material backfilling** (and any backfilling) is **not** concrete casting — its
+  volume is excluded.
+- A reading written **`X/Y m³`** means `Y` is the panel total and `X` is the current
+  cast — only `X` is counted.
+- Each panel is counted **once**; if the same panel is reported several times, the
+  **latest / highest** cast is used (e.g. `40/100` then `100/100` → **100**, not 140).
+- A plain `N m³` counts only in a casting context (cast / concreting / pour); mixing,
+  soil or backfill volumes are ignored.
+Area concrete = Σ(each panel's single latest cast); grand total = Σ areas.
+
 Without an API key a **deterministic fallback** (`productivityFromRecords_` in
 `gas/Extract.gs`) parses the WhatsApp side and regex-extracts the same metrics, so
 the app always produces a result (a `.docx` AIS report still needs the AI path).
