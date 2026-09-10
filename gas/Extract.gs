@@ -623,21 +623,22 @@ function sumConcreteM3_(t) {
 function castVolumeOf_(text) {
   var t = String(text == null ? '' : text);
   // Split into clauses so a real casting figure isn't cancelled by an LSS/backfill
-  // clause in the same sentence, e.g. "concrete casting 54/54 m3 + LSS backfilling".
-  var clauses = t.split(/\s*(?:\+|;|,|\band\b|\n)\s*/i);
+  // clause in the same sentence, e.g. "concrete casting 54/54 m3, then LSS backfilling
+  // reaching 100/107 m3" -> 54 (the LSS clause, even in X/Y form, is dropped).
+  var clauses = t.split(/\s*(?:\+|;|,|\band\b|\bthen\b|\n)\s*/i);
   var total = 0;
   for (var i = 0; i < clauses.length; i++) total += clauseCastVol_(clauses[i]);
   return total;
 }
 
-/** Casting volume of a single clause (0 for a backfill-only clause). */
+/** Casting volume of a single clause (0 for a backfill/LSS clause, even in X/Y form). */
 function clauseCastVol_(c) {
   c = String(c == null ? '' : c);
-  // A progressive "X/Y m3" is panel-casting notation -> current cast = X (always count).
+  if (/\blss\b/i.test(c) || /back\s*fill/i.test(c)) return 0;   // LSS/backfilling is not casting
+  // A progressive "X/Y m3" is panel-casting notation -> current cast = X.
   var best = 0, m, prog = /(\d+(?:\.\d+)?)\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
   while ((m = prog.exec(c)) !== null) best = Math.max(best, parseFloat(m[1]));
   if (best) return best;
-  if (/\blss\b/i.test(c) || /back\s*fill/i.test(c)) return 0;   // backfilling is not casting
   if (/\b(cast|concret|pour)/i.test(c)) return sumConcreteM3_(c);  // casting/concreting/poured…
   return 0;
 }

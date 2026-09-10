@@ -29,14 +29,14 @@
   // Concrete CASTING volume: exclude LSS/backfill; "X/Y m3" -> current cast X; else
   // a plain "N m3" only in a casting context. Caller keeps the latest per panel.
   function clauseCast(c){ c=String(c||'');
+    if(/\blss\b/i.test(c)||/back\s*fill/i.test(c)) return 0;   // LSS/backfill clause excluded (even X/Y)
     var best=0,m,prog=/(\d+(?:\.\d+)?)\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
     while((m=prog.exec(c))!==null) best=Math.max(best,parseFloat(m[1])); // progressive X/Y -> X
     if(best) return best;
-    if(/\blss\b/i.test(c)||/back\s*fill/i.test(c)) return 0;   // backfill clause excluded
     if(/\b(cast|concret|pour)/i.test(c)) return sumConcrete(c);
     return 0; }
   function castVolume(t){ // split clauses so a casting figure survives an LSS/backfill clause
-    var cl=String(t||'').split(/\s*(?:\+|;|,|\band\b|\n)\s*/i), tot=0;
+    var cl=String(t||'').split(/\s*(?:\+|;|,|\band\b|\bthen\b|\n)\s*/i), tot=0;
     for(var i=0;i<cl.length;i++) tot+=clauseCast(cl[i]);
     return tot; }
   function areaKpiOf(list){

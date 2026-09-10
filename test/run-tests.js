@@ -112,6 +112,9 @@ assert(castVolumeOf_('concrete casting complete 54/54 m3 + LSS backfilling') ===
   'casting 54/54 + LSS backfilling -> 54 (backfill clause dropped, not the whole activity)');
 assert(castVolumeOf_('LSS backfilling, concrete casting 30 m3') === 30, 'casting clause kept, LSS clause dropped');
 assert(castVolumeOf_('LSS material backfilling 20 m3 + soil compaction') === 0, 'pure backfill activity -> 0');
+// LSS backfilling itself reported in X/Y form must NOT be counted as concrete.
+assert(castVolumeOf_('Concrete casting completed 54/54m3, then LSS Type-3 backfilling in progress reaching 100/107m3') === 54,
+  'casting 54/54 + LSS backfilling 100/107 -> 54 (LSS X/Y excluded)');
 // Per-panel: same panel reported twice -> count once at the latest/highest value.
 const pc = normalizeProductivity_({
   date: '2026-08-22',
