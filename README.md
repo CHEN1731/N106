@@ -51,25 +51,23 @@ grouting…, plus volume/depth/load/manpower metrics) and **exclusion rules** (d
 noise: "No activity", housekeeping/cleaning, generic prep, "waiting for…",
 maintenance — unless it blocks the critical path). It **merges and de-duplicates**
 the activities (one unified entry per element, e.g. `DW1547`), **groups them by Area
-(Area 1–4 / Others)**, links each to its **elementId**, and records a
-**sourceEvidence** snippet for traceability. Output is a forced-JSON tool call with
-per-area **kpiBreakdown** (active DW/BP/BT/CW ID-lists + counts, concrete m³,
-manpower) and **grandTotals**:
+(Area 1–4 / Others)**, and links each to its **elementId**. Output is a forced-JSON
+tool call with per-area **kpiBreakdown** (active DW/BP/BT/CW ID-lists + counts,
+concrete m³, manpower) and **grandTotals**:
 
 ```
 { date,
   areas:[ { areaName, kpiBreakdown:{ activeDWalls[],dWallCount, activeBoredPiles[],bPileCount,
               activeButtressWalls[],bWallCount, activeCrossWalls[],cWallCount,
               concreteVolumeM3, areaManpower },
-            activities:[{ elementId, section, activityDescription, manpower, sourceEvidence }] } ],
+            activities:[{ elementId, section, activityDescription, manpower }] } ],
   grandTotals:{ totalConcreteVolumeM3, totalManpower } }
 ```
 
 The Viewer lays the dashboard out **per Area**; each area shows its KPI as
 **clickable badges** — click "2 DW" to instantly filter that area's activity table
-to the matching `elementId`s (a "back-check"), and an **ℹ️** by each activity reveals
-its `sourceEvidence`. KPI numbers are derived from the stored activity rows, so they
-always reconcile.
+to the matching `elementId`s (a "back-check"). KPI numbers are derived from the
+stored activity rows, so they always reconcile.
 
 ### Concrete volume rule (`castVolumeOf_` in `gas/Extract.gs`, mirrored in the Viewer)
 

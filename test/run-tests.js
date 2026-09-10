@@ -107,6 +107,11 @@ assert(castVolumeOf_('backfill 25 m3') === 0, 'backfilling excluded -> 0');
 assert(castVolumeOf_('DW1547 concreting 55/100 m3') === 55, '"55/100 m3" -> current cast 55');
 assert(castVolumeOf_('concrete casting 42 m3') === 42, 'plain casting "42 m3" -> 42');
 assert(castVolumeOf_('DW1547 rebar fixing 100 m3 formwork') === 0, 'no casting context -> 0 (not counted)');
+// A casting figure must survive when the same activity also mentions LSS backfilling.
+assert(castVolumeOf_('concrete casting complete 54/54 m3 + LSS backfilling') === 54,
+  'casting 54/54 + LSS backfilling -> 54 (backfill clause dropped, not the whole activity)');
+assert(castVolumeOf_('LSS backfilling, concrete casting 30 m3') === 30, 'casting clause kept, LSS clause dropped');
+assert(castVolumeOf_('LSS material backfilling 20 m3 + soil compaction') === 0, 'pure backfill activity -> 0');
 // Per-panel: same panel reported twice -> count once at the latest/highest value.
 const pc = normalizeProductivity_({
   date: '2026-08-22',
@@ -160,8 +165,8 @@ assert(fb.productivityData.dWallCount === 2, 'grand DW count = 2');
 assert(fb.productivityData.bPileCount === 2, 'grand BP count = 2');
 assert(fb.productivityData.totalConcreteVolumeM3 === 42, 'grand concrete m3 = 42');
 assert(fb.productivityData.totalManpower === 23, 'grand manpower = 10+8+5 = 23 (got ' + fb.productivityData.totalManpower + ')');
-assert(fb.mergedActivities[0].elementId === 'DW1547' && typeof fb.mergedActivities[0].sourceEvidence === 'string',
-  'fallback activity carries elementId + sourceEvidence');
+assert(fb.mergedActivities[0].elementId === 'DW1547' && !('sourceEvidence' in fb.mergedActivities[0]),
+  'fallback activity carries elementId, no sourceEvidence');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

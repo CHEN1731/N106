@@ -55,7 +55,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-21 · concrete casting rule';
+var APP_VERSION = 'build-22 · concrete fix + no evidence';
 
 /**
  * Route:
@@ -115,7 +115,7 @@ function runComparison(rtoText, aisText, reportDate) {
   };
 }
 
-var ACTIVITY_HEADER = ['date', 'area', 'section', 'element_id', 'activity', 'manpower', 'source_evidence'];
+var ACTIVITY_HEADER = ['date', 'area', 'section', 'element_id', 'activity', 'manpower'];
 var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 'cwall_count',
   'concrete_m3', 'total_manpower', 'active_dwalls', 'active_bpiles', 'active_bwalls', 'active_crosswalls'];
 
@@ -131,7 +131,7 @@ function saveToSheet(result) {
   upsertByDate_(ss, TABS.activities, ACTIVITY_HEADER, 0,
     (result.mergedActivities || []).map(function (a) {
       return [date, a.area || '', a.section || '', a.elementId || '', a.activity || '',
-        a.manpower || 0, a.sourceEvidence || ''];
+        a.manpower || 0];
     }));
 
   // Productivity: one row per date (metrics for the charts).
@@ -162,8 +162,8 @@ function saveActivityEdit(edit) {
   if (!(row >= 2 && row <= sheet.getLastRow())) {
     throw new Error('Row out of range — click Refresh, then edit again.');
   }
-  // Columns: [date, area, section, element_id, activity, manpower, source_evidence]
-  var cur = sheet.getRange(row, 1, 1, 7).getValues()[0];
+  // Columns: [date, area, section, element_id, activity, manpower]
+  var cur = sheet.getRange(row, 1, 1, 6).getValues()[0];
   if (edit.orig) {
     if (String(edit.orig.section) !== String(cur[2]) ||
         String(edit.orig.activity) !== String(cur[4]) ||
@@ -211,7 +211,7 @@ function addActivity(rec) {
     sheet = ss.getSheetByName(TABS.activities);
   }
   sheet.appendRow([date, area, section, String(rec.elementId == null ? '' : rec.elementId),
-    activity, Number(rec.manpower) || 0, String(rec.sourceEvidence == null ? '' : rec.sourceEvidence)]);
+    activity, Number(rec.manpower) || 0]);
 
   ensureProductivityRow_(ss, date);
   var total = sumManpowerForDate_(sheet, date);
@@ -232,8 +232,8 @@ function deleteActivity(edit) {
   if (!(row >= 2 && row <= sheet.getLastRow())) {
     throw new Error('Row out of range — click Refresh, then delete again.');
   }
-  // Columns: [date, area, section, element_id, activity, manpower, source_evidence]
-  var cur = sheet.getRange(row, 1, 1, 7).getValues()[0];
+  // Columns: [date, area, section, element_id, activity, manpower]
+  var cur = sheet.getRange(row, 1, 1, 6).getValues()[0];
   if (edit.orig) {
     if (String(edit.orig.section) !== String(cur[2]) ||
         String(edit.orig.activity) !== String(cur[4]) ||
@@ -337,8 +337,7 @@ function getReport() {
       section: String(row.section == null ? '' : row.section),
       elementId: String(row.element_id == null ? '' : row.element_id),
       activity: String(row.activity == null ? '' : row.activity),
-      manpower: Number(row.manpower) || 0,
-      sourceEvidence: String(row.source_evidence == null ? '' : row.source_evidence)
+      manpower: Number(row.manpower) || 0
     };
   }).filter(function (a) {
     var k = a.date + '|' + a.area + '|' + a.section + '|' + a.activity + '|' + a.manpower;
@@ -387,7 +386,7 @@ function cleanupDuplicates() {
   var seen = {}, arows = [];
   readTable_(ss, TABS.activities).forEach(function (r) {
     var row = [toDateStr_(r.date), r.area || '', r.section || '', r.element_id || '',
-      r.activity || '', Number(r.manpower) || 0, r.source_evidence || ''];
+      r.activity || '', Number(r.manpower) || 0];
     var k = row.join('|');
     if (!seen[k]) { seen[k] = 1; arows.push(row); }
   });
