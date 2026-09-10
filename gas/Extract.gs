@@ -280,8 +280,11 @@ var PRODUCTIVITY_SYSTEM =
   '"Area 4", or "Others" (only when it truly maps to no area). Derive the area from the ' +
   'section/segment code using the site-plan map given in the user message.\n\n' +
   '4. MERGING LOGIC:\n' +
-  'If the RTO notes and AIS report mention the same element (e.g., "DW1547"), merge them ' +
-  'into a single comprehensive activity object. Do not list "DW1547" twice.\n\n' +
+  'Merge into ONE activity object ONLY when two lines describe the SAME element AND the same ' +
+  'operation (e.g. RTO and AIS both report casting of "DW1547"). Do NOT over-merge: keep ' +
+  'every DISTINCT work item as its own activity (a different element, panel, structure type, ' +
+  'or operation is a separate entry), and never drop an activity that passed the inclusion ' +
+  'rules. Listing fewer activities than there are distinct work items is an error.\n\n' +
   '5. TRACEABILITY (back-check):\n' +
   'For each activity, set "elementId" to the specific structural ID it concerns (DW1547, ' +
   'BP-T9-3, BT20-2, CW323 …) or "". Each area\'s kpiBreakdown lists ' +
@@ -390,7 +393,7 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
   var body = {
     model: getModel_(),
     max_tokens: 8192,
-    output_config: { effort: 'low' },
+    output_config: { effort: 'medium' },   // 'low' dropped activities; medium is more complete
     system: PRODUCTIVITY_SYSTEM,
     tools: [tool],
     tool_choice: { type: 'tool', name: 'emit_productivity' },
@@ -620,26 +623,31 @@ function sumConcreteM3_(t) {
  * Per-panel de-duplication (use the latest/highest per panel, count once) is done
  * by the caller.
  */
+// Progressive "X/Y" casting notation, with the m3 unit on either or both sides:
+// "54/54 m3", "84.0m3/84.0m3", "200m3/202m3", "55/100m3" -> captures current cast X.
+var PROGRESSIVE_RE = /(\d+(?:\.\d+)?)\s*(?:m3|m³|cum|cu\.?\s?m)?\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
+
 function castVolumeOf_(text) {
   var t = String(text == null ? '' : text);
-  // Split into clauses so a real casting figure isn't cancelled by an LSS/backfill
-  // clause in the same sentence, e.g. "concrete casting 54/54 m3, then LSS backfilling
-  // reaching 100/107 m3" -> 54 (the LSS clause, even in X/Y form, is dropped).
+  // 1) Drop LSS / backfill clauses entirely (even when written in X/Y form, e.g.
+  //    "…, then LSS backfilling reaching 100/107 m3"); keep the rest.
   var clauses = t.split(/\s*(?:\+|;|,|\band\b|\bthen\b|\n)\s*/i);
-  var total = 0;
-  for (var i = 0; i < clauses.length; i++) total += clauseCastVol_(clauses[i]);
-  return total;
-}
-
-/** Casting volume of a single clause (0 for a backfill/LSS clause, even in X/Y form). */
-function clauseCastVol_(c) {
-  c = String(c == null ? '' : c);
-  if (/\blss\b/i.test(c) || /back\s*fill/i.test(c)) return 0;   // LSS/backfilling is not casting
-  // A progressive "X/Y m3" is panel-casting notation -> current cast = X.
-  var best = 0, m, prog = /(\d+(?:\.\d+)?)\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
-  while ((m = prog.exec(c)) !== null) best = Math.max(best, parseFloat(m[1]));
+  var kept = [];
+  for (var i = 0; i < clauses.length; i++) {
+    if (/\blss\b/i.test(clauses[i]) || /back\s*fill/i.test(clauses[i])) continue;
+    kept.push(clauses[i]);
+  }
+  var clean = kept.join(' ');
+  // 2) Progressive X/Y -> current cast X (max across the kept text). Because a
+  //    comma may separate "…casting…" from "…actual volume X/Y…", we evaluate the
+  //    whole kept text, not each clause.
+  var best = 0, m; PROGRESSIVE_RE.lastIndex = 0;
+  while ((m = PROGRESSIVE_RE.exec(clean)) !== null) best = Math.max(best, parseFloat(m[1]));
   if (best) return best;
-  if (/\b(cast|concret|pour)/i.test(c)) return sumConcreteM3_(c);  // casting/concreting/poured…
+  // 3) Otherwise a plain "N m3" only in a casting context; ignore "theoretical" volumes.
+  if (/\b(cast|concret|pour)/i.test(clean)) {
+    return sumConcreteM3_(clean.replace(/theoretical\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)/gi, ' '));
+  }
   return 0;
 }
 

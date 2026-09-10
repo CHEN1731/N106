@@ -115,6 +115,13 @@ assert(castVolumeOf_('LSS material backfilling 20 m3 + soil compaction') === 0, 
 // LSS backfilling itself reported in X/Y form must NOT be counted as concrete.
 assert(castVolumeOf_('Concrete casting completed 54/54m3, then LSS Type-3 backfilling in progress reaching 100/107m3') === 54,
   'casting 54/54 + LSS backfilling 100/107 -> 54 (LSS X/Y excluded)');
+// Unit on BOTH sides of the slash, comma splitting keyword from figure, theoretical ignored.
+assert(castVolumeOf_('BP casting works completed, actual volume 84.0m3/84.0m3 (theoretical 76.43m3, overbreak 9.9%)') === 84,
+  'BP 84.0m3/84.0m3 -> 84 (theoretical 76.43 ignored)');
+assert(castVolumeOf_('Concrete casting completed, actual volume 200m3/202m3 (theoretical 178.848m3, overbreak 12.94%)') === 200,
+  'Concrete 200m3/202m3 -> 200 (theoretical ignored)');
+assert(castVolumeOf_('RCBC drain wall and top slab casting completed, concrete G40 9m3') === 9,
+  'RCBC plain casting "concrete G40 9m3" -> 9');
 // Per-panel: same panel reported twice -> count once at the latest/highest value.
 const pc = normalizeProductivity_({
   date: '2026-08-22',

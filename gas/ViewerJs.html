@@ -28,17 +28,19 @@
     while((m=re.exec(String(t)))!==null)s+=parseFloat(m[1]); return s; }
   // Concrete CASTING volume: exclude LSS/backfill; "X/Y m3" -> current cast X; else
   // a plain "N m3" only in a casting context. Caller keeps the latest per panel.
-  function clauseCast(c){ c=String(c||'');
-    if(/\blss\b/i.test(c)||/back\s*fill/i.test(c)) return 0;   // LSS/backfill clause excluded (even X/Y)
-    var best=0,m,prog=/(\d+(?:\.\d+)?)\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
-    while((m=prog.exec(c))!==null) best=Math.max(best,parseFloat(m[1])); // progressive X/Y -> X
+  // Progressive X/Y with the m3 unit on either or both sides -> current cast X.
+  var PROG_RE=/(\d+(?:\.\d+)?)\s*(?:m3|m³|cum|cu\.?\s?m)?\s*\/\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)(?![a-z0-9])/gi;
+  function castVolume(t){
+    // drop LSS/backfill clauses (even in X/Y form), keep the rest
+    var cl=String(t||'').split(/\s*(?:\+|;|,|\band\b|\bthen\b|\n)\s*/i), kept=[];
+    for(var i=0;i<cl.length;i++){ if(/\blss\b/i.test(cl[i])||/back\s*fill/i.test(cl[i])) continue; kept.push(cl[i]); }
+    var clean=kept.join(' ');
+    var best=0,m; PROG_RE.lastIndex=0;
+    while((m=PROG_RE.exec(clean))!==null) best=Math.max(best,parseFloat(m[1]));
     if(best) return best;
-    if(/\b(cast|concret|pour)/i.test(c)) return sumConcrete(c);
+    if(/\b(cast|concret|pour)/i.test(clean))
+      return sumConcrete(clean.replace(/theoretical\s*\d+(?:\.\d+)?\s*(?:m3|m³|cum|cu\.?\s?m)/gi,' '));
     return 0; }
-  function castVolume(t){ // split clauses so a casting figure survives an LSS/backfill clause
-    var cl=String(t||'').split(/\s*(?:\+|;|,|\band\b|\bthen\b|\n)\s*/i), tot=0;
-    for(var i=0;i<cl.length;i++) tot+=clauseCast(cl[i]);
-    return tot; }
   function areaKpiOf(list){
     var dw={},bp={},bt={},cw={},man=0,castByPanel={};
     list.forEach(function(a){
