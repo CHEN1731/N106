@@ -47,6 +47,12 @@
         </div>
       </div>
 
+      <div class="panel stagepanel">
+        <h2>Elements by construction stage</h2>
+        <p class="sub" id="stageSub">Distinct elements at their furthest stage, by structure type</p>
+        <div class="chartbox"><canvas id="stageChart"></canvas></div>
+      </div>
+
       <div class="actwrap">
         <div class="panel">
           <div class="acthead">
@@ -68,6 +74,14 @@
             <label>Section <input id="aSection" placeholder="e.g. Sec-C/Mb"></label>
             <label>Element <input id="aElement" placeholder="e.g. DW1547"></label>
             <label class="grow">Activity <input id="aActivity" placeholder="work description"></label>
+            <label>Stage
+              <select id="aStage">
+                <option value="">(auto)</option>
+                <option>Guide Wall</option><option>Excavation</option><option>Rebar Cage</option>
+                <option>Concrete Casting</option><option>Trimming</option><option>Breaking</option>
+                <option>Completed</option><option>Other</option>
+              </select>
+            </label>
             <label>Manpower <input type="number" id="aManpower" min="0" step="1" value="0"></label>
             <button id="aSave" class="primary">Add</button>
             <button id="aCancel">Cancel</button>

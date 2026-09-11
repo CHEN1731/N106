@@ -69,6 +69,12 @@ The Viewer lays the dashboard out **per Area**; each area shows its KPI as
 to the matching `elementId`s (a "back-check"). KPI numbers are derived from the
 stored activity rows, so they always reconcile.
 
+Each activity is also tagged with a **construction stage** (Guide Wall → Excavation →
+Rebar Cage → Concrete Casting → Trimming → Breaking → Completed, else Other). A
+**stage-breakdown chart** shows how many **distinct elements** sit at each stage
+(each element counted once at its *furthest* stage), stacked by structure type
+(DW/BP/BT/CW) and honouring the Date-range + Area filters. Stage is editable per row.
+
 ### Concrete volume rule (`castVolumeOf_` in `gas/Extract.gs`, mirrored in the Viewer)
 
 Concrete counts **completed casting only**:

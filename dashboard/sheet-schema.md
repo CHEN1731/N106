@@ -16,6 +16,7 @@ One row per **merged** activity (RTO + AIS combined and de-duplicated).
 | `element_id` | Text | structural element ID, e.g. `DW1547`, `BP-T9-3` (or blank) |
 | `activity` | Text | merged work description (keep any `X/Y m³` figure here) |
 | `manpower` | Number | manpower for this activity |
+| `stage` | Text | construction stage: Guide Wall / Excavation / Rebar Cage / Concrete Casting / Trimming / Breaking / Completed / Other |
 
 The AI applies strict **inclusion/exclusion** filtering and **groups by Area**
 (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM`) and links each activity to its

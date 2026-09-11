@@ -301,7 +301,14 @@ var PRODUCTIVITY_SYSTEM =
   '- Count each panel\'s casting ONCE. If the same panel/element is reported several times, ' +
   'use only the LATEST (highest cumulative) reading — e.g. if it reaches "100/100 m3", count ' +
   '100 for that panel, not the sum of the intermediate readings.\n' +
-  '- Keep the volume figure inside "activityDescription" so it can be back-checked.';
+  '- Keep the volume figure inside "activityDescription" so it can be back-checked.\n\n' +
+  '7. CONSTRUCTION STAGE:\n' +
+  'Classify each activity into exactly one "stage" — the FURTHEST construction step the ' +
+  'element has reached: "Guide Wall", "Excavation", "Rebar Cage" (lowering the rebar cage), ' +
+  '"Concrete Casting", "Trimming" (trimming/chipping), "Breaking" (breaking/hacking), ' +
+  '"Completed", or "Other". Use "Completed" ONLY when the element/panel as a whole is ' +
+  'finished (e.g. its concrete casting is done) — NOT merely because a sub-step like ' +
+  'excavation finished (that is still "Excavation").';
 
 /** Claude forced-tool: merge/dedupe + metrics. */
 function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
@@ -345,9 +352,10 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
                     elementId: { type: 'string', description: 'the specific ID (DW/BP/BT/CW) if applicable, else ""' },
                     section: { type: 'string', description: 'section/segment/location, e.g. Sec-C/Mb' },
                     activityDescription: { type: 'string', description: 'the work description; keep any volume figure such as "54/54 m3"' },
+                    stage: { type: 'string', description: 'construction stage: Guide Wall | Excavation | Rebar Cage | Concrete Casting | Trimming | Breaking | Completed | Other' },
                     manpower: { type: 'integer', description: 'manpower for this activity (0 if unknown)' }
                   },
-                  required: ['elementId', 'section', 'activityDescription', 'manpower']
+                  required: ['elementId', 'section', 'activityDescription', 'stage', 'manpower']
                 }
               }
             },
@@ -437,6 +445,7 @@ function normalizeProductivity_(raw, dateHint, source) {
       acts.push({
         area: area || areaFromSection_(section) || 'Others',
         section: section, elementId: elementId, activity: activity,
+        stage: normStage_(a.stage) || stageFromText_(activity),
         manpower: num(a.manpower)
       });
     });
@@ -515,7 +524,8 @@ function buildProductivityResult_(date, acts, source) {
       },
       activities: list.map(function (a) {
         return { elementId: a.elementId || '', section: a.section || '',
-          activity: a.activity || '', manpower: Number(a.manpower) || 0 };
+          activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
+          manpower: Number(a.manpower) || 0 };
       })
     };
   });
@@ -535,7 +545,8 @@ function buildProductivityResult_(date, acts, source) {
     grandTotals: { totalConcreteVolumeM3: Math.round(gConc * 100) / 100, totalManpower: gMan },
     mergedActivities: acts.map(function (a) {
       return { area: a.area, section: a.section || '', elementId: a.elementId || '',
-        activity: a.activity || '', manpower: Number(a.manpower) || 0 };
+        activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
+        manpower: Number(a.manpower) || 0 };
     }),
     productivityData: {
       activeDWalls: gdw, dWallCount: gdw.length,
@@ -572,6 +583,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       section: r.area || '',
       elementId: firstElementId_((r.area || '') + ' ' + act),
       activity: full,
+      stage: stageFromText_(full),
       manpower: firstManpower_((r.remark || '') + ' ' + act)
     });
   });
@@ -604,6 +616,48 @@ function uniqCodes_(list) {
 function firstManpower_(t) {
   var m = /(\d+)\s*pax\b/i.exec(t) || /man\s*power[^0-9]{0,8}(\d+)/i.exec(t);
   return m ? parseInt(m[1], 10) : 0;
+}
+
+// Construction stages, ordered by progress (later = more advanced). "Other" = -1.
+var STAGES = ['Guide Wall', 'Excavation', 'Rebar Cage', 'Concrete Casting', 'Trimming', 'Breaking', 'Completed', 'Other'];
+var STAGE_ORDER = { 'Guide Wall': 0, 'Excavation': 1, 'Rebar Cage': 2, 'Concrete Casting': 3, 'Trimming': 4, 'Breaking': 5, 'Completed': 6, 'Other': -1 };
+
+/**
+ * Classify an activity's construction stage from its text. Picks the most-advanced
+ * construction step present; maps to "Completed" only when a completion word
+ * co-occurs with casting or an explicit element/panel completion (so "excavation
+ * completed" stays Excavation, but "concrete casting completed" -> Completed).
+ */
+function stageFromText_(text) {
+  var t = String(text == null ? '' : text).toLowerCase();
+  var found = -1;
+  if (/guide\s*wall/.test(t)) found = Math.max(found, 0);
+  if (/excavat|trench/.test(t)) found = Math.max(found, 1);
+  if (/rebar|cage|reinforc|steel\s*fix/.test(t)) found = Math.max(found, 2);
+  if (/cast|concret|pour/.test(t)) found = Math.max(found, 3);
+  if (/trim|chip|chisel/.test(t)) found = Math.max(found, 4);
+  if (/break|hack|demolish/.test(t)) found = Math.max(found, 5);
+  var done = /\b(complete|completed|finished|done|fully\s*cast)\b/.test(t);
+  var casting = /cast|concret|pour/.test(t);
+  var elemDone = /\b(panel|wall|pile|element|works?)\b[^.]*\b(complete|completed|finished|done)\b/.test(t)
+    || /\b(complete|completed|finished|done)\b[^.]*\b(panel|wall|pile|element)\b/.test(t);
+  if (done && (casting || elemDone)) return 'Completed';
+  return found >= 0 ? STAGES[found] : 'Other';
+}
+
+/** Canonicalise an AI-provided stage label to one of STAGES, or '' if unrecognised. */
+function normStage_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  if (!s) return '';
+  for (var i = 0; i < STAGES.length; i++) if (STAGES[i].toLowerCase() === s) return STAGES[i];
+  if (/guide/.test(s)) return 'Guide Wall';
+  if (/excavat|trench/.test(s)) return 'Excavation';
+  if (/rebar|cage|reinforc/.test(s)) return 'Rebar Cage';
+  if (/cast|concret|pour/.test(s)) return 'Concrete Casting';
+  if (/trim|chip/.test(s)) return 'Trimming';
+  if (/break|hack/.test(s)) return 'Breaking';
+  if (/complet|finish|done/.test(s)) return 'Completed';
+  return '';
 }
 
 function sumConcreteM3_(t) {
@@ -673,6 +727,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normAreaName_: normAreaName_,
     classifyElement_: classifyElement_,
     firstElementId_: firstElementId_,
+    stageFromText_: stageFromText_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_,
     castVolumeOf_: castVolumeOf_

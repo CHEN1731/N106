@@ -18,7 +18,7 @@ const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
-        uniqCodes_, sumConcreteM3_, castVolumeOf_ } = sandbox;
+        uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -133,6 +133,23 @@ const pc = normalizeProductivity_({
 }, '', 'ai');
 assert(pc.areas[0].kpiBreakdown.concreteVolumeM3 === 100, 'same panel counted once at latest (100), not 40+100');
 assert(pc.grandTotals.totalConcreteVolumeM3 === 100, 'grand concrete = 100 (deduped per panel)');
+
+console.log('\nConstruction stage classifier:');
+assert(stageFromText_('Guide wall casting') === 'Concrete Casting', 'guide wall + casting -> furthest (Concrete Casting)');
+assert(stageFromText_('DW1547 guide wall works') === 'Guide Wall', 'guide wall only -> Guide Wall');
+assert(stageFromText_('excavation ongoing') === 'Excavation', 'excavation -> Excavation');
+assert(stageFromText_('lowering rebar cage') === 'Rebar Cage', 'rebar cage -> Rebar Cage');
+assert(stageFromText_('concrete casting 54/54 completed') === 'Completed', 'casting completed -> Completed');
+assert(stageFromText_('excavation completed') === 'Excavation', 'excavation completed -> Excavation (not Completed)');
+assert(stageFromText_('trimming works') === 'Trimming', 'trimming -> Trimming');
+assert(stageFromText_('hacking pile head') === 'Breaking', 'hacking -> Breaking');
+assert(stageFromText_('site meeting') === 'Other', 'no stage keyword -> Other');
+// Stage carried through the normaliser + fallback
+const stg = normalizeProductivity_({ date:'2026-08-22', areas:[{ areaName:'Area 2', kpiBreakdown:{}, activities:[
+  { elementId:'DW1', section:'Sec-C/Mb', activityDescription:'DW1 excavation ongoing', manpower:5 }
+]}], grandTotals:{} }, '', 'ai');
+assert(stg.areas[0].activities[0].stage === 'Excavation', 'normaliser fills stage from activity text');
+assert(stg.mergedActivities[0].stage === 'Excavation', 'mergedActivities carry stage');
 
 console.log('\nArea breakdown + back-check (KPI derived from activities):');
 const se = normalizeProductivity_({

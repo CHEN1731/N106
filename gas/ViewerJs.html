@@ -177,6 +177,56 @@
     renderActivities(selSet, multi);
     renderConcreteChart(dates);
     renderStructChart(p);
+    renderStageChart(selSet);
+  }
+
+  // Construction stages, ordered by progress (same as the backend).
+  var STAGES = ['Guide Wall','Excavation','Rebar Cage','Concrete Casting','Trimming','Breaking','Completed','Other'];
+  var STAGE_ORDER = {'Guide Wall':0,'Excavation':1,'Rebar Cage':2,'Concrete Casting':3,'Trimming':4,'Breaking':5,'Completed':6,'Other':-1};
+  function stageChip(s){ var v=String(s||''); return v ? '<span class="stg">'+esc(v)+'</span>' : '—'; }
+  function stageOptions(cur){ return STAGES.map(function(o){
+    return '<option'+(o===(cur||'')?' selected':'')+'>'+o+'</option>'; }).join(''); }
+
+  // Stacked bar: distinct ELEMENTS at each stage (an element counted once, at its
+  // furthest stage across the filtered activities), split by structure type.
+  var stageChart=null;
+  function renderStageChart(selSet){
+    if (typeof Chart==='undefined') return;
+    var area=$('fArea').value, q=$('fSearch').value.trim().toLowerCase();
+    var byEl={};   // elementId -> { type, idx }
+    ACTS.forEach(function(a){
+      if (selSet && !selSet[String(a.date)]) return;
+      if (area && String(a.area)!==area) return;
+      if (q){ var hay=(a.section+' '+a.activity).toLowerCase(); if(hay.indexOf(q)===-1) return; }
+      var idx = STAGE_ORDER[a.stage]; if (idx===undefined) idx=-1;
+      elementIdsOf(a).forEach(function(id){
+        var type=classifyEl(id); if(!type) return;
+        if (!byEl[id] || idx>byEl[id].idx) byEl[id]={type:type, idx:idx};
+      });
+    });
+    var counts={}; STAGES.forEach(function(s){ counts[s]={DW:0,BP:0,BT:0,CW:0}; });
+    var total=0;
+    Object.keys(byEl).forEach(function(id){
+      var e=byEl[id]; var label=(e.idx>=0?STAGES[e.idx]:'Other');
+      counts[label][e.type]++; total++;
+    });
+    if ($('stageSub')) $('stageSub').textContent = total
+      ? ('Distinct elements at their furthest stage (' + total + '), by structure type')
+      : 'No element-tagged activities in this filter';
+    var types=[['DW','--dw'],['BP','--bp'],['BT','--bt'],['CW','--cw']];
+    var datasets=types.map(function(t){
+      return { label:t[0], backgroundColor:cssVar(t[1]),
+        data:STAGES.map(function(s){ return counts[s][t[0]]; }) };
+    });
+    if (stageChart) stageChart.destroy();
+    stageChart=new Chart($('stageChart').getContext('2d'), {
+      type:'bar',
+      data:{ labels:STAGES, datasets:datasets },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{position:'bottom', labels:{color:cssVar('--ink2')}} },
+        scales:{ x:{ stacked:true, ticks:{color:cssVar('--ink2')}, grid:{display:false} },
+                 y:{ stacked:true, beginAtZero:true, ticks:{color:cssVar('--ink2'),precision:0}, grid:{color:cssVar('--grid')} } } }
+    });
   }
 
   function renderActivities(selSet, multi){
@@ -216,10 +266,10 @@
         esc(kpiFilter.ids.join(', ')||'—')+' — showing '+shown.length+' of '+groups[g].length+
         ' <button class="kclear">✕ clear</button></div>' : '';
       var body = shown.map(function(a){ return activityRowHtml(a, multi); }).join('') ||
-        '<tr><td class="empty" colspan="'+(multi?6:5)+'">No matching activities for this KPI.</td></tr>';
+        '<tr><td class="empty" colspan="'+(multi?7:6)+'">No matching activities for this KPI.</td></tr>';
       return '<div class="areagroup"><h3>'+esc(g)+' · '+groups[g].length+'</h3>'+ kpis + notice +
         '<div class="tablewrap"><table><thead><tr>'+dateHead+'<th>Section</th><th>Element</th>'+
-        '<th>Activity</th><th>Manpower</th><th class="acts"></th></tr></thead>'+
+        '<th>Activity</th><th>Stage</th><th>Manpower</th><th class="acts"></th></tr></thead>'+
         '<tbody>'+body+'</tbody></table></div></div>';
     }).join('');
   }
@@ -245,7 +295,7 @@
   function activityRowHtml(a, multi){
     var dateCell = multi ? '<td class="mono">'+esc(fmtDate(a.date))+'</td>' : '';
     if (a._row === editingRow){
-      var cols = multi ? 6 : 5;
+      var cols = multi ? 7 : 6;
       return '<tr class="editing" data-row="'+a._row+'"><td colspan="'+cols+'">'+
         '<div class="editrow">'+
           (multi ? '<span class="edate">'+esc(fmtDate(a.date))+'</span>' : '')+
@@ -253,6 +303,7 @@
           '<label>Section <input class="e-sec" value="'+attr(a.section||'')+'"></label>'+
           '<label>Element <input class="e-elem" value="'+attr(a.elementId||'')+'"></label>'+
           '<label class="grow">Activity <input class="e-act" value="'+attr(a.activity||'')+'"></label>'+
+          '<label>Stage <select class="e-stage">'+stageOptions(a.stage)+'</select></label>'+
           '<label>Manpower <input class="e-mp" type="number" min="0" step="1" value="'+(a.manpower||0)+'"></label>'+
           '<button class="e-save">Save</button> <button class="e-cancel">Cancel</button>'+
         '</div></td></tr>';
@@ -260,6 +311,7 @@
     return '<tr data-row="'+a._row+'">'+ dateCell +'<td>'+esc(a.section||'—')+'</td>'+
       '<td class="mono">'+esc(a.elementId||'—')+'</td>'+
       '<td class="act">'+esc(a.activity||'')+'</td>'+
+      '<td>'+stageChip(a.stage)+'</td>'+
       '<td class="mono">'+(a.manpower||0)+'</td>'+
       '<td class="acts"><button class="e-edit" title="Edit this record">✎ Edit</button>'+
       '<button class="e-del" title="Delete this record">🗑</button></td></tr>';
@@ -307,7 +359,7 @@
       var sel = selectedDates();
       $('aDate').value = (sel.length===1 ? sel[0] : (ALL_DATES[ALL_DATES.length-1]||''));
       $('aSection').value=''; $('aElement').value=''; $('aActivity').value=''; $('aManpower').value='0';
-      $('aArea').value='';
+      $('aArea').value=''; if ($('aStage')) $('aStage').value='';
       $('aActivity').focus();
     }
   });
@@ -315,13 +367,13 @@
   $('aSave').addEventListener('click', function(){
     var rec = { date:$('aDate').value, area:$('aArea').value, section:$('aSection').value.trim(),
                 elementId:$('aElement').value.trim(), activity:$('aActivity').value.trim(),
-                manpower:Number($('aManpower').value)||0 };
+                stage:($('aStage')?$('aStage').value:''), manpower:Number($('aManpower').value)||0 };
     if (!rec.date){ toast('Pick a date.'); return; }
     if (!rec.activity){ toast('Enter the activity.'); return; }
     if (!(window.google && google.script && google.script.run)){
       var nr = (ACTS.reduce(function(m,x){return Math.max(m,x._row||1);},1))+1;
       ACTS.push({_row:nr, date:rec.date, area:rec.area, section:rec.section, elementId:rec.elementId,
-        activity:rec.activity, manpower:rec.manpower});
+        activity:rec.activity, stage:rec.stage, manpower:rec.manpower});
       $('addForm').hidden=true; render(); toast('Added (local)'); return;
     }
     $('aSave').disabled=true; $('aSave').textContent='Adding…';
@@ -356,19 +408,21 @@
     var elemEl = tr.querySelector('.e-elem');
     var newElem = elemEl ? elemEl.value.trim() : a.elementId;
     var newAct = tr.querySelector('.e-act').value;
+    var stageEl = tr.querySelector('.e-stage');
+    var newStage = stageEl ? stageEl.value : a.stage;
     var newMp  = Number(tr.querySelector('.e-mp').value) || 0;
     var edit = { row: rowId, date: a.date, area: newArea, section: newSec, elementId: newElem,
-      activity: newAct, manpower: newMp,
+      activity: newAct, stage: newStage, manpower: newMp,
       orig: { section: a.section, activity: a.activity, manpower: a.manpower } };
     tr.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
     if (!(window.google && google.script && google.script.run)){
       // Offline/mock: just update in memory.
-      a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.manpower=newMp;
+      a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.stage=newStage; a.manpower=newMp;
       editingRow=null; render(); toast('Saved (local)'); return;
     }
     google.script.run
       .withSuccessHandler(function(total){
-        a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.manpower=newMp;
+        a.area=newArea; a.section=newSec; a.elementId=newElem; a.activity=newAct; a.stage=newStage; a.manpower=newMp;
         editingRow=null;
         // keep the KPI's manpower in sync with the recomputed total from the server
         var p = prodForDate(a.date); if (p && typeof total==='number') p.totalManpower = total;
