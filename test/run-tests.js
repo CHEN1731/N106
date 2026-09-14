@@ -11,14 +11,16 @@ const vm = require('vm');
 const root = path.join(__dirname, '..');
 const sandbox = {};
 vm.createContext(sandbox);
-['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs'].forEach((f) => {
+['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
 const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
-        uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_ } = sandbox;
+        uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
+        parseWebhookMessages_, phoneSource_, normalizePhone_,
+        waTimestampToDate_, buildDayTexts_, toDateStr_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -201,6 +203,50 @@ assert(rc.reportDate === '2026-08-05', 'runComparison reports the date');
 assert(Array.isArray(rc.areas) && rc.areas.length === 3, 'runComparison returns area breakdown');
 assert(rc.productivityData && rc.productivityData.dWallCount === 2, 'runComparison returns grand productivityData');
 assert(Array.isArray(rc.mergedActivities) && rc.mergedActivities.length === 3, 'runComparison returns mergedActivities');
+
+console.log('\nWhatsApp Cloud API webhook ingestion:');
+const waPayload = {
+  object: 'whatsapp_business_account',
+  entry: [{
+    changes: [{
+      value: {
+        contacts: [{ wa_id: '60123456789', profile: { name: 'RTO Eng' } },
+                   { wa_id: '60198887777', profile: { name: 'AIS Eng' } }],
+        messages: [
+          { from: '60123456789', id: 'wamid.A', timestamp: '1754380800', type: 'text', text: { body: 'DW1547 casting 42 m3' } },
+          { from: '60198887777', id: 'wamid.B', timestamp: '1754380900', type: 'text', text: { body: 'BP-T9-3 boring' } },
+          { from: '60123456789', id: 'wamid.C', timestamp: '1754381000', type: 'image', image: { id: 'media1' } }
+        ]
+      }
+    }]
+  }]
+};
+const waMsgs = parseWebhookMessages_(waPayload);
+assert(waMsgs.length === 3, 'parseWebhookMessages returns all 3 messages (got ' + waMsgs.length + ')');
+assert(waMsgs[0].text === 'DW1547 casting 42 m3' && waMsgs[0].name === 'RTO Eng', 'text message carries body + contact name');
+assert(waMsgs[2].type === 'image' && waMsgs[2].text === '', 'non-text message logged with empty text');
+assert(parseWebhookMessages_({ object: 'other' }).length === 0, 'non-WABA payload yields no messages');
+assert(parseWebhookMessages_({}).length === 0, 'empty payload is safe');
+
+const srcMap = { '60123456789': 'RTO', '60198887777': 'AIS' };
+assert(phoneSource_('60198887777', srcMap) === 'AIS', 'phoneSource maps a known AIS phone');
+assert(phoneSource_('+60 12-345 6789', srcMap) === 'RTO', 'phoneSource normalises punctuation before matching');
+assert(phoneSource_('60111111111', srcMap) === 'RTO', 'phoneSource defaults unknown -> RTO');
+assert(normalizePhone_('+60 12-345 6789') === '60123456789', 'normalizePhone strips non-digits');
+
+assert(/^\d{4}-\d{2}-\d{2}$/.test(waTimestampToDate_('1754380800')), 'waTimestampToDate returns yyyy-mm-dd');
+assert(waTimestampToDate_('1754380800') === toDateStr_(new Date(1754380800 * 1000)), 'waTimestampToDate matches toDateStr of the instant');
+assert(waTimestampToDate_('') === '' && waTimestampToDate_(0) === '', 'waTimestampToDate empty for missing ts');
+
+const dayTexts = buildDayTexts_([
+  { waId: 'wamid.A', source: 'RTO', text: 'DW1547 casting 42 m3' },
+  { waId: 'wamid.A', source: 'RTO', text: 'DW1547 casting 42 m3' },   // duplicate id -> dropped
+  { waId: 'wamid.B', source: 'AIS', text: 'BP-T9-3 boring' },
+  { waId: 'wamid.C', source: 'RTO', text: '' },                        // empty -> dropped
+  { waId: 'wamid.D', source: 'unknown', text: 'kicker cast' }          // unknown -> RTO
+]);
+assert(dayTexts.rto === 'DW1547 casting 42 m3\nkicker cast', 'buildDayTexts groups RTO, dedups id, drops empty, folds unknown->RTO');
+assert(dayTexts.ais === 'BP-T9-3 boring', 'buildDayTexts groups AIS stream');
 
 console.log('\n' + (failures ? (failures + ' FAILED') : 'ALL PASSED'));
 process.exit(failures ? 1 : 0);

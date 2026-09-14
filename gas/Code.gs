@@ -18,7 +18,8 @@ var SPREADSHEET_ID = '1ZMqhmKmLIdUWYV9bJ20udK7yi9uwFxQx337oMb-TFhY';
 
 var TABS = {
   activities: 'Activities',      // one row per merged activity (per date)
-  productivity: 'Productivity'   // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
+  productivity: 'Productivity',  // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
+  raw: 'Raw_Logs'                // append-only audit of inbound WhatsApp Cloud API messages
 };
 
 /**
@@ -55,7 +56,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-24 · stage breakdown';
+var APP_VERSION = 'build-25 · whatsapp webhook';
 
 /**
  * Route:
@@ -67,6 +68,11 @@ var APP_VERSION = 'build-24 · stage breakdown';
  * google.script.run round-trip.
  */
 function doGet(e) {
+  // WhatsApp Cloud API webhook verification (Meta GETs the URL with hub.* params).
+  // Handled first so it never falls through to HTML routing. Returns null otherwise.
+  var hub = handleWebhookGet_(e);
+  if (hub) return hub;
+
   var page = (e && e.parameter && e.parameter.page) || '';
   var file = page === 'view' ? 'Viewer' : 'Index';
   var title = page === 'view'

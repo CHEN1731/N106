@@ -102,6 +102,7 @@ gas/                 Apps Script project (clasp-compatible)
   Extract.gs         AI merge+metrics (Claude via UrlFetchApp) + deterministic fallback
   Parser.gs          WhatsApp .txt -> records  (CONFIG block at top to tune)
   Compare.gs         (legacy) record-matching utility, no longer used by the app
+  Webhook.gs         WhatsApp Cloud API: doPost logger + processRawLogs batch rebuild
   Index.html         uploader: two editable panes + productivity preview (+Styles/JavaScript)
   Viewer.html        Productivity Dashboard: KPIs + Chart.js graphs + activity list (+ViewerStyles/ViewerJs)
 docs/
@@ -164,6 +165,62 @@ parser near-perfect and cuts the corrections you make in the viewer.
 
 Looker Studio is optional now that the built-in Viewer covers the director view;
 connect it per the setup guide only if you still want it.
+
+## Full automation via WhatsApp Cloud API (no manual upload)
+
+Instead of pasting/uploading exports, the app can receive messages **live** from the
+official **WhatsApp Business API (Meta Cloud API)** and rebuild the dashboard on a
+schedule. Ingestion lives in [`gas/Webhook.gs`](gas/Webhook.gs):
+
+```
+WhatsApp Cloud API --POST--> doPost --> Raw_Logs (audit, append-only)
+   hourly trigger --> processRawLogs() --> saveToSheet(generateProductivity(rto, ais, date))
+      --> Activities + Productivity tabs   (the Viewer, unchanged, reads these)
+```
+
+Each inbound message is logged immediately (fast 200, so Meta doesn't retry); the
+day's structured summary is rebuilt hourly from **all** of that day's raw messages,
+so cross-message merging and the concrete/stage rules still apply. Rebuilds are
+idempotent (upsert by date). The manual uploader stays available as an offline path.
+
+### One-time setup
+
+1. **Script properties** (Apps Script → Project Settings → Script properties):
+   - `WHATSAPP_VERIFY_TOKEN` — any random string you choose (also entered in Meta's UI).
+   - `WHATSAPP_URL_TOKEN` — a second secret; append it to the callback URL as `?wt=…`
+     to authenticate POSTs (Apps Script can't read Meta's `X-Hub-Signature-256` header,
+     so a URL token is used instead). Optional in dev; recommended in production.
+   - `WHATSAPP_SOURCE_MAP` — JSON mapping each sender phone to a source, e.g.
+     `{"60123456789":"RTO","60198887777":"AIS"}`. Unmapped senders default to `RTO`.
+   - `ANTHROPIC_API_KEY` — as before (used by the rebuild).
+2. **Deploy → New deployment → Web app**: execute as *me*, access **Anyone**
+   (required — Meta calls the URL anonymously). This access level is set here in the
+   Deploy dialog, **not** in `appsscript.json` (the manifest stays `MYSELF` so the repo
+   doesn't ship a public default). Copy the `/exec` URL.
+3. In the Apps Script editor, run **`installWebhookTrigger_`** once (authorise scopes
+   when prompted) — this creates the hourly `processRawLogs` trigger.
+
+> ⚠️ Access **Anyone** makes the uploader/Viewer reachable by anyone who has the
+> (unguessable) `/exec` URL. The POST path is guarded by `WHATSAPP_URL_TOKEN`; if you
+> also need the Viewer itself private, add a `?key=` gate to `doGet` (not included).
+
+### Register the webhook in the Meta Developer Portal
+
+1. Meta App → **WhatsApp → Configuration → Webhook → Edit**.
+2. **Callback URL** = your `/exec` URL **with the token**, e.g.
+   `https://script.google.com/macros/s/XXXX/exec?wt=YOUR_URL_TOKEN`.
+3. **Verify token** = the `WHATSAPP_VERIFY_TOKEN` you set. Click **Verify and save** —
+   Meta GETs the URL and the app echoes `hub.challenge` (handled by `handleWebhookGet_`,
+   which the existing `doGet` calls first).
+4. Under **Webhook fields**, **Subscribe** to **`messages`**.
+5. Send a test WhatsApp message to your business number → a row appears in `Raw_Logs`.
+   Run **`debugProcessRawLogs`** (or wait for the hourly trigger) → open the Viewer
+   (`?page=view`) and confirm the day shows.
+
+Notes: the Cloud API delivers **text**; media (images) arrive as IDs that need a
+separate Graph API fetch, so they're logged for audit but not downloaded (same caveat
+as the manual media-export flow). Non-text messages are recorded in `Raw_Logs` with an
+empty body.
 
 ## Daily workflow (sustainable, accumulates history)
 

@@ -45,3 +45,29 @@ The Viewer builds: the **7-day concrete bar chart** from the last 7 `Productivit
 rows' `concrete_m3`; the **DW/BP/BT/CW doughnut** and **KPI cards** from the
 selected date's row; and the **activities list** (filterable by Area) from
 `Activities`.
+
+## Tab: `Raw_Logs` — inbound WhatsApp Cloud API audit (full-automation path)
+
+Written by `doPost` in `gas/Webhook.gs` whenever the WhatsApp Business (Meta Cloud)
+API delivers a message. **Append-only** (never upserted or wiped) so every raw
+message is auditable. A time-driven trigger (`processRawLogs`) later rebuilds each
+affected day's summary from these rows.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `received_at` | Date-time | server time the webhook row was appended |
+| `wa_message_id` | Text | WhatsApp message id (used to de-dupe on rebuild) |
+| `from_phone` | Text | sender's WhatsApp number |
+| `sender_name` | Text | sender's WhatsApp profile name |
+| `source` | Text | `RTO` or `AIS`, from the `WHATSAPP_SOURCE_MAP` phone map (default `RTO`) |
+| `msg_date` | Text (yyyy-mm-dd) | message date, from `wa_timestamp` in the project timezone |
+| `wa_timestamp` | Text | raw unix timestamp (seconds) from Meta |
+| `type` | Text | `text`, `image`, `button`, … (non-text logged for audit) |
+| `text` | Text | message body (empty for non-text) |
+| `processed` | Boolean | `FALSE` until `processRawLogs` has rebuilt that day's summary |
+
+**Data flow:** `WhatsApp Cloud API → doPost → Raw_Logs → processRawLogs (hourly) →
+saveToSheet(generateProductivity(rto, ais, date)) → Activities + Productivity`. The
+Viewer is unchanged — it still reads only `Activities` + `Productivity`. Rebuilds are
+idempotent: `saveToSheet` upserts by date, so re-processing a day is safe. The manual
+uploader remains as an offline/fallback path that writes the same two tabs.
