@@ -241,7 +241,7 @@
     if ($('siteSub')) $('siteSub').textContent = machines.length
       ? (machines.length+' machine'+(machines.length===1?'':'s')+' detected · grouped by location')
       : 'No machines detected for this range';
-    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected — a BC Cutter needs a DW/BT/CW with “bite” or “rebar cage”; a Boring Rig needs a BP with “current depth”.</div>'; return; }
+    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected — a BC Cutter needs a DW/BT/CW with “bite”; a Boring Rig needs a BP with “depth”.</div>'; return; }
 
     // group by location (blank -> "Unspecified"), preserving first-seen order
     var groups={}, order=[];

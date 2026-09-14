@@ -90,9 +90,8 @@ with them (the Area KPIs, charts, and activity table stay below):
   (e.g. a block for `ER15`, one for `Opp SJII`), each card showing "Working on: `<assignedId>`"
   and a status badge: **green Active / blue Completed / red Maintenance**. Detection is
   **strict** (enforced in the backend, not just requested of the AI): a **BC Cutter** is
-  logged only for a DW/BT/CW mentioned with **"bite"** or **"rebar cage"** (the procedure
-  runs bite → rebar cage → casting); a **Boring Rig** only for a BP/pile mentioned with
-  **"current depth"/"drilling depth"** or "rebar cage". Casting → Completed. A machine
+  logged only for a DW/BT/CW mentioned with **"bite"**; a **Boring Rig** only for a BP/pile
+  mentioned with **"depth"** (current/drilling depth). Casting → Completed status. A machine
   without its trigger word is **not** logged, so idle panels no longer show phantom rigs.
 - **Excavation Tracker** — active zones with depth (m, shown as a mini progress bar) and
   the day's soil-disposal loads.

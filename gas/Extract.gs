@@ -314,12 +314,11 @@ var PRODUCTIVITY_SYSTEM =
   'STRICT LOGICAL TRIGGERS — do NOT log a machine unless its trigger is present in the text:\n' +
   '- BC CUTTER: log a BC Cutter ONLY when a Diaphragm Wall (DW), Buttress Wall (BT) or ' +
   'Cross Wall (CW) id is mentioned TOGETHER WITH the word "bite" (e.g. "1st bite", "2nd ' +
-  'bite", "bite A"), OR with "rebar cage" (the cage-lowering step that follows the bites). ' +
-  'If neither "bite" nor "rebar cage" (nor casting, see below) is mentioned for that ' +
-  'DW/BT/CW, DO NOT log a BC Cutter.\n' +
+  'bite", "bite A"). If "bite" is not mentioned for that DW/BT/CW, DO NOT log a BC Cutter ' +
+  '(rebar cage or casting alone is NOT enough).\n' +
   '- BORING RIG: log a Boring Rig ONLY when a Bored Pile (BP id or P-number pile) is ' +
-  'mentioned TOGETHER WITH "current depth" or "drilling depth", OR with "rebar cage". If no ' +
-  'depth (nor rebar cage nor casting) is mentioned, DO NOT log a Boring Rig.\n' +
+  'mentioned TOGETHER WITH "depth" (e.g. "current depth", "drilling depth", "depth 30m"). ' +
+  'If no depth is mentioned, DO NOT log a Boring Rig.\n' +
   '- STATUS (exactly "Active", "Completed", or "Maintenance"): if "concrete casting", ' +
   '"casting" or "concreting" is mentioned for that DW/BT/CW/BP, set status "Completed". ' +
   'Else if hose change / breakdown / repair / servicing, set "Maintenance". Else (bite / ' +
@@ -404,7 +403,7 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
           properties: {
             bcCutters: {
               type: 'array',
-              description: 'ONLY DW/BT/CW worked with "bite" or "rebar cage" (or casting)',
+              description: 'ONLY DW/BT/CW worked with "bite"',
               items: {
                 type: 'object',
                 properties: {
@@ -418,7 +417,7 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
             },
             boringRigs: {
               type: 'array',
-              description: 'ONLY BP/pile worked with "current depth"/"drilling depth" or "rebar cage" (or casting)',
+              description: 'ONLY BP/pile worked with "depth" (current/drilling depth)',
               items: {
                 type: 'object',
                 properties: {
@@ -492,9 +491,9 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'Also return "grandTotals": { totalConcreteVolumeM3, totalManpower } across all areas.\n\n' +
     'ALSO populate the Resource & Production nodes (see rule 8):\n' +
     '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } using the STRICT triggers in ' +
-    'rule 8 — a BC Cutter ONLY for a DW/BT/CW worked with "bite" or "rebar cage" (or ' +
-    'casting); a Boring Rig ONLY for a BP/pile worked with "current depth"/"drilling depth" ' +
-    'or "rebar cage" (or casting). Each entry = { assignedId, location, status, evidence }; ' +
+    'rule 8 — a BC Cutter ONLY for a DW/BT/CW worked with "bite"; a Boring Rig ONLY for a ' +
+    'BP/pile worked with "depth" (current/drilling depth). Each entry = { assignedId, ' +
+    'location, status, evidence }; ' +
     'status = Completed if casting, Maintenance if breakdown/hose change, else Active. Never ' +
     'exceed 6 cutters / 4 rigs. Do NOT log a machine that lacks its trigger word.\n' +
     '   - "excavation": { totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] }.\n' +
@@ -699,23 +698,22 @@ function round2_(n) { return Math.round(toNum_(n) * 100) / 100; }
 function locKey_(s) { return String(s == null ? '' : s).toUpperCase().replace(/\s+/g, ''); }
 
 // Strict machine-detection triggers. A machine is logged ONLY when its family's
-// trigger word is present (the procedure runs bite/depth -> rebar cage -> casting).
+// trigger word is present: a BC Cutter needs a DW/BT/CW with "bite"; a Boring Rig needs a
+// BP with "depth" (current/drilling depth, or a bare "depth"). Casting and rebar cage are
+// NOT detection triggers — casting only affects STATUS (see machineStatusFor_).
 var CASTING_RE = /cast|concret|pour/i;
 var MAINT_RE = /maint|breakdown|repair|servic|hose\s*change/i;
 var BITE_RE = /\bbite\b/i;
-var REBAR_CAGE_RE = /rebar\s*cage/i;
-var DEPTH_RE = /(current|drilling)\s*depth/i;
+var DEPTH_RE = /\bdepth\b/i;
 
 /**
  * Does `text` carry a valid trigger for a machine of `family` ('bc' | 'rig')?
  * Returns the matched trigger token (truthy) or '' to DROP the machine.
- *   bc  : "bite" | "rebar cage" | casting
- *   rig : "current/drilling depth" | "rebar cage" | casting
+ *   bc  : "bite"          (DW/BT/CW only)
+ *   rig : "depth"         (BP only; matches current/drilling depth too)
  */
 function machineTrigger_(text, family) {
   var t = String(text == null ? '' : text);
-  if (CASTING_RE.test(t)) return 'casting';
-  if (REBAR_CAGE_RE.test(t)) return 'rebar cage';
   if (family === 'bc') return BITE_RE.test(t) ? 'bite' : '';
   if (family === 'rig') return DEPTH_RE.test(t) ? 'depth' : '';
   return '';
@@ -733,7 +731,7 @@ function machineStatusFor_(text) {
 function machineEvidence_(text, family) {
   var full = String(text == null ? '' : text).trim();
   var clauses = full.split(/\s*(?:;|\n|\.|,)\s*/).filter(Boolean);
-  var res = [CASTING_RE, REBAR_CAGE_RE, (family === 'rig' ? DEPTH_RE : BITE_RE), MAINT_RE];
+  var res = [(family === 'rig' ? DEPTH_RE : BITE_RE), CASTING_RE, MAINT_RE];
   for (var i = 0; i < clauses.length; i++) {
     for (var j = 0; j < res.length; j++) { if (res[j].test(clauses[i])) return clauses[i].trim(); }
   }

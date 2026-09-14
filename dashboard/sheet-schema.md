@@ -67,10 +67,9 @@ quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs ar
 
 Machine detection is **strict** (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8, enforced
 by `normalizeMachineStatus_`): a **BC Cutter** is logged only for a DW/BT/CW mentioned with
-**"bite"** or **"rebar cage"** (or casting); a **Boring Rig** only for a BP/pile mentioned
-with **"current depth"/"drilling depth"** or "rebar cage" (or casting). `status` is
-**Completed** when casting is mentioned, **Maintenance** on breakdown/hose-change, else
-**Active**; `evidence` holds the trigger snippet. The Viewer leads with a **Site Machine
+**"bite"**; a **Boring Rig** only for a BP/pile mentioned with **"depth"** (current/drilling
+depth). `status` is **Completed** when casting is mentioned, **Maintenance** on
+breakdown/hose-change, else **Active**; `evidence` holds the trigger snippet. The Viewer leads with a **Site Machine
 Layout** banner that groups the detected machines by `location`; the Excavation Tracker, RC
 section, Area KPIs, charts, and activity table follow.
 
