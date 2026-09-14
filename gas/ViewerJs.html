@@ -3,7 +3,6 @@
   var PROD = [];    // productivity history (asc by date)
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ALL_DATES = [];  // every known date, oldest -> newest
-  var BC_CUTTERS = 6, BORING_RIGS = 4;  // physical fleet sizes (pad grids to these)
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
   var AREA_KPI = {};       // per-area KPI computed each render (for back-check click)
@@ -181,7 +180,7 @@
       : 'Daily concrete casting';
 
     var sum = summaryForRange(dates);
-    renderFleet(sum);
+    renderMachineBanner(sum);
     renderExcavation(sum);
     renderRC(sum);
 
@@ -220,41 +219,47 @@
       reinforcedConcrete:{ totalConcreteVolumeM3:Math.round(rcTotal*100)/100, rcActivities:rcActs } };
   }
 
+  // Status -> badge class. Green Active / Blue Completed / Red Maintenance.
   function statusClass(s){ var v=String(s||'').toLowerCase();
-    if (v==='maintenance') return 'st-maint'; if (v==='active') return 'st-active'; return 'st-idle'; }
+    if (v==='completed') return 'st-completed'; if (v==='maintenance') return 'st-maint'; return 'st-active'; }
 
-  // Render one fleet grid: fill reported machines, pad to `size` with grey Idle slots.
-  function renderFleetGrid(hostId, list, size, prefix){
-    var host=$(hostId); if(!host) return;
-    list = list || [];
-    var cards = list.map(function(m, i){
-      var cls = statusClass(m.status);
-      var id = esc(m.id || (prefix+' '+(i+1)));
-      var stat = esc((m.status||'Idle'));
-      var loc = m.location ? '<div class="mloc">'+esc(m.location)+'</div>' : '';
-      var act = m.activity ? '<div class="mact">'+esc(m.activity)+'</div>' : '';
-      return '<div class="machcard '+cls+'"><div class="mtop"><span class="statusdot"></span>'+
-        '<span class="mid">'+id+'</span><span class="mstat">'+stat+'</span></div>'+loc+act+'</div>';
-    });
-    for (var i=list.length; i<size; i++){
-      cards.push('<div class="machcard st-idle"><div class="mtop"><span class="statusdot"></span>'+
-        '<span class="mid">'+esc(prefix+' '+(i+1))+'</span><span class="mstat">Idle</span></div>'+
-        '<div class="mact">No report</div></div>');
-    }
-    host.innerHTML = cards.join('');
-  }
-
-  function renderFleet(sum){
+  // Location-first machine banner: flatten both fleets, tag each with its type, group by
+  // location, and render a block per location. Only detected machines are shown.
+  function renderMachineBanner(sum){
+    var host=$('siteMachines'); if(!host) return;
     var m = (sum && sum.machineStatus) || {bcCutters:[],boringRigs:[]};
-    var bc = m.bcCutters||[], rig = m.boringRigs||[];
-    renderFleetGrid('bcGrid', bc, BC_CUTTERS, 'BC Cutter');
-    renderFleetGrid('rigGrid', rig, BORING_RIGS, 'Rig');
-    var bcActive = bc.filter(function(x){return String(x.status||'').toLowerCase()!=='idle';}).length;
-    var rigActive = rig.filter(function(x){return String(x.status||'').toLowerCase()!=='idle';}).length;
-    if ($('bcCount')) $('bcCount').textContent = '· '+bcActive+'/'+BC_CUTTERS+' deployed';
-    if ($('rigCount')) $('rigCount').textContent = '· '+rigActive+'/'+BORING_RIGS+' deployed';
-    if ($('fleetSub')) $('fleetSub').textContent =
-      (bcActive+rigActive)+' machines deployed · '+BC_CUTTERS+' BC Cutters · '+BORING_RIGS+' Boring Rigs';
+    var machines = []
+      .concat((m.bcCutters||[]).map(function(x){ return withType(x,'BC Cutter'); }))
+      .concat((m.boringRigs||[]).map(function(x){ return withType(x,'Boring Rig'); }));
+    function withType(x,label){
+      return { type:label,
+        assignedId: x.assignedId || x.id || '',        // tolerate old field names
+        location: x.location || '',
+        status: x.status || 'Active',
+        evidence: x.evidence || x.activity || '' };
+    }
+    if ($('siteSub')) $('siteSub').textContent = machines.length
+      ? (machines.length+' machine'+(machines.length===1?'':'s')+' detected · grouped by location')
+      : 'No machines detected for this range';
+    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected — a BC Cutter needs a DW/BT/CW with “bite” or “rebar cage”; a Boring Rig needs a BP with “current depth”.</div>'; return; }
+
+    // group by location (blank -> "Unspecified"), preserving first-seen order
+    var groups={}, order=[];
+    machines.forEach(function(mc){ var g=mc.location||'Unspecified';
+      if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(mc); });
+
+    host.innerHTML = order.map(function(loc){
+      var cards = groups[loc].map(function(mc){
+        var cls=statusClass(mc.status);
+        var ev = mc.evidence ? '<div class="mact">'+esc(mc.evidence)+'</div>' : '';
+        return '<div class="machcard '+cls+'">'+
+          '<div class="mtop"><span class="statusdot"></span><span class="mtype">'+esc(mc.type)+'</span>'+
+          '<span class="mstat">'+esc(mc.status)+'</span></div>'+
+          '<div class="mid">Working on: '+esc(mc.assignedId||'—')+'</div>'+ ev +'</div>';
+      }).join('');
+      return '<div class="locblock"><div class="locname">📍 '+esc(loc)+' · '+groups[loc].length+'</div>'+
+        '<div class="locgrid">'+cards+'</div></div>';
+    }).join('');
   }
 
   function renderExcavation(sum){

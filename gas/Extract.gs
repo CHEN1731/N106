@@ -310,18 +310,26 @@ var PRODUCTIVITY_SYSTEM =
   'finished (e.g. its concrete casting is done) — NOT merely because a sub-step like ' +
   'excavation finished (that is still "Excavation").\n\n' +
   '8. RESOURCE & PRODUCTION (heavy machinery + production nodes):\n' +
-  'Also actively HUNT for the status of the heavy machinery fleet — there are 6 BC ' +
-  'Cutters and 4 Boring Rigs — and group the production metrics. Populate machineStatus, ' +
-  'excavation and reinforcedConcrete.\n' +
-  '- machineStatus.bcCutters / machineStatus.boringRigs: one entry per machine deployment ' +
-  'with { id, location, activity, status }. "status" is exactly "Active", "Idle", or ' +
-  '"Maintenance". Use "Maintenance" for hose change, breakdown, repair, servicing; "Idle" ' +
-  'when explicitly standing by / not working; otherwise "Active".\n' +
-  '- INFERENCE (important): if a machine id is not stated but a Diaphragm Wall (DW), ' +
-  'Buttress Wall (BT) or Cross Wall (CW) is being worked, INFER that a BC Cutter is ' +
-  'deployed there (status "Active"). If a Bored Pile (BP) is being worked, INFER that a ' +
-  'Boring Rig is deployed there. Put the element/location in "location". Do not exceed the ' +
-  'fleet sizes (6 BC Cutters, 4 Boring Rigs).\n' +
+  'Populate machineStatus, excavation and reinforcedConcrete. For machineStatus apply these ' +
+  'STRICT LOGICAL TRIGGERS — do NOT log a machine unless its trigger is present in the text:\n' +
+  '- BC CUTTER: log a BC Cutter ONLY when a Diaphragm Wall (DW), Buttress Wall (BT) or ' +
+  'Cross Wall (CW) id is mentioned TOGETHER WITH the word "bite" (e.g. "1st bite", "2nd ' +
+  'bite", "bite A"), OR with "rebar cage" (the cage-lowering step that follows the bites). ' +
+  'If neither "bite" nor "rebar cage" (nor casting, see below) is mentioned for that ' +
+  'DW/BT/CW, DO NOT log a BC Cutter.\n' +
+  '- BORING RIG: log a Boring Rig ONLY when a Bored Pile (BP id or P-number pile) is ' +
+  'mentioned TOGETHER WITH "current depth" or "drilling depth", OR with "rebar cage". If no ' +
+  'depth (nor rebar cage nor casting) is mentioned, DO NOT log a Boring Rig.\n' +
+  '- STATUS (exactly "Active", "Completed", or "Maintenance"): if "concrete casting", ' +
+  '"casting" or "concreting" is mentioned for that DW/BT/CW/BP, set status "Completed". ' +
+  'Else if hose change / breakdown / repair / servicing, set "Maintenance". Else (bite / ' +
+  'depth / rebar cage) set "Active".\n' +
+  '- Each machine object is { assignedId, location, status, evidence }. "assignedId" = the ' +
+  'specific element id (e.g. DW1547, BP-T9-3); if several ids are worked by one machine, ' +
+  'list them all in assignedId (comma-separated). "location" = the site location / area ' +
+  '(e.g. ER15, Opp SJII). "evidence" = the exact snippet that contains the trigger word ' +
+  '("1st bite : 21.50m", "Current depth: 27.5m", or the casting phrase). Never exceed 6 BC ' +
+  'Cutters / 4 Boring Rigs.\n' +
   '- excavation.activeExcavations: one entry per active excavation zone with { location, ' +
   'currentDepth (metres, number), activity }. excavation.totalVolumeOrLoads = the total ' +
   'soil-disposal LOADS for the day if stated (a number), else 0.\n' +
@@ -396,28 +404,30 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
           properties: {
             bcCutters: {
               type: 'array',
+              description: 'ONLY DW/BT/CW worked with "bite" or "rebar cage" (or casting)',
               items: {
                 type: 'object',
                 properties: {
-                  id: { type: 'string', description: 'e.g. BC-1, or infer from the DW/BT/CW location' },
-                  location: { type: 'string', description: 'e.g. ER15 DW1547' },
-                  status: { type: 'string', description: 'Active | Idle | Maintenance' },
-                  activity: { type: 'string', description: 'e.g. BC Cutter mud hose change' }
+                  assignedId: { type: 'string', description: 'the specific DW/BT/CW id(s), e.g. DW1547 (comma-list if several)' },
+                  location: { type: 'string', description: 'site location / area, e.g. ER15' },
+                  status: { type: 'string', description: 'Active | Completed | Maintenance' },
+                  evidence: { type: 'string', description: 'snippet with the trigger, e.g. "1st bite : 21.50m"' }
                 },
-                required: ['id', 'location', 'status', 'activity']
+                required: ['assignedId', 'location', 'status', 'evidence']
               }
             },
             boringRigs: {
               type: 'array',
+              description: 'ONLY BP/pile worked with "current depth"/"drilling depth" or "rebar cage" (or casting)',
               items: {
                 type: 'object',
                 properties: {
-                  id: { type: 'string', description: 'e.g. Rig 1, or infer from the BP location' },
-                  location: { type: 'string', description: 'e.g. Opp LAMH' },
-                  status: { type: 'string', description: 'Active | Idle | Maintenance' },
-                  activity: { type: 'string', description: 'e.g. Drilling in progress' }
+                  assignedId: { type: 'string', description: 'the specific BP/pile id(s), e.g. BP-T9-3 (comma-list if several)' },
+                  location: { type: 'string', description: 'site location / area, e.g. Opp SJII' },
+                  status: { type: 'string', description: 'Active | Completed | Maintenance' },
+                  evidence: { type: 'string', description: 'snippet with the trigger, e.g. "Current depth: 27.5m"' }
                 },
-                required: ['id', 'location', 'status', 'activity']
+                required: ['assignedId', 'location', 'status', 'evidence']
               }
             }
           },
@@ -481,9 +491,12 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'list length. (BP includes pile refs like T9-3.)\n' +
     'Also return "grandTotals": { totalConcreteVolumeM3, totalManpower } across all areas.\n\n' +
     'ALSO populate the Resource & Production nodes (see rule 8):\n' +
-    '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } — status of the 6 BC Cutters ' +
-    'and 4 Boring Rigs. Infer a BC Cutter wherever a DW/BT/CW is worked and a Boring Rig ' +
-    'wherever a BP is worked when no machine id is stated. Never exceed 6 cutters / 4 rigs.\n' +
+    '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } using the STRICT triggers in ' +
+    'rule 8 — a BC Cutter ONLY for a DW/BT/CW worked with "bite" or "rebar cage" (or ' +
+    'casting); a Boring Rig ONLY for a BP/pile worked with "current depth"/"drilling depth" ' +
+    'or "rebar cage" (or casting). Each entry = { assignedId, location, status, evidence }; ' +
+    'status = Completed if casting, Maintenance if breakdown/hose change, else Active. Never ' +
+    'exceed 6 cutters / 4 rigs. Do NOT log a machine that lacks its trigger word.\n' +
     '   - "excavation": { totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] }.\n' +
     '   - "reinforcedConcrete": { totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } ' +
     'with type = Rebar | Concreting | Formwork.\n\n' +
@@ -685,56 +698,91 @@ function toNum_(v) { var n = Number(v); return isFinite(n) ? n : 0; }
 function round2_(n) { return Math.round(toNum_(n) * 100) / 100; }
 function locKey_(s) { return String(s == null ? '' : s).toUpperCase().replace(/\s+/g, ''); }
 
-/** Clamp a machine status to Active / Idle / Maintenance (activity text considered). */
-function clampMachineStatus_(status, activity) {
-  var s = String(status == null ? '' : status).toLowerCase();
-  var a = String(activity == null ? '' : activity).toLowerCase();
-  if (/maint|breakdown|repair|servic|hose\s*change|standby\s*fault/.test(s + ' ' + a)) return 'Maintenance';
-  if (/\bidle\b|standby|stand\s*by|no\s*activity|not\s*working/.test(s + ' ' + a)) return 'Idle';
-  if (s.indexOf('active') >= 0) return 'Active';
-  return a ? 'Active' : 'Idle';
+// Strict machine-detection triggers. A machine is logged ONLY when its family's
+// trigger word is present (the procedure runs bite/depth -> rebar cage -> casting).
+var CASTING_RE = /cast|concret|pour/i;
+var MAINT_RE = /maint|breakdown|repair|servic|hose\s*change/i;
+var BITE_RE = /\bbite\b/i;
+var REBAR_CAGE_RE = /rebar\s*cage/i;
+var DEPTH_RE = /(current|drilling)\s*depth/i;
+
+/**
+ * Does `text` carry a valid trigger for a machine of `family` ('bc' | 'rig')?
+ * Returns the matched trigger token (truthy) or '' to DROP the machine.
+ *   bc  : "bite" | "rebar cage" | casting
+ *   rig : "current/drilling depth" | "rebar cage" | casting
+ */
+function machineTrigger_(text, family) {
+  var t = String(text == null ? '' : text);
+  if (CASTING_RE.test(t)) return 'casting';
+  if (REBAR_CAGE_RE.test(t)) return 'rebar cage';
+  if (family === 'bc') return BITE_RE.test(t) ? 'bite' : '';
+  if (family === 'rig') return DEPTH_RE.test(t) ? 'depth' : '';
+  return '';
 }
 
-/** {bcCutters:[…], boringRigs:[…]} — AI entries first, then inferred, capped at the fleet. */
+/** Status from the evidence text: casting -> Completed, maintenance -> Maintenance, else Active. */
+function machineStatusFor_(text) {
+  var t = String(text == null ? '' : text);
+  if (CASTING_RE.test(t)) return 'Completed';
+  if (MAINT_RE.test(t)) return 'Maintenance';
+  return 'Active';
+}
+
+/** The clause of `text` that contains the trigger, so the UI can show why it was logged. */
+function machineEvidence_(text, family) {
+  var full = String(text == null ? '' : text).trim();
+  var clauses = full.split(/\s*(?:;|\n|\.|,)\s*/).filter(Boolean);
+  var res = [CASTING_RE, REBAR_CAGE_RE, (family === 'rig' ? DEPTH_RE : BITE_RE), MAINT_RE];
+  for (var i = 0; i < clauses.length; i++) {
+    for (var j = 0; j < res.length; j++) { if (res[j].test(clauses[i])) return clauses[i].trim(); }
+  }
+  return full;
+}
+
+/**
+ * {bcCutters:[…], boringRigs:[…]} under the STRICT gate. Applies to BOTH the AI's raw
+ * entries and the deterministic inference: a machine is kept ONLY when its evidence carries
+ * the required trigger (bite/rebar-cage for cutters; depth/rebar-cage for rigs; casting
+ * counts for either and marks Completed). Capped at the physical fleet sizes.
+ */
 function normalizeMachineStatus_(raw, mergedActivities) {
   raw = raw || {};
-  function clean(list) {
-    return (Array.isArray(list) ? list : []).map(function (m) {
-      m = m || {};
-      return {
-        id: String(m.id == null ? '' : m.id).trim(),
-        location: String(m.location == null ? '' : m.location).trim(),
-        status: clampMachineStatus_(m.status, m.activity),
-        activity: String(m.activity == null ? '' : m.activity).trim()
-      };
-    }).filter(function (m) { return m.id || m.location || m.activity; });
-  }
-  var bc = clean(raw.bcCutters), rig = clean(raw.boringRigs);
-  var bcLoc = {}, rigLoc = {};
-  bc.forEach(function (m) { bcLoc[locKey_(m.location || m.id)] = 1; });
-  rig.forEach(function (m) { rigLoc[locKey_(m.location || m.id)] = 1; });
+  var bc = [], rig = [], bcKey = {}, rigKey = {};
 
-  // Infer machine deployments from worked elements for locations not already listed.
+  function add(family, assignedId, location, evidence) {
+    var ev = String(evidence == null ? '' : evidence).trim();
+    if (!machineTrigger_(ev, family)) return;               // hard gate
+    var list = family === 'bc' ? bc : rig, keys = family === 'bc' ? bcKey : rigKey;
+    var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
+    var id = String(assignedId == null ? '' : assignedId).trim();
+    var loc = String(location == null ? '' : location).trim();
+    var k = locKey_(loc) + '|' + locKey_(id);
+    if (keys[k] || list.length >= cap) return;
+    keys[k] = 1;
+    list.push({ assignedId: id, location: loc, status: machineStatusFor_(ev),
+      evidence: machineEvidence_(ev, family), family: family });
+  }
+
+  // 1) AI entries — tolerate old field names (id/activity) and re-gate every one.
+  (Array.isArray(raw.bcCutters) ? raw.bcCutters : []).forEach(function (m) {
+    m = m || {}; add('bc', m.assignedId != null ? m.assignedId : m.id, m.location,
+      m.evidence != null ? m.evidence : m.activity); });
+  (Array.isArray(raw.boringRigs) ? raw.boringRigs : []).forEach(function (m) {
+    m = m || {}; add('rig', m.assignedId != null ? m.assignedId : m.id, m.location,
+      m.evidence != null ? m.evidence : m.activity); });
+
+  // 2) Deterministic inference from the activities — same gate on the activity text.
   (mergedActivities || []).forEach(function (a) {
     var id = a.elementId || firstElementId_((a.section || '') + ' ' + (a.activity || ''));
     var t = classifyElement_(id);
     if (!t) return;
-    var loc = id || a.section || '';
-    var key = locKey_(loc);
-    if (!key) return;
-    if (t === 'DW' || t === 'BT' || t === 'CW') {
-      if (!bcLoc[key] && bc.length < FLEET.bcCutters) {
-        bcLoc[key] = 1;
-        bc.push({ id: '', location: loc, status: clampMachineStatus_('', a.activity), activity: a.activity || '' });
-      }
-    } else if (t === 'BP') {
-      if (!rigLoc[key] && rig.length < FLEET.boringRigs) {
-        rigLoc[key] = 1;
-        rig.push({ id: '', location: loc, status: clampMachineStatus_('', a.activity), activity: a.activity || '' });
-      }
-    }
+    var loc = a.section || id || '';
+    if (t === 'DW' || t === 'BT' || t === 'CW') add('bc', id, loc, a.activity || '');
+    else if (t === 'BP') add('rig', id, loc, a.activity || '');
   });
-  return { bcCutters: bc.slice(0, FLEET.bcCutters), boringRigs: rig.slice(0, FLEET.boringRigs) };
+
+  return { bcCutters: bc, boringRigs: rig };
 }
 
 /** Parse a depth in metres from text ("24.2 m" -> 24.2), never matching "m3"/"m³". */
@@ -992,7 +1040,9 @@ if (typeof module !== 'undefined' && module.exports) {
     sumConcreteM3_: sumConcreteM3_,
     castVolumeOf_: castVolumeOf_,
     normalizeMachineStatus_: normalizeMachineStatus_,
-    clampMachineStatus_: clampMachineStatus_,
+    machineTrigger_: machineTrigger_,
+    machineStatusFor_: machineStatusFor_,
+    machineEvidence_: machineEvidence_,
     normalizeExcavation_: normalizeExcavation_,
     normalizeRC_: normalizeRC_,
     classifyRcType_: classifyRcType_,

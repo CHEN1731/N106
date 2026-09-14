@@ -61,15 +61,18 @@ quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs ar
 | `total_loads` | Number | total soil-disposal loads for the day |
 | `active_cutters` | Number | BC Cutters not Idle (Active + Maintenance) |
 | `active_rigs` | Number | Boring Rigs not Idle |
-| `machine_status_json` | Text (JSON) | `{bcCutters:[{id,location,status,activity}], boringRigs:[…]}` — `status` ∈ Active/Idle/Maintenance |
+| `machine_status_json` | Text (JSON) | `{bcCutters:[{assignedId,location,status,evidence}], boringRigs:[…]}` — `status` ∈ Active/Completed/Maintenance |
 | `excavation_json` | Text (JSON) | `{totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}]}` |
 | `rc_json` | Text (JSON) | `{totalConcreteVolumeM3, rcActivities:[{location,type,activity}]}` — `type` ∈ Rebar/Concreting/Formwork |
 
-The AI (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8) hunts for machine status and,
-when a machine ID is missing, **infers** a BC Cutter wherever a DW/BT/CW is worked and a
-Boring Rig wherever a BP is worked (capped at 6 cutters / 4 rigs). The Viewer's three-pillar
-dashboard (Machine Fleet · Excavation Tracker · RC) reads these rows; the existing Area
-KPIs, charts, and activity table remain below.
+Machine detection is **strict** (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8, enforced
+by `normalizeMachineStatus_`): a **BC Cutter** is logged only for a DW/BT/CW mentioned with
+**"bite"** or **"rebar cage"** (or casting); a **Boring Rig** only for a BP/pile mentioned
+with **"current depth"/"drilling depth"** or "rebar cage" (or casting). `status` is
+**Completed** when casting is mentioned, **Maintenance** on breakdown/hose-change, else
+**Active**; `evidence` holds the trigger snippet. The Viewer leads with a **Site Machine
+Layout** banner that groups the detected machines by `location`; the Excavation Tracker, RC
+section, Area KPIs, charts, and activity table follow.
 
 ## Tab: `Raw_Logs` — inbound WhatsApp Cloud API audit (full-automation path)
 

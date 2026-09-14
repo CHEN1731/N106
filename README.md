@@ -81,15 +81,19 @@ The same AI call also returns three **Resource & Production** nodes, and the Vie
 with them (the Area KPIs, charts, and activity table stay below):
 
 ```
-{ machineStatus:{ bcCutters:[{id,location,status,activity}], boringRigs:[…] },   // status ∈ Active|Idle|Maintenance
+{ machineStatus:{ bcCutters:[{assignedId,location,status,evidence}], boringRigs:[…] },  // status ∈ Active|Completed|Maintenance
   excavation:{ totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] },
   reinforcedConcrete:{ totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } }  // type ∈ Rebar|Concreting|Formwork
 ```
 
-- **Machine Status · Fleet View** — a card per machine across the **6 BC Cutters** and
-  **4 Boring Rigs**, colour-coded green (Active) / red (Maintenance) / grey (Idle or no
-  report). If a machine ID isn't stated, the AI **infers** a BC Cutter wherever a DW/BT/CW
-  is worked and a Boring Rig wherever a BP is worked (capped at the fleet sizes).
+- **Site Machine Layout** (top banner) — the detected machines grouped **by location**
+  (e.g. a block for `ER15`, one for `Opp SJII`), each card showing "Working on: `<assignedId>`"
+  and a status badge: **green Active / blue Completed / red Maintenance**. Detection is
+  **strict** (enforced in the backend, not just requested of the AI): a **BC Cutter** is
+  logged only for a DW/BT/CW mentioned with **"bite"** or **"rebar cage"** (the procedure
+  runs bite → rebar cage → casting); a **Boring Rig** only for a BP/pile mentioned with
+  **"current depth"/"drilling depth"** or "rebar cage". Casting → Completed. A machine
+  without its trigger word is **not** logged, so idle panels no longer show phantom rigs.
 - **Excavation Tracker** — active zones with depth (m, shown as a mini progress bar) and
   the day's soil-disposal loads.
 - **Reinforced Concrete** — a prominent total-m³ KPI plus RC activities with type-coloured

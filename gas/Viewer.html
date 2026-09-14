@@ -15,6 +15,13 @@
         <span class="badge" id="src">loading…</span>
       </header>
 
+      <!-- ===== Site Machine Layout (location-first banner) ===== -->
+      <div class="panel sitebanner">
+        <h2>Site Machine Layout</h2>
+        <p class="sub" id="siteSub">BC Cutters &amp; Boring Rigs, grouped by location</p>
+        <div id="siteMachines" class="sitegrid"></div>
+      </div>
+
       <div class="filters">
         <label>From <select id="fFrom"></select></label>
         <label>To <select id="fTo"></select></label>
@@ -32,22 +39,6 @@
         <div class="kpi cw"><div class="v" id="kCW">–</div><div class="k">Cross Walls (CW)</div></div>
         <div class="kpi con"><div class="v" id="kCon">–</div><div class="k">Concrete (m³)</div></div>
         <div class="kpi mp"><div class="v" id="kMP">–</div><div class="k">Total Manpower</div></div>
-      </div>
-
-      <!-- ===== Resource & Production (3 pillars) ===== -->
-      <div class="panel respanel">
-        <h2>Machine Status · Fleet View</h2>
-        <p class="sub" id="fleetSub">6 BC Cutters · 4 Boring Rigs</p>
-        <div class="fleetwrap">
-          <div class="fleetcol">
-            <h3 class="fleeth">BC Cutters <span class="fleetn" id="bcCount"></span></h3>
-            <div class="fleetgrid" id="bcGrid"></div>
-          </div>
-          <div class="fleetcol">
-            <h3 class="fleeth">Boring Rigs <span class="fleetn" id="rigCount"></span></h3>
-            <div class="fleetgrid" id="rigGrid"></div>
-          </div>
-        </div>
       </div>
 
       <div class="row2">

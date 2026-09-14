@@ -57,7 +57,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-26 · resource & production';
+var APP_VERSION = 'build-27 · strict machines';
 
 /**
  * Route:
