@@ -75,6 +75,30 @@ Rebar Cage → Concrete Casting → Trimming → Breaking → Completed, else Ot
 (each element counted once at its *furthest* stage), stacked by structure type
 (DW/BP/BT/CW) and honouring the Date-range + Area filters. Stage is editable per row.
 
+### Resource & Production view (Machine / Excavation / RC)
+
+The same AI call also returns three **Resource & Production** nodes, and the Viewer leads
+with them (the Area KPIs, charts, and activity table stay below):
+
+```
+{ machineStatus:{ bcCutters:[{id,location,status,activity}], boringRigs:[…] },   // status ∈ Active|Idle|Maintenance
+  excavation:{ totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] },
+  reinforcedConcrete:{ totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } }  // type ∈ Rebar|Concreting|Formwork
+```
+
+- **Machine Status · Fleet View** — a card per machine across the **6 BC Cutters** and
+  **4 Boring Rigs**, colour-coded green (Active) / red (Maintenance) / grey (Idle or no
+  report). If a machine ID isn't stated, the AI **infers** a BC Cutter wherever a DW/BT/CW
+  is worked and a Boring Rig wherever a BP is worked (capped at the fleet sizes).
+- **Excavation Tracker** — active zones with depth (m, shown as a mini progress bar) and
+  the day's soil-disposal loads.
+- **Reinforced Concrete** — a prominent total-m³ KPI plus RC activities with type-coloured
+  badges (blue Rebar / orange Formwork / grey Concreting).
+
+These are stored per date in the `DailySummaries` tab (three JSON columns + flat totals);
+they are **read-only** in the Viewer for now. When no API key is set, the offline fallback
+derives them deterministically from the parsed activities.
+
 ### Concrete volume rule (`castVolumeOf_` in `gas/Extract.gs`, mirrored in the Viewer)
 
 Concrete counts **completed casting only**:
@@ -104,7 +128,7 @@ gas/                 Apps Script project (clasp-compatible)
   Compare.gs         (legacy) record-matching utility, no longer used by the app
   Webhook.gs         WhatsApp Cloud API: doPost logger + processRawLogs batch rebuild
   Index.html         uploader: two editable panes + productivity preview (+Styles/JavaScript)
-  Viewer.html        Productivity Dashboard: KPIs + Chart.js graphs + activity list (+ViewerStyles/ViewerJs)
+  Viewer.html        Dashboard: Resource & Production (Machine/Excavation/RC) + Area KPIs + charts + activity list (+ViewerStyles/ViewerJs)
 docs/
   report-template.md     recommended message format for the site teams
 dashboard/

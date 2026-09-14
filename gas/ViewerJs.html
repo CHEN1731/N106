@@ -1,7 +1,9 @@
 <script>
   var ACTS = [];   // merged activities [{_row,date,area,section,elementId,activity,manpower,sourceEvidence}]
   var PROD = [];    // productivity history (asc by date)
+  var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ALL_DATES = [];  // every known date, oldest -> newest
+  var BC_CUTTERS = 6, BORING_RIGS = 4;  // physical fleet sizes (pad grids to these)
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
   var AREA_KPI = {};       // per-area KPI computed each render (for back-check click)
@@ -77,12 +79,16 @@
     ACTS = (report && report.activities) || [];
     PROD = ((report && report.productivity) || []).slice().sort(function(a,b){
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
+    SUMMARIES = ((report && report.summaries) || []).slice().sort(function(a,b){
+      return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
     var name = (report && report.spreadsheetName) || '(no sheet)';
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
     $('src').textContent = PROD.length + ' days · ' + name + ver;
 
     // All known dates, oldest -> newest, for the From / To range pickers.
-    ALL_DATES = uniq(PROD.map(function(p){return p.date;}).concat(ACTS.map(function(a){return String(a.date);})))
+    ALL_DATES = uniq(PROD.map(function(p){return p.date;})
+      .concat(ACTS.map(function(a){return String(a.date);}))
+      .concat(SUMMARIES.map(function(s){return String(s.date);})))
       .sort();
     // From: "(earliest)" + dates; To: "(latest)" + dates. Default = All dates.
     $('fFrom').innerHTML = '<option value="">(earliest)</option>' +
@@ -174,10 +180,118 @@
       ? ('Concrete cast per day · ' + rangeLabel(dates))
       : 'Daily concrete casting';
 
+    var sum = summaryForRange(dates);
+    renderFleet(sum);
+    renderExcavation(sum);
+    renderRC(sum);
+
     renderActivities(selSet, multi);
     renderConcreteChart(dates);
     renderStructChart(p);
     renderStageChart(selSet);
+  }
+
+  // ---- Resource & Production (3 pillars) --------------------------------------
+  function sumForDate(d){
+    for (var i=0;i<SUMMARIES.length;i++) if (String(SUMMARIES[i].date)===String(d)) return SUMMARIES[i];
+    return null;
+  }
+  // Aggregate the pillar nodes over the selected dates. Single day -> that day.
+  // Multi-day -> latest day's machines, union of excavation zones, summed RC + concat list.
+  function summaryForRange(dates){
+    var empty = { machineStatus:{bcCutters:[],boringRigs:[]},
+      excavation:{totalVolumeOrLoads:0,activeExcavations:[]},
+      reinforcedConcrete:{totalConcreteVolumeM3:0,rcActivities:[]} };
+    var inRange = dates.map(sumForDate).filter(Boolean);
+    if (!inRange.length) return empty;
+    if (inRange.length===1) return inRange[0];
+    // latest first for "current" machine snapshot
+    var byDateDesc = inRange.slice().sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); });
+    var machine = byDateDesc[0].machineStatus || {bcCutters:[],boringRigs:[]};
+    var zones=[], loads=0, rcTotal=0, rcActs=[];
+    inRange.forEach(function(s){
+      var ex=s.excavation||{}; loads += Number(ex.totalVolumeOrLoads)||0;
+      (ex.activeExcavations||[]).forEach(function(z){ zones.push(z); });
+      var rc=s.reinforcedConcrete||{}; rcTotal += Number(rc.totalConcreteVolumeM3)||0;
+      (rc.rcActivities||[]).forEach(function(r){ rcActs.push(r); });
+    });
+    return { machineStatus:machine,
+      excavation:{ totalVolumeOrLoads:loads, activeExcavations:zones },
+      reinforcedConcrete:{ totalConcreteVolumeM3:Math.round(rcTotal*100)/100, rcActivities:rcActs } };
+  }
+
+  function statusClass(s){ var v=String(s||'').toLowerCase();
+    if (v==='maintenance') return 'st-maint'; if (v==='active') return 'st-active'; return 'st-idle'; }
+
+  // Render one fleet grid: fill reported machines, pad to `size` with grey Idle slots.
+  function renderFleetGrid(hostId, list, size, prefix){
+    var host=$(hostId); if(!host) return;
+    list = list || [];
+    var cards = list.map(function(m, i){
+      var cls = statusClass(m.status);
+      var id = esc(m.id || (prefix+' '+(i+1)));
+      var stat = esc((m.status||'Idle'));
+      var loc = m.location ? '<div class="mloc">'+esc(m.location)+'</div>' : '';
+      var act = m.activity ? '<div class="mact">'+esc(m.activity)+'</div>' : '';
+      return '<div class="machcard '+cls+'"><div class="mtop"><span class="statusdot"></span>'+
+        '<span class="mid">'+id+'</span><span class="mstat">'+stat+'</span></div>'+loc+act+'</div>';
+    });
+    for (var i=list.length; i<size; i++){
+      cards.push('<div class="machcard st-idle"><div class="mtop"><span class="statusdot"></span>'+
+        '<span class="mid">'+esc(prefix+' '+(i+1))+'</span><span class="mstat">Idle</span></div>'+
+        '<div class="mact">No report</div></div>');
+    }
+    host.innerHTML = cards.join('');
+  }
+
+  function renderFleet(sum){
+    var m = (sum && sum.machineStatus) || {bcCutters:[],boringRigs:[]};
+    var bc = m.bcCutters||[], rig = m.boringRigs||[];
+    renderFleetGrid('bcGrid', bc, BC_CUTTERS, 'BC Cutter');
+    renderFleetGrid('rigGrid', rig, BORING_RIGS, 'Rig');
+    var bcActive = bc.filter(function(x){return String(x.status||'').toLowerCase()!=='idle';}).length;
+    var rigActive = rig.filter(function(x){return String(x.status||'').toLowerCase()!=='idle';}).length;
+    if ($('bcCount')) $('bcCount').textContent = '· '+bcActive+'/'+BC_CUTTERS+' deployed';
+    if ($('rigCount')) $('rigCount').textContent = '· '+rigActive+'/'+BORING_RIGS+' deployed';
+    if ($('fleetSub')) $('fleetSub').textContent =
+      (bcActive+rigActive)+' machines deployed · '+BC_CUTTERS+' BC Cutters · '+BORING_RIGS+' Boring Rigs';
+  }
+
+  function renderExcavation(sum){
+    var ex = (sum && sum.excavation) || {totalVolumeOrLoads:0,activeExcavations:[]};
+    var zones = ex.activeExcavations || [];
+    var maxDepth = zones.reduce(function(mx,z){ return Math.max(mx, Number(z.currentDepth)||0); }, 0) || 1;
+    if ($('excavSub')) $('excavSub').textContent = zones.length
+      ? (zones.length+' active zone'+(zones.length===1?'':'s')+
+         (ex.totalVolumeOrLoads ? ' · '+ex.totalVolumeOrLoads+' soil loads' : ''))
+      : 'No active excavation zones';
+    var body=$('excavBody'); if(!body) return;
+    if (!zones.length){ body.innerHTML='<tr><td colspan="3" class="resempty">No excavation data for this range.</td></tr>'; return; }
+    body.innerHTML = zones.map(function(z){
+      var d = Number(z.currentDepth);
+      var depthCell = isFinite(d) && d>0
+        ? '<div class="depthwrap"><span class="depthval">'+d+' m</span>'+
+          '<span class="depthbar"><span style="width:'+Math.min(100,Math.round(d/maxDepth*100))+'%"></span></span></div>'
+        : '<span class="depthval">—</span>';
+      return '<tr><td class="mono">'+esc(z.location||'—')+'</td><td>'+depthCell+'</td>'+
+        '<td class="act">'+esc(z.activity||'')+'</td></tr>';
+    }).join('');
+  }
+
+  function rcBadgeClass(t){ var v=String(t||'').toLowerCase();
+    if (v==='rebar') return 'rc-rebar'; if (v==='formwork') return 'rc-form'; return 'rc-conc'; }
+
+  function renderRC(sum){
+    var rc = (sum && sum.reinforcedConcrete) || {totalConcreteVolumeM3:0,rcActivities:[]};
+    if ($('rcTotal')) $('rcTotal').textContent = rc.totalConcreteVolumeM3||0;
+    var list=$('rcList'); if(!list) return;
+    var acts = rc.rcActivities || [];
+    if (!acts.length){ list.innerHTML='<div class="resempty">No RC activities for this range.</div>'; return; }
+    list.innerHTML = acts.map(function(r){
+      return '<div class="rcitem"><span class="rcbadge '+rcBadgeClass(r.type)+'">'+esc(r.type||'Concreting')+'</span>'+
+        '<span class="rcloc">'+esc(r.location||'—')+'</span>'+
+        '<span class="rcact">'+esc(r.activity||'')+'</span></div>';
+    }).join('');
   }
 
   // Construction stages, ordered by progress (same as the backend).

@@ -20,7 +20,9 @@ const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
-        waTimestampToDate_, buildDayTexts_, toDateStr_ } = sandbox;
+        waTimestampToDate_, buildDayTexts_, toDateStr_,
+        normalizeMachineStatus_, clampMachineStatus_, normalizeExcavation_,
+        normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -247,6 +249,76 @@ const dayTexts = buildDayTexts_([
 ]);
 assert(dayTexts.rto === 'DW1547 casting 42 m3\nkicker cast', 'buildDayTexts groups RTO, dedups id, drops empty, folds unknown->RTO');
 assert(dayTexts.ais === 'BP-T9-3 boring', 'buildDayTexts groups AIS stream');
+
+console.log('\nResource & Production — machine / excavation / RC:');
+// clampMachineStatus_
+assert(clampMachineStatus_('', 'BC Cutter mud hose change') === 'Maintenance', 'hose change -> Maintenance');
+assert(clampMachineStatus_('Maintenance', '') === 'Maintenance', 'explicit Maintenance kept');
+assert(clampMachineStatus_('', 'Drilling in progress') === 'Active', 'activity present -> Active');
+assert(clampMachineStatus_('idle', '') === 'Idle', 'explicit idle -> Idle');
+assert(clampMachineStatus_('', '') === 'Idle', 'no status/activity -> Idle');
+
+// normalizeMachineStatus_ inference from worked elements (raw empty)
+var mActs = [
+  { elementId: 'DW1547', section: 'ER15', activity: 'DW1547 excavation ongoing' },
+  { elementId: 'BT20-2', section: 'Sec-D', activity: 'BT20-2 rebar cage' },
+  { elementId: 'BP-T9-3', section: 'Ja', activity: 'BP-T9-3 drilling in progress' }
+];
+var ms = normalizeMachineStatus_(null, mActs);
+assert(ms.bcCutters.length === 2, 'inferred 2 BC Cutters from DW + BT (got ' + ms.bcCutters.length + ')');
+assert(ms.boringRigs.length === 1, 'inferred 1 Boring Rig from BP');
+assert(ms.bcCutters[0].status === 'Active' && ms.bcCutters[0].location === 'DW1547', 'inferred cutter is Active at DW1547');
+
+// AI entries win, inference fills, capped at fleet sizes
+var manyDW = []; for (var i = 0; i < 10; i++) manyDW.push({ elementId: 'DW' + i, activity: 'DW' + i + ' excavation' });
+var msCap = normalizeMachineStatus_({ bcCutters: [{ id: 'BC-1', location: 'ER15', status: 'Maintenance', activity: 'hose change' }] }, manyDW);
+assert(msCap.bcCutters.length === 6, 'BC Cutters capped at fleet size 6 (got ' + msCap.bcCutters.length + ')');
+assert(msCap.bcCutters[0].id === 'BC-1' && msCap.bcCutters[0].status === 'Maintenance', 'explicit AI cutter kept first');
+
+// depth / loads parsing
+assert(parseDepthM_('1st bite excavation reaching 24.2 m') === 24.2, 'parseDepthM 24.2 m');
+assert(parseDepthM_('BP casting 84 m3') === null, 'parseDepthM ignores m3');
+assert(parseLoads_('soil disposal 14 loads today') === 14, 'parseLoads 14 loads');
+
+// excavation normaliser
+var ex = normalizeExcavation_({ totalVolumeOrLoads: 14, activeExcavations: [
+  { location: 'CW323', currentDepth: 24.2, activity: '1st bite excavation ongoing' }] }, []);
+assert(ex.totalVolumeOrLoads === 14 && ex.activeExcavations.length === 1, 'excavation keeps AI zones + loads');
+assert(ex.activeExcavations[0].currentDepth === 24.2, 'excavation depth coerced to number');
+var exFallback = normalizeExcavation_(null, [{ elementId: 'CW323', stage: 'Excavation', activity: 'excavation to 12 m' }]);
+assert(exFallback.activeExcavations.length === 1 && exFallback.activeExcavations[0].currentDepth === 12,
+  'excavation derived from Excavation-stage activity + depth parsed');
+
+// RC classifier + normaliser
+assert(classifyRcType_('rebar fixing') === 'Rebar', 'classifyRcType rebar -> Rebar');
+assert(classifyRcType_('formwork installation') === 'Formwork', 'classifyRcType formwork -> Formwork');
+assert(classifyRcType_('concrete casting 84 m3') === 'Concreting', 'classifyRcType casting -> Concreting');
+var rcNode = normalizeRC_({ totalConcreteVolumeM3: 84, rcActivities: [
+  { location: 'BP Qd4-2', type: 'Concreting', activity: 'Casting preparation works, 84m3' }] }, [], 0);
+assert(rcNode.totalConcreteVolumeM3 === 84 && rcNode.rcActivities.length === 1, 'RC keeps AI total + activities');
+var rcFallback = normalizeRC_(null, [{ elementId: 'DW04', activity: 'concrete casting 42 m3' }], 42);
+assert(rcFallback.totalConcreteVolumeM3 === 42 && rcFallback.rcActivities[0].type === 'Concreting',
+  'RC falls back to grand concrete + derives Concreting activity');
+
+// end-to-end: normalizeProductivity_ (AI shape) carries the three nodes
+var rawAi = {
+  date: '2026-08-05',
+  areas: [{ areaName: 'Area 1', kpiBreakdown: {}, activities: [
+    { elementId: 'DW1547', section: 'ER15', activityDescription: 'DW1547 concrete casting 54/54 m3', stage: 'Concrete Casting', manpower: 8 }] }],
+  grandTotals: { totalConcreteVolumeM3: 54, totalManpower: 8 },
+  machineStatus: { bcCutters: [{ id: 'BC-2', location: 'ER15 DW1547', status: 'Active', activity: 'cutting' }], boringRigs: [] },
+  excavation: { totalVolumeOrLoads: 0, activeExcavations: [] },
+  reinforcedConcrete: { totalConcreteVolumeM3: 54, rcActivities: [{ location: 'DW1547', type: 'Concreting', activity: 'casting 54 m3' }] }
+};
+var np = normalizeProductivity_(rawAi, '2026-08-05', 'ai');
+assert(np.machineStatus && np.machineStatus.bcCutters[0].id === 'BC-2', 'normalizeProductivity_ overlays AI machineStatus');
+assert(np.reinforcedConcrete.totalConcreteVolumeM3 === 54, 'normalizeProductivity_ carries RC total');
+
+// offline fallback also produces the three nodes
+var fbRes = productivityFromRecords_(
+  '[5/8/26, 10:00:00] ~ Eng: Sec-C/Mb\nDW04 concrete casting 42 m3; DW1547 excavation ongoing\nManpower: 8\n', '', '2026-08-05');
+assert(fbRes.machineStatus && fbRes.machineStatus.bcCutters.length >= 1, 'fallback infers a BC Cutter');
+assert(fbRes.reinforcedConcrete.totalConcreteVolumeM3 === 42, 'fallback RC total = concrete cast (42)');
 
 console.log('\n' + (failures ? (failures + ' FAILED') : 'ALL PASSED'));
 process.exit(failures ? 1 : 0);

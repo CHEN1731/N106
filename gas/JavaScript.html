@@ -171,6 +171,25 @@
     }
     $('parseNote').textContent = msg;
 
+    // Resource & Production preview (Machine / Excavation / RC) — extend, not replace.
+    var pill = $('resPillars');
+    if (pill) {
+      var ms = res.machineStatus || { bcCutters: [], boringRigs: [] };
+      var ex = res.excavation || { totalVolumeOrLoads: 0, activeExcavations: [] };
+      var rc = res.reinforcedConcrete || { totalConcreteVolumeM3: 0, rcActivities: [] };
+      function deployed(list) {
+        return (list || []).filter(function (m) {
+          return m && String(m.status || '').toLowerCase() !== 'idle';
+        }).length;
+      }
+      pill.textContent = '🚜 Machines: ' + deployed(ms.bcCutters) + ' BC Cutter(s) + ' +
+        deployed(ms.boringRigs) + ' Rig(s) deployed · ⛏ Excavation: ' +
+        (ex.activeExcavations || []).length + ' zone(s)' +
+        (ex.totalVolumeOrLoads ? ' / ' + ex.totalVolumeOrLoads + ' loads' : '') +
+        ' · 🧱 RC: ' + (rc.totalConcreteVolumeM3 || 0) + ' m³, ' +
+        (rc.rcActivities || []).length + ' activit' + ((rc.rcActivities || []).length === 1 ? 'y' : 'ies') + '.';
+    }
+
     renderRows();
   }
 

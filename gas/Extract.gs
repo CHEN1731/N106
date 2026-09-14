@@ -308,7 +308,27 @@ var PRODUCTIVITY_SYSTEM =
   '"Concrete Casting", "Trimming" (trimming/chipping), "Breaking" (breaking/hacking), ' +
   '"Completed", or "Other". Use "Completed" ONLY when the element/panel as a whole is ' +
   'finished (e.g. its concrete casting is done) — NOT merely because a sub-step like ' +
-  'excavation finished (that is still "Excavation").';
+  'excavation finished (that is still "Excavation").\n\n' +
+  '8. RESOURCE & PRODUCTION (heavy machinery + production nodes):\n' +
+  'Also actively HUNT for the status of the heavy machinery fleet — there are 6 BC ' +
+  'Cutters and 4 Boring Rigs — and group the production metrics. Populate machineStatus, ' +
+  'excavation and reinforcedConcrete.\n' +
+  '- machineStatus.bcCutters / machineStatus.boringRigs: one entry per machine deployment ' +
+  'with { id, location, activity, status }. "status" is exactly "Active", "Idle", or ' +
+  '"Maintenance". Use "Maintenance" for hose change, breakdown, repair, servicing; "Idle" ' +
+  'when explicitly standing by / not working; otherwise "Active".\n' +
+  '- INFERENCE (important): if a machine id is not stated but a Diaphragm Wall (DW), ' +
+  'Buttress Wall (BT) or Cross Wall (CW) is being worked, INFER that a BC Cutter is ' +
+  'deployed there (status "Active"). If a Bored Pile (BP) is being worked, INFER that a ' +
+  'Boring Rig is deployed there. Put the element/location in "location". Do not exceed the ' +
+  'fleet sizes (6 BC Cutters, 4 Boring Rigs).\n' +
+  '- excavation.activeExcavations: one entry per active excavation zone with { location, ' +
+  'currentDepth (metres, number), activity }. excavation.totalVolumeOrLoads = the total ' +
+  'soil-disposal LOADS for the day if stated (a number), else 0.\n' +
+  '- reinforcedConcrete.totalConcreteVolumeM3 = the total concrete cast (m3), using the ' +
+  'CONCRETE VOLUME rules in section 6. reinforcedConcrete.rcActivities: one entry per RC ' +
+  'work item with { location, type, activity }, where "type" is exactly "Rebar", ' +
+  '"Concreting", or "Formwork".';
 
 /** Claude forced-tool: merge/dedupe + metrics. */
 function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
@@ -369,9 +389,80 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
             totalManpower: { type: 'integer' }
           },
           required: ['totalConcreteVolumeM3', 'totalManpower']
+        },
+        machineStatus: {
+          type: 'object',
+          description: 'heavy-machinery fleet status (6 BC Cutters, 4 Boring Rigs)',
+          properties: {
+            bcCutters: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', description: 'e.g. BC-1, or infer from the DW/BT/CW location' },
+                  location: { type: 'string', description: 'e.g. ER15 DW1547' },
+                  status: { type: 'string', description: 'Active | Idle | Maintenance' },
+                  activity: { type: 'string', description: 'e.g. BC Cutter mud hose change' }
+                },
+                required: ['id', 'location', 'status', 'activity']
+              }
+            },
+            boringRigs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', description: 'e.g. Rig 1, or infer from the BP location' },
+                  location: { type: 'string', description: 'e.g. Opp LAMH' },
+                  status: { type: 'string', description: 'Active | Idle | Maintenance' },
+                  activity: { type: 'string', description: 'e.g. Drilling in progress' }
+                },
+                required: ['id', 'location', 'status', 'activity']
+              }
+            }
+          },
+          required: ['bcCutters', 'boringRigs']
+        },
+        excavation: {
+          type: 'object',
+          properties: {
+            totalVolumeOrLoads: { type: 'number', description: 'total soil-disposal loads for the day (0 if unknown)' },
+            activeExcavations: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  location: { type: 'string', description: 'e.g. CW323' },
+                  currentDepth: { type: 'number', description: 'depth reached in metres (0 if unknown)' },
+                  activity: { type: 'string', description: 'e.g. 1st bite excavation ongoing' }
+                },
+                required: ['location', 'currentDepth', 'activity']
+              }
+            }
+          },
+          required: ['totalVolumeOrLoads', 'activeExcavations']
+        },
+        reinforcedConcrete: {
+          type: 'object',
+          properties: {
+            totalConcreteVolumeM3: { type: 'number', description: 'total concrete cast (m3)' },
+            rcActivities: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  location: { type: 'string', description: 'e.g. BP Qd4-2' },
+                  type: { type: 'string', description: 'Rebar | Concreting | Formwork' },
+                  activity: { type: 'string', description: 'e.g. Casting preparation works, 84m3' }
+                },
+                required: ['location', 'type', 'activity']
+              }
+            }
+          },
+          required: ['totalConcreteVolumeM3', 'rcActivities']
         }
       },
-      required: ['date', 'areas', 'grandTotals']
+      required: ['date', 'areas', 'grandTotals', 'machineStatus', 'excavation', 'reinforcedConcrete']
     }
   };
 
@@ -389,6 +480,13 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'must contain exactly the element IDs present in this area\'s activities; each *Count = its ' +
     'list length. (BP includes pile refs like T9-3.)\n' +
     'Also return "grandTotals": { totalConcreteVolumeM3, totalManpower } across all areas.\n\n' +
+    'ALSO populate the Resource & Production nodes (see rule 8):\n' +
+    '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } — status of the 6 BC Cutters ' +
+    'and 4 Boring Rigs. Infer a BC Cutter wherever a DW/BT/CW is worked and a Boring Rig ' +
+    'wherever a BP is worked when no machine id is stated. Never exceed 6 cutters / 4 rigs.\n' +
+    '   - "excavation": { totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] }.\n' +
+    '   - "reinforcedConcrete": { totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } ' +
+    'with type = Rebar | Concreting | Formwork.\n\n' +
     'Derive "areaName" from the section/segment code using this N106 site-plan map ' +
     '(the code determines the Area); use "Others" only when nothing matches:\n' +
     'By segment/location code:\n' + areaListText_() + '\n' +
@@ -452,7 +550,14 @@ function normalizeProductivity_(raw, dateHint, source) {
   });
   acts = acts.filter(function (a) { return a.activity; });
   var date = normalizeDate_(raw.date) || dateHint || str(raw.date);
-  return buildProductivityResult_(date, acts, source || 'ai');
+  var result = buildProductivityResult_(date, acts, source || 'ai');
+  // Overlay the AI's Resource & Production nodes on top of the inference baseline
+  // that buildProductivityResult_ already attached (AI entries win; inference fills).
+  result.machineStatus = normalizeMachineStatus_(raw.machineStatus, result.mergedActivities);
+  result.excavation = normalizeExcavation_(raw.excavation, result.mergedActivities);
+  result.reinforcedConcrete = normalizeRC_(raw.reinforcedConcrete, result.mergedActivities,
+    result.grandTotals.totalConcreteVolumeM3);
+  return result;
 }
 
 /** Normalise an area label to "Area 1".."Area 4" / "Others" / "" (unknown). */
@@ -539,15 +644,17 @@ function buildProductivityResult_(date, acts, source) {
   });
   gdw = uniqCodes_(gdw); gbp = uniqCodes_(gbp); gbt = uniqCodes_(gbt); gcw = uniqCodes_(gcw);
 
+  var mergedActivities = acts.map(function (a) {
+    return { area: a.area, section: a.section || '', elementId: a.elementId || '',
+      activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
+      manpower: Number(a.manpower) || 0 };
+  });
+
   return {
     date: date,
     areas: areas,
     grandTotals: { totalConcreteVolumeM3: Math.round(gConc * 100) / 100, totalManpower: gMan },
-    mergedActivities: acts.map(function (a) {
-      return { area: a.area, section: a.section || '', elementId: a.elementId || '',
-        activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
-        manpower: Number(a.manpower) || 0 };
-    }),
+    mergedActivities: mergedActivities,
     productivityData: {
       activeDWalls: gdw, dWallCount: gdw.length,
       activeBoredPiles: gbp, bPileCount: gbp.length,
@@ -555,8 +662,161 @@ function buildProductivityResult_(date, acts, source) {
       activeCrossWalls: gcw, cWallCount: gcw.length,
       totalConcreteVolumeM3: Math.round(gConc * 100) / 100, totalManpower: gMan
     },
+    // Resource & Production baseline — derived purely by inference from the activities.
+    // normalizeProductivity_ overlays the AI's richer nodes on top of this on the AI path.
+    machineStatus: normalizeMachineStatus_(null, mergedActivities),
+    excavation: normalizeExcavation_(null, mergedActivities),
+    reinforcedConcrete: normalizeRC_(null, mergedActivities, Math.round(gConc * 100) / 100),
     source: source || 'ai'
   };
+}
+
+/* ======================================================================
+ * RESOURCE & PRODUCTION nodes (machine fleet / excavation / RC).
+ * Each normaliser takes the AI's raw node (or null on the offline path) plus the
+ * flat mergedActivities, and returns a clean node. Machine deployments not stated
+ * by the AI are INFERRED from the worked elements: DW/BT/CW -> a BC Cutter,
+ * BP -> a Boring Rig, capped at the physical fleet sizes.
+ * ==================================================================== */
+
+var FLEET = { bcCutters: 6, boringRigs: 4 };
+
+function toNum_(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+function round2_(n) { return Math.round(toNum_(n) * 100) / 100; }
+function locKey_(s) { return String(s == null ? '' : s).toUpperCase().replace(/\s+/g, ''); }
+
+/** Clamp a machine status to Active / Idle / Maintenance (activity text considered). */
+function clampMachineStatus_(status, activity) {
+  var s = String(status == null ? '' : status).toLowerCase();
+  var a = String(activity == null ? '' : activity).toLowerCase();
+  if (/maint|breakdown|repair|servic|hose\s*change|standby\s*fault/.test(s + ' ' + a)) return 'Maintenance';
+  if (/\bidle\b|standby|stand\s*by|no\s*activity|not\s*working/.test(s + ' ' + a)) return 'Idle';
+  if (s.indexOf('active') >= 0) return 'Active';
+  return a ? 'Active' : 'Idle';
+}
+
+/** {bcCutters:[…], boringRigs:[…]} — AI entries first, then inferred, capped at the fleet. */
+function normalizeMachineStatus_(raw, mergedActivities) {
+  raw = raw || {};
+  function clean(list) {
+    return (Array.isArray(list) ? list : []).map(function (m) {
+      m = m || {};
+      return {
+        id: String(m.id == null ? '' : m.id).trim(),
+        location: String(m.location == null ? '' : m.location).trim(),
+        status: clampMachineStatus_(m.status, m.activity),
+        activity: String(m.activity == null ? '' : m.activity).trim()
+      };
+    }).filter(function (m) { return m.id || m.location || m.activity; });
+  }
+  var bc = clean(raw.bcCutters), rig = clean(raw.boringRigs);
+  var bcLoc = {}, rigLoc = {};
+  bc.forEach(function (m) { bcLoc[locKey_(m.location || m.id)] = 1; });
+  rig.forEach(function (m) { rigLoc[locKey_(m.location || m.id)] = 1; });
+
+  // Infer machine deployments from worked elements for locations not already listed.
+  (mergedActivities || []).forEach(function (a) {
+    var id = a.elementId || firstElementId_((a.section || '') + ' ' + (a.activity || ''));
+    var t = classifyElement_(id);
+    if (!t) return;
+    var loc = id || a.section || '';
+    var key = locKey_(loc);
+    if (!key) return;
+    if (t === 'DW' || t === 'BT' || t === 'CW') {
+      if (!bcLoc[key] && bc.length < FLEET.bcCutters) {
+        bcLoc[key] = 1;
+        bc.push({ id: '', location: loc, status: clampMachineStatus_('', a.activity), activity: a.activity || '' });
+      }
+    } else if (t === 'BP') {
+      if (!rigLoc[key] && rig.length < FLEET.boringRigs) {
+        rigLoc[key] = 1;
+        rig.push({ id: '', location: loc, status: clampMachineStatus_('', a.activity), activity: a.activity || '' });
+      }
+    }
+  });
+  return { bcCutters: bc.slice(0, FLEET.bcCutters), boringRigs: rig.slice(0, FLEET.boringRigs) };
+}
+
+/** Parse a depth in metres from text ("24.2 m" -> 24.2), never matching "m3"/"m³". */
+function parseDepthM_(t) {
+  var m = /(\d+(?:\.\d+)?)\s*m(?![0-9³a-z])/i.exec(String(t == null ? '' : t));
+  return m ? parseFloat(m[1]) : null;
+}
+
+/** Parse a soil-disposal load count ("14 loads" -> 14). */
+function parseLoads_(t) {
+  var m = /(\d+)\s*loads?\b/i.exec(String(t == null ? '' : t));
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+/** {totalVolumeOrLoads:number, activeExcavations:[{location,currentDepth,activity}]}. */
+function normalizeExcavation_(raw, mergedActivities) {
+  raw = raw || {};
+  var zones = (Array.isArray(raw.activeExcavations) ? raw.activeExcavations : []).map(function (z) {
+    z = z || {};
+    var depth = toNum_(z.currentDepth) || parseDepthM_(z.activity);
+    return {
+      location: String(z.location == null ? '' : z.location).trim(),
+      currentDepth: (depth === null || depth === undefined) ? null : toNum_(depth),
+      activity: String(z.activity == null ? '' : z.activity).trim()
+    };
+  }).filter(function (z) { return z.location || z.activity; });
+
+  // Offline / no raw zones: derive from excavation-stage activities.
+  if (!zones.length) {
+    (mergedActivities || []).forEach(function (a) {
+      if (a.stage === 'Excavation' || /excavat/i.test(a.activity || '')) {
+        zones.push({
+          location: a.elementId || a.section || '',
+          currentDepth: parseDepthM_(a.activity),
+          activity: a.activity || ''
+        });
+      }
+    });
+  }
+  var total = toNum_(raw.totalVolumeOrLoads);
+  if (!total) {
+    (mergedActivities || []).forEach(function (a) { total += parseLoads_(a.activity || ''); });
+  }
+  return { totalVolumeOrLoads: total, activeExcavations: zones };
+}
+
+/** Classify an RC work item into Rebar / Concreting / Formwork. */
+function classifyRcType_(text) {
+  var t = String(text == null ? '' : text).toLowerCase();
+  if (/cast|concret|pour/.test(t)) return 'Concreting';
+  if (/rebar|cage|reinforc|steel\s*fix/.test(t)) return 'Rebar';
+  if (/formwork|shutter|form\s*work/.test(t)) return 'Formwork';
+  return 'Concreting';
+}
+
+/** {totalConcreteVolumeM3:number, rcActivities:[{location,type,activity}]}. */
+function normalizeRC_(raw, mergedActivities, grandConcrete) {
+  raw = raw || {};
+  var acts = (Array.isArray(raw.rcActivities) ? raw.rcActivities : []).map(function (r) {
+    r = r || {};
+    var activity = String(r.activity == null ? '' : r.activity).trim();
+    return {
+      location: String(r.location == null ? '' : r.location).trim(),
+      type: classifyRcType_(r.type || activity),
+      activity: activity
+    };
+  }).filter(function (r) { return r.location || r.activity; });
+
+  // Offline / no raw items: derive from casting / rebar / formwork activities.
+  if (!acts.length) {
+    (mergedActivities || []).forEach(function (a) {
+      if (/cast|concret|pour|rebar|cage|reinforc|formwork|shutter/i.test(a.activity || '')) {
+        acts.push({
+          location: a.elementId || a.section || '',
+          type: classifyRcType_(a.activity),
+          activity: a.activity || ''
+        });
+      }
+    });
+  }
+  var total = toNum_(raw.totalConcreteVolumeM3) || toNum_(grandConcrete);
+  return { totalConcreteVolumeM3: round2_(total), rcActivities: acts };
 }
 
 /**
@@ -730,6 +990,13 @@ if (typeof module !== 'undefined' && module.exports) {
     stageFromText_: stageFromText_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_,
-    castVolumeOf_: castVolumeOf_
+    castVolumeOf_: castVolumeOf_,
+    normalizeMachineStatus_: normalizeMachineStatus_,
+    clampMachineStatus_: clampMachineStatus_,
+    normalizeExcavation_: normalizeExcavation_,
+    normalizeRC_: normalizeRC_,
+    classifyRcType_: classifyRcType_,
+    parseDepthM_: parseDepthM_,
+    parseLoads_: parseLoads_
   };
 }

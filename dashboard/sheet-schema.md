@@ -46,6 +46,31 @@ rows' `concrete_m3`; the **DW/BP/BT/CW doughnut** and **KPI cards** from the
 selected date's row; and the **activities list** (filterable by Area) from
 `Activities`.
 
+## Tab: `DailySummaries` — Resource & Production view (Machine / Excavation / RC)
+
+Written by `saveToSheet` (same upsert-by-date as the other tabs). Holds the three
+Resource & Production pillars for each date: the two heavy-machinery families, excavation
+zones, and reinforced-concrete work. The nested nodes are **JSON-stringified** into three
+columns so the shape can grow without schema churn; a few flat numbers sit alongside for
+quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs are untouched.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `date` | Date (yyyy-mm-dd) | upsert key |
+| `total_concrete_m3` | Number | total concrete cast (m³) — mirrors RC total |
+| `total_loads` | Number | total soil-disposal loads for the day |
+| `active_cutters` | Number | BC Cutters not Idle (Active + Maintenance) |
+| `active_rigs` | Number | Boring Rigs not Idle |
+| `machine_status_json` | Text (JSON) | `{bcCutters:[{id,location,status,activity}], boringRigs:[…]}` — `status` ∈ Active/Idle/Maintenance |
+| `excavation_json` | Text (JSON) | `{totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}]}` |
+| `rc_json` | Text (JSON) | `{totalConcreteVolumeM3, rcActivities:[{location,type,activity}]}` — `type` ∈ Rebar/Concreting/Formwork |
+
+The AI (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8) hunts for machine status and,
+when a machine ID is missing, **infers** a BC Cutter wherever a DW/BT/CW is worked and a
+Boring Rig wherever a BP is worked (capped at 6 cutters / 4 rigs). The Viewer's three-pillar
+dashboard (Machine Fleet · Excavation Tracker · RC) reads these rows; the existing Area
+KPIs, charts, and activity table remain below.
+
 ## Tab: `Raw_Logs` — inbound WhatsApp Cloud API audit (full-automation path)
 
 Written by `doPost` in `gas/Webhook.gs` whenever the WhatsApp Business (Meta Cloud)

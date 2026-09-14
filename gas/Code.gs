@@ -19,7 +19,8 @@ var SPREADSHEET_ID = '1ZMqhmKmLIdUWYV9bJ20udK7yi9uwFxQx337oMb-TFhY';
 var TABS = {
   activities: 'Activities',      // one row per merged activity (per date)
   productivity: 'Productivity',  // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
-  raw: 'Raw_Logs'                // append-only audit of inbound WhatsApp Cloud API messages
+  raw: 'Raw_Logs',               // append-only audit of inbound WhatsApp Cloud API messages
+  summaries: 'DailySummaries'    // one row per date: Resource & Production nodes (JSON) + flat totals
 };
 
 /**
@@ -56,7 +57,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-25 · whatsapp webhook';
+var APP_VERSION = 'build-26 · resource & production';
 
 /**
  * Route:
@@ -124,6 +125,10 @@ function runComparison(rtoText, aisText, reportDate) {
 var ACTIVITY_HEADER = ['date', 'area', 'section', 'element_id', 'activity', 'manpower', 'stage'];
 var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 'cwall_count',
   'concrete_m3', 'total_manpower', 'active_dwalls', 'active_bpiles', 'active_bwalls', 'active_crosswalls'];
+// Resource & Production view: the three pillar nodes stringified per date, plus a few
+// flat convenience numbers. This is a NEW tab — existing tabs/rows are untouched.
+var SUMMARY_HEADER = ['date', 'total_concrete_m3', 'total_loads', 'active_cutters', 'active_rigs',
+  'machine_status_json', 'excavation_json', 'rc_json'];
 
 /**
  * Persist the productivity result. `result` is what runComparison returned.
@@ -149,7 +154,27 @@ function saveToSheet(result) {
     (p.activeButtressWalls || []).join(', '), (p.activeCrossWalls || []).join(', ')
   ]]);
 
+  // DailySummaries: the Resource & Production nodes for this date (Machine / Excavation /
+  // RC), stringified + a few flat convenience numbers. New tab — never breaks other rows.
+  var machine = result.machineStatus || { bcCutters: [], boringRigs: [] };
+  var excav = result.excavation || { totalVolumeOrLoads: 0, activeExcavations: [] };
+  var rc = result.reinforcedConcrete || { totalConcreteVolumeM3: 0, rcActivities: [] };
+  upsertByDate_(ss, TABS.summaries, SUMMARY_HEADER, 0, [[
+    date,
+    rc.totalConcreteVolumeM3 || p.totalConcreteVolumeM3 || 0,
+    excav.totalVolumeOrLoads || 0,
+    countActive_(machine.bcCutters), countActive_(machine.boringRigs),
+    JSON.stringify(machine), JSON.stringify(excav), JSON.stringify(rc)
+  ]]);
+
   return ss.getUrl();
+}
+
+/** Count machines whose status is not Idle (Active or Maintenance) for the flat column. */
+function countActive_(list) {
+  return (list || []).filter(function (m) {
+    return m && String(m.status || '').toLowerCase() !== 'idle';
+  }).length;
 }
 
 /**
@@ -374,9 +399,35 @@ function getReport() {
   var prod = Object.keys(byDate).map(function (k) { return byDate[k]; })
     .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
+  // DailySummaries: parse the three JSON pillar columns back into objects (guarded), one
+  // per date (last row wins). Missing/blank -> empty defaults so the Viewer never breaks.
+  function parseJson_(v, dflt) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return dflt;
+    try { return JSON.parse(s); } catch (e) { return dflt; }
+  }
+  var sumByDate = {};
+  readTable_(ss, TABS.summaries).forEach(function (row) {
+    var d = toDateStr_(row.date);
+    if (!d) return;
+    sumByDate[d] = {
+      date: d,
+      totalConcreteM3: Number(row.total_concrete_m3) || 0,
+      totalLoads: Number(row.total_loads) || 0,
+      activeCutters: Number(row.active_cutters) || 0,
+      activeRigs: Number(row.active_rigs) || 0,
+      machineStatus: parseJson_(row.machine_status_json, { bcCutters: [], boringRigs: [] }),
+      excavation: parseJson_(row.excavation_json, { totalVolumeOrLoads: 0, activeExcavations: [] }),
+      reinforcedConcrete: parseJson_(row.rc_json, { totalConcreteVolumeM3: 0, rcActivities: [] })
+    };
+  });
+  var summaries = Object.keys(sumByDate).map(function (k) { return sumByDate[k]; })
+    .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+
   return {
     activities: activities,
     productivity: prod,
+    summaries: summaries,
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };

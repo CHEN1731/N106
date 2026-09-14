@@ -34,6 +34,45 @@
         <div class="kpi mp"><div class="v" id="kMP">–</div><div class="k">Total Manpower</div></div>
       </div>
 
+      <!-- ===== Resource & Production (3 pillars) ===== -->
+      <div class="panel respanel">
+        <h2>Machine Status · Fleet View</h2>
+        <p class="sub" id="fleetSub">6 BC Cutters · 4 Boring Rigs</p>
+        <div class="fleetwrap">
+          <div class="fleetcol">
+            <h3 class="fleeth">BC Cutters <span class="fleetn" id="bcCount"></span></h3>
+            <div class="fleetgrid" id="bcGrid"></div>
+          </div>
+          <div class="fleetcol">
+            <h3 class="fleeth">Boring Rigs <span class="fleetn" id="rigCount"></span></h3>
+            <div class="fleetgrid" id="rigGrid"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="panel respanel">
+          <h2>Excavation Tracker</h2>
+          <p class="sub" id="excavSub">Active excavation zones</p>
+          <div class="tablewrap">
+            <table class="excav">
+              <thead><tr><th>Location</th><th>Depth (m)</th><th>Activity</th></tr></thead>
+              <tbody id="excavBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel respanel">
+          <div class="rchead">
+            <div>
+              <h2>Reinforced Concrete (RC)</h2>
+              <p class="sub">Total concrete cast &amp; RC activities</p>
+            </div>
+            <div class="rckpi"><div class="v" id="rcTotal">–</div><div class="k">Concrete m³</div></div>
+          </div>
+          <div id="rcList" class="rclist"></div>
+        </div>
+      </div>
+
       <div class="row2">
         <div class="panel">
           <h2>Concrete volume (m³)</h2>
