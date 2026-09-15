@@ -61,17 +61,20 @@ quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs ar
 | `total_loads` | Number | total soil-disposal loads for the day |
 | `active_cutters` | Number | BC Cutters not Idle (Active + Maintenance) |
 | `active_rigs` | Number | Boring Rigs not Idle |
-| `machine_status_json` | Text (JSON) | `{bcCutters:[{assignedId,location,status,evidence}], boringRigs:[…]}` — `status` ∈ Active/Completed/Maintenance |
+| `machine_status_json` | Text (JSON) | `{bcCutters:[{area,location,assignedIds:[…],status,evidence}], boringRigs:[…]}` — `status` ∈ Active/Completed/Maintenance |
 | `excavation_json` | Text (JSON) | `{totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}]}` |
 | `rc_json` | Text (JSON) | `{totalConcreteVolumeM3, rcActivities:[{location,type,activity}]}` — `type` ∈ Rebar/Concreting/Formwork |
 
 Machine detection is **strict** (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8, enforced
 by `normalizeMachineStatus_`): a **BC Cutter** is logged only for a DW/BT/CW mentioned with
-**"bite"**; a **Boring Rig** only for a BP/pile mentioned with **"depth"** (current/drilling
-depth). `status` is **Completed** when casting is mentioned, **Maintenance** on
-breakdown/hose-change, else **Active**; `evidence` holds the trigger snippet. The Viewer leads with a **Site Machine
-Layout** banner that groups the detected machines by `location`; the Excavation Tracker, RC
-section, Area KPIs, charts, and activity table follow.
+**"bite"** or casting; a **Boring Rig** only for a BP/pile mentioned with **"depth"**
+(current/drilling/bare) or casting. Machines are **grouped by `area` + `location`**, so
+several walls/piles done by one machine at one spot collapse into one entry with all ids in
+**`assignedIds`**. `status` is **Completed** when casting is mentioned, **Maintenance** on
+breakdown/hose-change, else **Active** (precedence Maintenance > Active > Completed when a
+card merges several lines); `evidence` holds the trigger snippet. The Viewer leads with
+**Machine Status** KPI cards — each showing type + status, an "Area · Location" badge, and the
+`assignedIds` — then the Excavation Tracker, RC section, Area KPIs, charts, and activity table.
 
 ## Tab: `Raw_Logs` — inbound WhatsApp Cloud API audit (full-automation path)
 

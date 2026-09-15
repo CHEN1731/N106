@@ -180,7 +180,7 @@
       : 'Daily concrete casting';
 
     var sum = summaryForRange(dates);
-    renderMachineBanner(sum);
+    renderMachineCards(sum);
     renderExcavation(sum);
     renderRC(sum);
 
@@ -223,42 +223,41 @@
   function statusClass(s){ var v=String(s||'').toLowerCase();
     if (v==='completed') return 'st-completed'; if (v==='maintenance') return 'st-maint'; return 'st-active'; }
 
-  // Location-first machine banner: flatten both fleets, tag each with its type, group by
-  // location, and render a block per location. Only detected machines are shown.
-  function renderMachineBanner(sum){
+  // Machine Status as enriched KPI cards: one card per machine showing type + status,
+  // an "Area X · Location" badge, and the specific assignedIds it is working on.
+  function renderMachineCards(sum){
     var host=$('siteMachines'); if(!host) return;
     var m = (sum && sum.machineStatus) || {bcCutters:[],boringRigs:[]};
     var machines = []
       .concat((m.bcCutters||[]).map(function(x){ return withType(x,'BC Cutter'); }))
       .concat((m.boringRigs||[]).map(function(x){ return withType(x,'Boring Rig'); }));
     function withType(x,label){
-      return { type:label,
-        assignedId: x.assignedId || x.id || '',        // tolerate old field names
-        location: x.location || '',
-        status: x.status || 'Active',
-        evidence: x.evidence || x.activity || '' };
+      var ids = Array.isArray(x.assignedIds) ? x.assignedIds
+        : (x.assignedId ? [x.assignedId] : []);   // tolerate the legacy single-id field
+      return { type:label, area:x.area||'', location:x.location||'',
+        assignedIds:ids, status:x.status||'Active', evidence:x.evidence||x.activity||'' };
     }
+    // sort by area then type so cards read Area 1..4 grouped
+    machines.sort(function(a,b){ return (a.area||'~')<(b.area||'~')?-1:((a.area||'~')>(b.area||'~')?1:
+      (a.type<b.type?-1:(a.type>b.type?1:0))); });
+
     if ($('siteSub')) $('siteSub').textContent = machines.length
-      ? (machines.length+' machine'+(machines.length===1?'':'s')+' detected · grouped by location')
+      ? (machines.length+' machine'+(machines.length===1?'':'s')+' detected')
       : 'No machines detected for this range';
-    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected — a BC Cutter needs a DW/BT/CW with “bite”; a Boring Rig needs a BP with “depth”.</div>'; return; }
+    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected — a BC Cutter needs a DW/BT/CW with “bite” or casting; a Boring Rig needs a BP with “depth” or casting.</div>'; return; }
 
-    // group by location (blank -> "Unspecified"), preserving first-seen order
-    var groups={}, order=[];
-    machines.forEach(function(mc){ var g=mc.location||'Unspecified';
-      if(!groups[g]){groups[g]=[];order.push(g);} groups[g].push(mc); });
-
-    host.innerHTML = order.map(function(loc){
-      var cards = groups[loc].map(function(mc){
-        var cls=statusClass(mc.status);
-        var ev = mc.evidence ? '<div class="mact">'+esc(mc.evidence)+'</div>' : '';
-        return '<div class="machcard '+cls+'">'+
-          '<div class="mtop"><span class="statusdot"></span><span class="mtype">'+esc(mc.type)+'</span>'+
-          '<span class="mstat">'+esc(mc.status)+'</span></div>'+
-          '<div class="mid">Working on: '+esc(mc.assignedId||'—')+'</div>'+ ev +'</div>';
-      }).join('');
-      return '<div class="locblock"><div class="locname">📍 '+esc(loc)+' · '+groups[loc].length+'</div>'+
-        '<div class="locgrid">'+cards+'</div></div>';
+    host.innerHTML = machines.map(function(mc){
+      var cls=statusClass(mc.status);
+      var where = [mc.area, mc.location].filter(Boolean).join(' · ') || 'Location N/A';
+      var chips = (mc.assignedIds.length
+        ? mc.assignedIds.map(function(id){ return '<span class="idchip">'+esc(id)+'</span>'; }).join(' ')
+        : '<span class="idnone">—</span>');
+      var ev = mc.evidence ? '<div class="mact">'+esc(mc.evidence)+'</div>' : '';
+      return '<div class="machcard '+cls+'">'+
+        '<div class="mtop"><span class="statusdot"></span><span class="mtitle">'+esc(mc.type)+'</span>'+
+        '<span class="mstat">'+esc(mc.status)+'</span></div>'+
+        '<div class="mareabadge">'+esc(where)+'</div>'+
+        '<div class="mids"><span class="midlabel">Working on:</span> '+chips+'</div>'+ ev +'</div>';
     }).join('');
   }
 

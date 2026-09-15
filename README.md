@@ -81,18 +81,19 @@ The same AI call also returns three **Resource & Production** nodes, and the Vie
 with them (the Area KPIs, charts, and activity table stay below):
 
 ```
-{ machineStatus:{ bcCutters:[{assignedId,location,status,evidence}], boringRigs:[…] },  // status ∈ Active|Completed|Maintenance
+{ machineStatus:{ bcCutters:[{area,location,assignedIds:[…],status,evidence}], boringRigs:[…] },  // status ∈ Active|Completed|Maintenance
   excavation:{ totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] },
   reinforcedConcrete:{ totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } }  // type ∈ Rebar|Concreting|Formwork
 ```
 
-- **Site Machine Layout** (top banner) — the detected machines grouped **by location**
-  (e.g. a block for `ER15`, one for `Opp SJII`), each card showing "Working on: `<assignedId>`"
-  and a status badge: **green Active / blue Completed / red Maintenance**. Detection is
-  **strict** (enforced in the backend, not just requested of the AI): a **BC Cutter** is
-  logged only for a DW/BT/CW mentioned with **"bite"**; a **Boring Rig** only for a BP/pile
-  mentioned with **"depth"** (current/drilling depth). Casting → Completed status. A machine
-  without its trigger word is **not** logged, so idle panels no longer show phantom rigs.
+- **Machine Status** (top KPI cards) — one card per machine showing its type + status, an
+  **"Area · Location"** badge (e.g. `Area 2 · ER15`), and the specific **`assignedIds`** it is
+  working (e.g. `DW1547`, `BT20-2`), colour-coded **green Active / blue Completed / red
+  Maintenance**. Detection is **strict** (enforced in the backend, not just requested of the
+  AI): a **BC Cutter** is logged only for a DW/BT/CW with **"bite"** or casting; a **Boring
+  Rig** only for a BP/pile with **"depth"** or casting. Multiple walls/piles done by one
+  machine at one spot are **grouped** into that card's `assignedIds`. A machine without its
+  trigger word is **not** logged, so idle panels no longer show phantom rigs.
 - **Excavation Tracker** — active zones with depth (m, shown as a mini progress bar) and
   the day's soil-disposal loads.
 - **Reinforced Concrete** — a prominent total-m³ KPI plus RC activities with type-coloured

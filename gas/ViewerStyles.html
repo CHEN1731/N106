@@ -102,14 +102,11 @@
 
   /* ===== Resource & Production (3 pillars) ===== */
   .respanel{margin-top:12px}
-  /* Site Machine Layout — location-first banner at the top */
+  /* Site Machine Layout — KPI cards at the top */
   .sitebanner{margin:16px 0 4px;border-left:4px solid var(--dw)}
-  .sitegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:6px}
-  .locblock{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--plane)}
-  .locname{font-size:12px;font-weight:700;padding:8px 12px;background:var(--grid);color:var(--ink)}
-  .locgrid{display:flex;flex-direction:column;gap:8px;padding:10px}
-  .machcard{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;
-    border-left:4px solid var(--grid);display:flex;flex-direction:column;gap:3px}
+  .sitegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:6px}
+  .machcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;
+    border-left:4px solid var(--grid);display:flex;flex-direction:column;gap:6px}
   .machcard.st-active{border-left-color:var(--bt)}
   .machcard.st-completed{border-left-color:var(--dw)}
   .machcard.st-maint{border-left-color:#e5484d}
@@ -118,12 +115,18 @@
   .st-active .statusdot{background:var(--bt)}
   .st-completed .statusdot{background:var(--dw)}
   .st-maint .statusdot{background:#e5484d}
-  .machcard .mtype{font-weight:600;font-size:11px;color:var(--ink2);text-transform:uppercase;letter-spacing:.03em}
-  .machcard .mstat{margin-left:auto;font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.03em}
+  .machcard .mtitle{font-weight:700;font-size:13px}
+  .machcard .mstat{margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.03em}
   .st-active .mstat{background:var(--bt)}
   .st-completed .mstat{background:var(--dw)}
   .st-maint .mstat{background:#e5484d}
-  .machcard .mid{font-weight:700;font-size:13px}
+  .machcard .mareabadge{align-self:flex-start;font-size:11px;font-weight:600;color:var(--ink2);
+    background:var(--grid);border-radius:6px;padding:2px 8px}
+  .machcard .mids{font-size:12px;color:var(--ink2);display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+  .machcard .midlabel{color:var(--muted);font-size:11px}
+  .idchip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;font-weight:700;
+    background:var(--dw-bg);color:var(--dw);border-radius:6px;padding:2px 7px;white-space:nowrap}
+  .idnone{color:var(--muted)}
   .machcard .mact{font-size:11px;color:var(--muted);line-height:1.35}
 
   table.excav th,table.excav td{padding:8px 12px}
