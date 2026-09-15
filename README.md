@@ -190,9 +190,11 @@ falls back to the regex parser otherwise. To enable it:
    just uses the parser, so the app always works.
 
 The logic lives in [`gas/Extract.gs`](gas/Extract.gs) (`extractRecords` → Claude via
-`UrlFetchApp`, structured tool-call output). Encourage the team to post in the
-[recommended template](docs/report-template.md) — it makes both the AI and the
-parser near-perfect and cuts the corrections you make in the viewer.
+`UrlFetchApp`, structured tool-call output). Have the **RTO team post in the
+[WhatsApp reporting template](docs/report-template.md)** — it teaches the exact trigger
+words the extractor keys on (**bite / depth / rebar cage / concrete casting**, element IDs,
+`X/Y m³`, loads, `pax`), so machines, element lifecycle, concrete and manpower are detected
+near-perfectly with no corrections in the viewer.
 
 Looker Studio is optional now that the built-in Viewer covers the director view;
 connect it per the setup guide only if you still want it.
