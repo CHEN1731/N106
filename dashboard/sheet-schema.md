@@ -61,7 +61,7 @@ quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs ar
 | `total_loads` | Number | total soil-disposal loads for the day |
 | `active_cutters` | Number | BC Cutters not Idle (Active + Maintenance) |
 | `active_rigs` | Number | Boring Rigs not Idle |
-| `machine_status_json` | Text (JSON) | `{bcCutters:[{area,location,assignedIds:[…],status,evidence}], boringRigs:[…]}` — `status` ∈ Active/Completed/Maintenance |
+| `machine_status_json` | Text (JSON) | `{bcCutters:[{machineId,area,location,machineState,workingOnElements:[{elementId,lifecycleStage}],evidence}], boringRigs:[…]}` — `machineState` ∈ Active/Maintenance/Idle; `lifecycleStage` ∈ Excavation/Rebar/Concreting/Completed |
 | `excavation_json` | Text (JSON) | `{totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}]}` |
 | `rc_json` | Text (JSON) | `{totalConcreteVolumeM3, rcActivities:[{location,type,activity}]}` — `type` ∈ Rebar/Concreting/Formwork |
 
@@ -75,6 +75,41 @@ breakdown/hose-change, else **Active** (precedence Maintenance > Active > Comple
 card merges several lines); `evidence` holds the trigger snippet. The Viewer leads with
 **Machine Status** KPI cards — each showing type + status, an "Area · Location" badge, and the
 `assignedIds` — then the Excavation Tracker, RC section, Area KPIs, charts, and activity table.
+
+## Tab: `DailyMachineLogs` — one row per machine per date (Action A)
+
+Written by `saveToSheet` in the unified machine+lifecycle loop (`saveMachinesAndElements_`),
+upserted by date. A daily snapshot of the 6 BC Cutters + 4 Boring Rigs.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `date` | Date (yyyy-mm-dd) | upsert key |
+| `machine_id` | Text | e.g. `BC Cutter 1`, `Boring Rig 2` |
+| `family` | Text | `bc` or `rig` |
+| `area` | Text | Area 1–4 / Others (blank for Idle) |
+| `location` | Text | site location, e.g. `ER15` |
+| `machine_state` | Text | Active / Maintenance / Idle |
+| `elements` | Text | the elements worked, `DW1547:Excavation, DW04:Rebar` |
+| `evidence` | Text | snippet justifying the log |
+
+## Tab: `ElementTracker` — persistent element lifecycle DB (Action B)
+
+Also written in the same loop, but **keyed by `element_id` (not by date)** and
+**forward-only**: an element's `lifecycle_stage` only ever advances
+(Excavation → Rebar → Concreting → Completed, via `elementStageForward_`). This is the
+cross-day source of truth for where each wall/pile is; the Viewer reads it (`elementStages`)
+to show each element's *tracked* stage on the machine cards.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `element_id` | Text | upsert key, e.g. `DW1547`, `BP-T9-3` |
+| `type` | Text | DW / BP / BT / CW (via `classifyElement_`) |
+| `area` | Text | latest Area seen |
+| `location` | Text | latest location seen |
+| `lifecycle_stage` | Text | Excavation / Rebar / Concreting / Completed (advances only) |
+| `last_machine` | Text | machine that last worked it |
+| `first_seen` | Date | first date this element appeared |
+| `last_updated` | Date | last date its stage changed |
 
 ## Tab: `Raw_Logs` — inbound WhatsApp Cloud API audit (full-automation path)
 

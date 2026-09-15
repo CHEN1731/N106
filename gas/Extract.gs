@@ -312,25 +312,23 @@ var PRODUCTIVITY_SYSTEM =
   '8. RESOURCE & PRODUCTION (heavy machinery + production nodes):\n' +
   'Populate machineStatus, excavation and reinforcedConcrete. For machineStatus apply these ' +
   'STRICT LOGICAL TRIGGERS — do NOT log a machine unless its trigger is present in the text:\n' +
-  '- BC CUTTER: log a BC Cutter ONLY when a Diaphragm Wall (DW), Buttress Wall (BT) or ' +
-  'Cross Wall (CW) id is mentioned TOGETHER WITH "bite" (e.g. "1st bite", "2nd bite") OR ' +
-  'with concrete casting. If neither "bite" nor casting is mentioned for that DW/BT/CW, DO ' +
-  'NOT log a BC Cutter.\n' +
-  '- BORING RIG: log a Boring Rig ONLY when a Bored Pile (BP id or P-number pile) is ' +
-  'mentioned TOGETHER WITH "depth" (e.g. "current depth", "drilling depth", "depth 30m") OR ' +
-  'with concrete casting. If neither depth nor casting is mentioned, DO NOT log a Boring Rig.\n' +
-  '- STATUS (exactly "Active", "Completed", or "Maintenance"): if "concrete casting", ' +
-  '"casting" or "concreting" is mentioned, set status "Completed". Else if hose change / ' +
-  'breakdown / repair / servicing, set "Maintenance". Else (bite / depth) set "Active".\n' +
-  '- Each machine object is { area, location, assignedIds, status, evidence }. "area" = the ' +
-  'Area this belongs to ("Area 1".."Area 4", or "Others"), derived from the site-plan map. ' +
-  '"location" = the specific site location (e.g. ER15, Opp SJII). "assignedIds" = an ARRAY ' +
-  'of the specific element ids that machine worked at that location (e.g. ["DW1547"], or ' +
-  '["BP-T9-3","C45"] if it did two piles there). GROUP multiple walls/piles done by the ' +
-  'same machine at the same location into ONE object with all ids in assignedIds — do not ' +
-  'split them into separate cards. "evidence" = the exact snippet containing the trigger ' +
-  '("1st bite : 21.50m", "Current depth: 27.5m", or the casting phrase). Never exceed 6 BC ' +
-  'Cutters / 4 Boring Rigs.\n' +
+  '- A BC Cutter works Diaphragm Walls (DW), Buttress Walls (BT) and Cross Walls (CW); a ' +
+  'Boring Rig works Bored Piles (BP / P-number piles). Log a machine ONLY when an element ' +
+  'it works hits one of the THREE work stages: (1) "bite" for DW/BT/CW or "depth" ' +
+  '(current/drilling depth) for BP = Excavation; (2) "rebar cage" = Rebar; (3) "concrete ' +
+  'casting"/"casting"/"concreting" = Concreting (or Completed when the casting is done). If ' +
+  'an element hits none of these, do NOT log it.\n' +
+  '- NEST the worked elements inside the machine: each machine object is { machineId, area, ' +
+  'location, machineState, workingOnElements:[{ elementId, lifecycleStage }], evidence }. ' +
+  '"lifecycleStage" is exactly "Excavation", "Rebar", "Concreting", or "Completed" (the ' +
+  'stage that element reached). GROUP every element one machine worked at one location into ' +
+  'that machine\'s workingOnElements array (a machine can finish one and start the next).\n' +
+  '- "machineId" = the machine name if stated, else a generic slot like "BC Cutter 1". ' +
+  '"area" = "Area 1".."Area 4"/"Others" (site-plan map). "location" = the site location ' +
+  '(ER15, Opp SJII). "machineState" is exactly "Active", "Maintenance" (hose change / ' +
+  'breakdown / repair / servicing), or "Idle". There are 6 BC Cutters and 4 Boring Rigs: ' +
+  'machines with no element reported are Idle; never exceed 6 cutters / 4 rigs. "evidence" ' +
+  '= the snippet containing the trigger ("DW1547 1st bite : 21.50m", "Current depth: 27.5m").\n' +
   '- excavation.activeExcavations: one entry per active excavation zone with { location, ' +
   'currentDepth (metres, number), activity }. excavation.totalVolumeOrLoads = the total ' +
   'soil-disposal LOADS for the day if stated (a number), else 0.\n' +
@@ -401,36 +399,60 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
         },
         machineStatus: {
           type: 'object',
-          description: 'heavy-machinery fleet status (6 BC Cutters, 4 Boring Rigs)',
+          description: 'heavy-machinery fleet (6 BC Cutters, 4 Boring Rigs) with the elements each is working',
           properties: {
             bcCutters: {
               type: 'array',
-              description: 'ONLY DW/BT/CW worked with "bite" or casting',
+              description: 'BC Cutters working DW/BT/CW (bite / rebar cage / casting)',
               items: {
                 type: 'object',
                 properties: {
-                  area: { type: 'string', description: 'which Area this belongs to: "Area 1".."Area 4" (or "Others")' },
+                  machineId: { type: 'string', description: 'e.g. "BC Cutter 1" (infer from text, else a generic slot name)' },
+                  area: { type: 'string', description: 'which Area: "Area 1".."Area 4" (or "Others")' },
                   location: { type: 'string', description: 'specific site location, e.g. ER15' },
-                  assignedIds: { type: 'array', items: { type: 'string' }, description: 'all the DW/BT/CW ids this machine worked here, e.g. ["DW1547","BT20-2"]' },
-                  status: { type: 'string', description: 'Active | Completed | Maintenance' },
-                  evidence: { type: 'string', description: 'snippet with the trigger, e.g. "1st bite : 21.50m"' }
+                  machineState: { type: 'string', description: 'Active | Maintenance | Idle (the machine\'s own state)' },
+                  workingOnElements: {
+                    type: 'array',
+                    description: 'the DW/BT/CW this machine worked today, each with its lifecycle stage',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        elementId: { type: 'string', description: 'e.g. DW1547' },
+                        lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' }
+                      },
+                      required: ['elementId', 'lifecycleStage']
+                    }
+                  },
+                  evidence: { type: 'string', description: 'snippet with the trigger, e.g. "DW1547 1st bite : 21.50m"' }
                 },
-                required: ['area', 'location', 'assignedIds', 'status', 'evidence']
+                required: ['machineId', 'area', 'location', 'machineState', 'workingOnElements', 'evidence']
               }
             },
             boringRigs: {
               type: 'array',
-              description: 'ONLY BP/pile worked with "depth" or casting',
+              description: 'Boring Rigs working BP/pile (depth / rebar cage / casting)',
               items: {
                 type: 'object',
                 properties: {
-                  area: { type: 'string', description: 'which Area this belongs to: "Area 1".."Area 4" (or "Others")' },
+                  machineId: { type: 'string', description: 'e.g. "Boring Rig 1" (infer from text, else a generic slot name)' },
+                  area: { type: 'string', description: 'which Area: "Area 1".."Area 4" (or "Others")' },
                   location: { type: 'string', description: 'specific site location, e.g. Opp SJII' },
-                  assignedIds: { type: 'array', items: { type: 'string' }, description: 'all the BP/pile ids this rig worked here, e.g. ["BP-T9-3","C45"]' },
-                  status: { type: 'string', description: 'Active | Completed | Maintenance' },
+                  machineState: { type: 'string', description: 'Active | Maintenance | Idle' },
+                  workingOnElements: {
+                    type: 'array',
+                    description: 'the BP/piles this rig worked today, each with its lifecycle stage',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        elementId: { type: 'string', description: 'e.g. BP-T9-3' },
+                        lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' }
+                      },
+                      required: ['elementId', 'lifecycleStage']
+                    }
+                  },
                   evidence: { type: 'string', description: 'snippet with the trigger, e.g. "Current depth: 27.5m"' }
                 },
-                required: ['area', 'location', 'assignedIds', 'status', 'evidence']
+                required: ['machineId', 'area', 'location', 'machineState', 'workingOnElements', 'evidence']
               }
             }
           },
@@ -494,12 +516,13 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'list length. (BP includes pile refs like T9-3.)\n' +
     'Also return "grandTotals": { totalConcreteVolumeM3, totalManpower } across all areas.\n\n' +
     'ALSO populate the Resource & Production nodes (see rule 8):\n' +
-    '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } using the triggers in rule 8 — ' +
-    'a BC Cutter ONLY for a DW/BT/CW worked with "bite" or casting; a Boring Rig ONLY for a ' +
-    'BP/pile worked with "depth" or casting. Each entry = { area, location, assignedIds:[…], ' +
-    'status, evidence }; group all ids one machine worked at one location into assignedIds; ' +
-    'status = Completed if casting, Maintenance if breakdown/hose change, else Active. Never ' +
-    'exceed 6 cutters / 4 rigs. Do NOT log a machine that lacks its trigger word.\n' +
+    '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } using the triggers in rule 8. ' +
+    'NEST the worked elements: each machine = { machineId, area, location, machineState, ' +
+    'workingOnElements:[{ elementId, lifecycleStage }], evidence }. lifecycleStage ∈ ' +
+    'Excavation | Rebar | Concreting | Completed (bite/depth→Excavation, rebar cage→Rebar, ' +
+    'casting→Concreting/Completed). Group every element one machine worked at one location ' +
+    'into its workingOnElements. machineState ∈ Active | Maintenance | Idle. 6 BC Cutters + ' +
+    '4 Boring Rigs — unreported machines are Idle; do NOT log an element without a trigger.\n' +
     '   - "excavation": { totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] }.\n' +
     '   - "reinforcedConcrete": { totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } ' +
     'with type = Rebar | Concreting | Formwork.\n\n' +
@@ -701,36 +724,57 @@ function toNum_(v) { var n = Number(v); return isFinite(n) ? n : 0; }
 function round2_(n) { return Math.round(toNum_(n) * 100) / 100; }
 function locKey_(s) { return String(s == null ? '' : s).toUpperCase().replace(/\s+/g, ''); }
 
-// Machine-detection triggers. A machine is logged ONLY when its family's trigger word is
-// present: a BC Cutter needs a DW/BT/CW with "bite" OR casting; a Boring Rig needs a BP
-// with "depth" (current/drilling/bare) OR casting. Casting also sets status Completed.
+// Machine-detection triggers. An element is "being worked" (and its machine logged) only
+// when its text hits one of the three work stages: bite (DW/BT/CW) / depth (BP) = Excavation,
+// rebar cage = Rebar, or concrete casting = Concreting/Completed.
 var CASTING_RE = /cast|concret|pour/i;
 var MAINT_RE = /maint|breakdown|repair|servic|hose\s*change/i;
 var BITE_RE = /\bbite\b/i;
 var DEPTH_RE = /\bdepth\b/i;
+var REBAR_CAGE_RE = /rebar|reinforc|steel\s*fix/i;
+
+// Element lifecycle stages, ordered so a stage only ever advances.
+var LIFECYCLE = ['Excavation', 'Rebar', 'Concreting', 'Completed'];
+var LIFECYCLE_RANK = { Excavation: 1, Rebar: 2, Concreting: 3, Completed: 4 };
 
 /**
- * Does `text` carry a valid trigger for a machine of `family` ('bc' | 'rig')?
- * Returns the matched trigger token (truthy) or '' to DROP the machine.
- *   both : casting
- *   bc   : "bite"   (DW/BT/CW)
- *   rig  : "depth"  (BP; matches current/drilling depth too)
+ * Trigger for a machine of `family` ('bc' | 'rig'): 'casting' | 'rebar' | 'bite' (bc) |
+ * 'depth' (rig), or '' to DROP. Casting and rebar cage count for both families.
  */
 function machineTrigger_(text, family) {
   var t = String(text == null ? '' : text);
   if (CASTING_RE.test(t)) return 'casting';
+  if (REBAR_CAGE_RE.test(t)) return 'rebar';
   if (family === 'bc') return BITE_RE.test(t) ? 'bite' : '';
   if (family === 'rig') return DEPTH_RE.test(t) ? 'depth' : '';
   return '';
 }
 
-/** Status from the evidence text: casting -> Completed, maintenance -> Maintenance, else Active. */
-function machineStatusFor_(text) {
+/** Map evidence text to a lifecycle stage (Excavation | Rebar | Concreting | Completed | ''). */
+function lifecycleStageFor_(text) {
   var t = String(text == null ? '' : text);
-  if (CASTING_RE.test(t)) return 'Completed';
-  if (MAINT_RE.test(t)) return 'Maintenance';
-  return 'Active';
+  if (CASTING_RE.test(t)) return /\b(complete|completed|finished|done)\b/i.test(t) ? 'Completed' : 'Concreting';
+  if (REBAR_CAGE_RE.test(t)) return 'Rebar';
+  if (BITE_RE.test(t) || DEPTH_RE.test(t) || /excavat/i.test(t)) return 'Excavation';
+  return '';
 }
+
+/** Canonicalise a lifecycle stage string, or '' if not one of the four. */
+function clampLifecycle_(v) {
+  var s = String(v == null ? '' : v).trim();
+  for (var i = 0; i < LIFECYCLE.length; i++) if (LIFECYCLE[i].toLowerCase() === s.toLowerCase()) return LIFECYCLE[i];
+  return '';
+}
+
+/** Forward-only stage merge for the ElementTracker: return the more-advanced stage. */
+function elementStageForward_(oldStage, newStage) {
+  var ro = LIFECYCLE_RANK[clampLifecycle_(oldStage)] || 0;
+  var rn = LIFECYCLE_RANK[clampLifecycle_(newStage)] || 0;
+  return rn > ro ? clampLifecycle_(newStage) : (clampLifecycle_(oldStage) || clampLifecycle_(newStage) || '');
+}
+
+/** Machine's own state from evidence: Maintenance on a maintenance keyword, else Active. */
+function machineStateFor_(text) { return MAINT_RE.test(String(text == null ? '' : text)) ? 'Maintenance' : 'Active'; }
 
 /** The clause of `text` that contains the trigger, so the UI can show why it was logged. */
 function machineEvidence_(text, family) {
@@ -738,63 +782,85 @@ function machineEvidence_(text, family) {
   // Split on ; , newline, or a sentence period (one followed by space/end) — never a
   // decimal point, so "21.5m" / "27.5m" stay intact.
   var clauses = full.split(/\s*(?:;|\n|,|\.(?=\s|$))\s*/).filter(Boolean);
-  var res = [(family === 'rig' ? DEPTH_RE : BITE_RE), CASTING_RE, MAINT_RE];
+  var res = [(family === 'rig' ? DEPTH_RE : BITE_RE), REBAR_CAGE_RE, CASTING_RE, MAINT_RE];
   for (var i = 0; i < clauses.length; i++) {
     for (var j = 0; j < res.length; j++) { if (res[j].test(clauses[i])) return clauses[i].trim(); }
   }
   return full;
 }
 
-/** Status precedence for grouping: Maintenance (needs attention) > Active > Completed. */
-function statusRank_(s) { return s === 'Maintenance' ? 3 : (s === 'Active' ? 2 : (s === 'Completed' ? 1 : 0)); }
-
 /**
- * {bcCutters:[…], boringRigs:[…]} — one card per machine, GROUPED by family + area +
- * location so several walls/piles done at one spot land in one card's assignedIds[]. The
- * trigger gate (bite/casting for cutters, depth/casting for rigs) applies to BOTH the AI's
- * raw entries and the deterministic inference. Capped at the physical fleet sizes.
- * Each card = { family, area, location, assignedIds:[…], status, evidence }.
+ * Unified machine + element-lifecycle status. Returns
+ *   { bcCutters:[…6…], boringRigs:[…4…] }
+ * where each machine = { machineId, family, area, location, machineState, evidence,
+ *   workingOnElements:[{ elementId, lifecycleStage }] }.
+ * Elements are grouped into machines by area+location (a machine may hold several); when
+ * more element-groups than the physical fleet exist, overflow elements fold into existing
+ * machines (one finished, started the next). Each fleet is PADDED to 6 / 4 with Idle slots.
+ * Applies to BOTH the AI's nested entries and the deterministic inference.
  */
 function normalizeMachineStatus_(raw, mergedActivities) {
   raw = raw || {};
-  var cards = {}, order = [];
+  var cards = {}, order = [], counts = { bc: 0, rig: 0 };
 
-  function upsert(family, area, location, ids, evidence) {
+  function overflowCard(family) {
+    var fams = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
+    if (!fams.length) return null;
+    fams.sort(function (a, b) { return a.workingOnElements.length - b.workingOnElements.length; });
+    return fams[0];   // append to the least-loaded machine of this family
+  }
+
+  function addElement(family, area, location, elementId, stage, evidence, machineIdHint) {
     var ev = String(evidence == null ? '' : evidence).trim();
-    if (!machineTrigger_(ev, family)) return;               // hard gate
-    area = normAreaName_(area) || areaFromSection_(location) ||
-      areaFromSection_((ids && ids[0]) || '') || '';
+    stage = clampLifecycle_(stage) || lifecycleStageFor_(ev);
+    if (!stage) { if (!machineTrigger_(ev, family)) return; stage = 'Excavation'; }  // gate
+    area = normAreaName_(area) || areaFromSection_(location) || areaFromSection_(elementId || '') || '';
     var loc = String(location == null ? '' : location).trim();
     var key = family + '|' + area.toUpperCase() + '|' + locKey_(loc);
     var card = cards[key];
     if (!card) {
       var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
-      var count = 0; order.forEach(function (k) { if (cards[k].family === family) count++; });
-      if (count >= cap) return;
-      card = { family: family, area: area, location: loc, assignedIds: [],
-        status: machineStatusFor_(ev), evidence: '', _ids: {} };
-      cards[key] = card; order.push(key);
+      if (counts[family] >= cap) { card = overflowCard(family); if (!card) return; }
+      else {
+        card = { family: family, machineId: String(machineIdHint == null ? '' : machineIdHint).trim(),
+          area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '', _els: {} };
+        cards[key] = card; order.push(key); counts[family]++;
+      }
     }
-    (ids || []).forEach(function (id) {
-      var raw2 = String(id == null ? '' : id).trim(); if (!raw2) return;
-      var n = raw2.toUpperCase().replace(/\s+/g, '');
-      if (!card._ids[n]) { card._ids[n] = 1; card.assignedIds.push(raw2); }
-    });
-    var st = machineStatusFor_(ev);
-    if (statusRank_(st) > statusRank_(card.status)) card.status = st;
+    var eid = String(elementId == null ? '' : elementId).trim();
+    if (eid) {
+      var n = eid.toUpperCase().replace(/\s+/g, '');
+      if (card._els[n]) {
+        for (var i = 0; i < card.workingOnElements.length; i++) {
+          var w = card.workingOnElements[i];
+          if (String(w.elementId).toUpperCase().replace(/\s+/g, '') === n) { w.lifecycleStage = elementStageForward_(w.lifecycleStage, stage); break; }
+        }
+      } else { card._els[n] = 1; card.workingOnElements.push({ elementId: eid, lifecycleStage: stage }); }
+    }
+    if (MAINT_RE.test(ev)) card.machineState = 'Maintenance';
+    if (machineIdHint && !card.machineId) card.machineId = String(machineIdHint).trim();
     var snip = machineEvidence_(ev, family);
     if (snip && card.evidence.indexOf(snip) === -1) card.evidence = card.evidence ? (card.evidence + '; ' + snip) : snip;
     if (!card.area && area) card.area = area;
   }
 
-  // 1) AI entries — tolerate legacy field names (assignedId string / id / activity).
+  // 1) AI entries — nested workingOnElements; tolerate legacy assignedIds/assignedId/id.
   ['bc', 'rig'].forEach(function (fam) {
     var list = fam === 'bc' ? raw.bcCutters : raw.boringRigs;
     (Array.isArray(list) ? list : []).forEach(function (m) {
       m = m || {};
-      var ids = Array.isArray(m.assignedIds) ? m.assignedIds
-        : (m.assignedId != null ? [m.assignedId] : (m.id != null ? [m.id] : []));
-      upsert(fam, m.area, m.location, ids, m.evidence != null ? m.evidence : m.activity);
+      var ev = m.evidence != null ? m.evidence : (m.activity || '');
+      if (Array.isArray(m.workingOnElements) && m.workingOnElements.length) {
+        m.workingOnElements.forEach(function (e) {
+          e = e || {};
+          addElement(fam, m.area, m.location, e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId);
+        });
+      } else {
+        var ids = Array.isArray(m.assignedIds) ? m.assignedIds
+          : (m.assignedId != null ? [m.assignedId] : (m.id != null ? [m.id] : []));
+        if (ids.length) ids.forEach(function (id) { addElement(fam, m.area, m.location, id, '', ev, m.machineId); });
+        else if (machineTrigger_(ev, fam)) addElement(fam, m.area, m.location, '', lifecycleStageFor_(ev), ev, m.machineId);
+      }
     });
   });
 
@@ -804,12 +870,27 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var t = classifyElement_(id);
     if (!t) return;
     var fam = (t === 'BP') ? 'rig' : 'bc';
-    upsert(fam, a.area, a.section || id || '', [id], a.activity || '');
+    if (!machineTrigger_(a.activity || '', fam)) return;
+    addElement(fam, a.area, a.section || id || '', id, lifecycleStageFor_(a.activity || ''), a.activity || '', '');
   });
 
-  var bc = [], rig = [];
-  order.forEach(function (k) { var c = cards[k]; delete c._ids; (c.family === 'bc' ? bc : rig).push(c); });
-  return { bcCutters: bc, boringRigs: rig };
+  // Finalize each fleet: number machines, mark empty as Idle, pad to the fleet size.
+  function finalize(family) {
+    var out = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
+    var label = family === 'bc' ? 'BC Cutter ' : 'Boring Rig ';
+    out.forEach(function (c, i) {
+      delete c._els;
+      if (!c.machineId) c.machineId = label + (i + 1);
+      if (!c.workingOnElements.length && c.machineState !== 'Maintenance') c.machineState = 'Idle';
+    });
+    var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
+    for (var i = out.length; i < cap; i++) {
+      out.push({ family: family, machineId: label + (i + 1), area: '', location: '',
+        machineState: 'Idle', workingOnElements: [], evidence: '' });
+    }
+    return out;
+  }
+  return { bcCutters: finalize('bc'), boringRigs: finalize('rig') };
 }
 
 /** Parse a depth in metres from text ("24.2 m" -> 24.2), never matching "m3"/"m³". */
@@ -1068,9 +1149,11 @@ if (typeof module !== 'undefined' && module.exports) {
     castVolumeOf_: castVolumeOf_,
     normalizeMachineStatus_: normalizeMachineStatus_,
     machineTrigger_: machineTrigger_,
-    machineStatusFor_: machineStatusFor_,
+    machineStateFor_: machineStateFor_,
+    lifecycleStageFor_: lifecycleStageFor_,
+    elementStageForward_: elementStageForward_,
+    clampLifecycle_: clampLifecycle_,
     machineEvidence_: machineEvidence_,
-    statusRank_: statusRank_,
     normalizeExcavation_: normalizeExcavation_,
     normalizeRC_: normalizeRC_,
     classifyRcType_: classifyRcType_,

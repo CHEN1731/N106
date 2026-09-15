@@ -20,7 +20,9 @@ var TABS = {
   activities: 'Activities',      // one row per merged activity (per date)
   productivity: 'Productivity',  // one row per date: DW/BP/BT/CW counts, concrete m3, manpower
   raw: 'Raw_Logs',               // append-only audit of inbound WhatsApp Cloud API messages
-  summaries: 'DailySummaries'    // one row per date: Resource & Production nodes (JSON) + flat totals
+  summaries: 'DailySummaries',   // one row per date: Resource & Production nodes (JSON) + flat totals
+  machineLogs: 'DailyMachineLogs', // one row per machine per date: machineId/area/location/state/elements
+  elementTracker: 'ElementTracker' // persistent, one row per element: forward-only lifecycle stage
 };
 
 /**
@@ -57,7 +59,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-29 · machine kpi cards';
+var APP_VERSION = 'build-30 · unified machine+lifecycle';
 
 /**
  * Route:
@@ -129,6 +131,9 @@ var PRODUCTIVITY_HEADER = ['date', 'dwall_count', 'bpile_count', 'bwall_count', 
 // flat convenience numbers. This is a NEW tab — existing tabs/rows are untouched.
 var SUMMARY_HEADER = ['date', 'total_concrete_m3', 'total_loads', 'active_cutters', 'active_rigs',
   'machine_status_json', 'excavation_json', 'rc_json'];
+// Unified machine + element-lifecycle tabs (FOLLOW-UP 16).
+var MACHINE_LOG_HEADER = ['date', 'machine_id', 'family', 'area', 'location', 'machine_state', 'elements', 'evidence'];
+var ELEMENT_TRACKER_HEADER = ['element_id', 'type', 'area', 'location', 'lifecycle_stage', 'last_machine', 'first_seen', 'last_updated'];
 
 /**
  * Persist the productivity result. `result` is what runComparison returned.
@@ -167,14 +172,91 @@ function saveToSheet(result) {
     JSON.stringify(machine), JSON.stringify(excav), JSON.stringify(rc)
   ]]);
 
+  // Unified 2-in-1 machine + element-lifecycle write. ONE loop over every machine:
+  //   Action A -> a DailyMachineLogs row (this date's fleet log, upserted by date).
+  //   Action B -> UPSERT each worked element into ElementTracker (forward-only stage).
+  saveMachinesAndElements_(ss, date, machine);
+
   return ss.getUrl();
 }
 
-/** Count machines whose status is not Idle (Active or Maintenance) for the flat column. */
+/** Count machines whose state is not Idle (Active or Maintenance) for the flat column. */
 function countActive_(list) {
   return (list || []).filter(function (m) {
-    return m && String(m.status || '').toLowerCase() !== 'idle';
+    return m && String(m.machineState || m.status || '').toLowerCase() !== 'idle';
   }).length;
+}
+
+/**
+ * The tightly-coupled machine + lifecycle write. Loops the machineStatus fleets ONCE and
+ * does both actions per machine, so the two datasets always update together.
+ */
+function saveMachinesAndElements_(ss, date, machine) {
+  machine = machine || { bcCutters: [], boringRigs: [] };
+  var fleet = (machine.bcCutters || []).concat(machine.boringRigs || []);
+
+  // Load ElementTracker once into an id-keyed map (forward-only upsert, then write back).
+  var elSheet = ss.getSheetByName(TABS.elementTracker);
+  var elMap = {}, elOrder = [];
+  if (elSheet && elSheet.getLastRow() > 1) {
+    readTable_(ss, TABS.elementTracker).forEach(function (r) {
+      var id = String(r.element_id == null ? '' : r.element_id).trim();
+      if (!id) return;
+      var key = id.toUpperCase().replace(/\s+/g, '');
+      if (!elMap[key]) elOrder.push(key);
+      elMap[key] = {
+        element_id: id, type: r.type || '', area: r.area || '', location: r.location || '',
+        lifecycle_stage: r.lifecycle_stage || '', last_machine: r.last_machine || '',
+        first_seen: toDateStr_(r.first_seen) || '', last_updated: toDateStr_(r.last_updated) || ''
+      };
+    });
+  }
+
+  var logRows = [];
+  fleet.forEach(function (m) {
+    m = m || {};
+    var family = m.family || '';
+    var els = Array.isArray(m.workingOnElements) ? m.workingOnElements : [];
+    // Action A — daily machine log row.
+    var elemStr = els.map(function (e) { return (e.elementId || '') + ':' + (e.lifecycleStage || ''); })
+      .filter(function (s) { return s !== ':'; }).join(', ');
+    logRows.push([date, m.machineId || '', family, m.area || '', m.location || '',
+      m.machineState || '', elemStr, m.evidence || '']);
+
+    // Action B — upsert each element's lifecycle (advance only).
+    els.forEach(function (e) {
+      e = e || {};
+      var id = String(e.elementId == null ? '' : e.elementId).trim();
+      if (!id) return;
+      var key = id.toUpperCase().replace(/\s+/g, '');
+      var type = classifyElement_(id) || '';
+      var cur = elMap[key];
+      if (!cur) {
+        elMap[key] = { element_id: id, type: type, area: m.area || '', location: m.location || '',
+          lifecycle_stage: clampLifecycle_(e.lifecycleStage) || '', last_machine: m.machineId || '',
+          first_seen: date, last_updated: date };
+        elOrder.push(key);
+      } else {
+        var advanced = elementStageForward_(cur.lifecycle_stage, e.lifecycleStage);
+        cur.lifecycle_stage = advanced || cur.lifecycle_stage;
+        if (m.area) cur.area = m.area;
+        if (m.location) cur.location = m.location;
+        if (type) cur.type = type;
+        cur.last_machine = m.machineId || cur.last_machine;
+        cur.last_updated = date;
+      }
+    });
+  });
+
+  // Action A write — replace this date's rows, keep other days.
+  upsertByDate_(ss, TABS.machineLogs, MACHINE_LOG_HEADER, 0, logRows);
+
+  // Action B write — persist the whole ElementTracker (id-keyed, cross-day).
+  var elRows = elOrder.map(function (k) {
+    var r = elMap[k];
+    return [r.element_id, r.type, r.area, r.location, r.lifecycle_stage, r.last_machine, r.first_seen, r.last_updated];
+  });
+  writeTable_(ss, TABS.elementTracker, ELEMENT_TRACKER_HEADER, elRows);
 }
 
 /**
@@ -424,10 +506,19 @@ function getReport() {
   var summaries = Object.keys(sumByDate).map(function (k) { return sumByDate[k]; })
     .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
+  // ElementTracker: the persistent forward-only lifecycle stage per element id, so the
+  // machine cards can show each element's *tracked* stage (id -> stage).
+  var elementStages = {};
+  readTable_(ss, TABS.elementTracker).forEach(function (r) {
+    var id = String(r.element_id == null ? '' : r.element_id).trim();
+    if (id) elementStages[id.toUpperCase().replace(/\s+/g, '')] = String(r.lifecycle_stage || '');
+  });
+
   return {
     activities: activities,
     productivity: prod,
     summaries: summaries,
+    elementStages: elementStages,
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };

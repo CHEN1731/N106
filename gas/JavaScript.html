@@ -177,8 +177,13 @@
       var ms = res.machineStatus || { bcCutters: [], boringRigs: [] };
       var ex = res.excavation || { totalVolumeOrLoads: 0, activeExcavations: [] };
       var rc = res.reinforcedConcrete || { totalConcreteVolumeM3: 0, rcActivities: [] };
-      pill.textContent = '🚜 Machines detected: ' + (ms.bcCutters || []).length + ' BC Cutter(s) + ' +
-        (ms.boringRigs || []).length + ' Rig(s) · ⛏ Excavation: ' +
+      function deployed(list) {
+        return (list || []).filter(function (x) {
+          return x && String(x.machineState || x.status || '').toLowerCase() !== 'idle';
+        }).length;
+      }
+      pill.textContent = '🚜 Machines deployed: ' + deployed(ms.bcCutters) + ' BC Cutter(s) + ' +
+        deployed(ms.boringRigs) + ' Rig(s) · ⛏ Excavation: ' +
         (ex.activeExcavations || []).length + ' zone(s)' +
         (ex.totalVolumeOrLoads ? ' / ' + ex.totalVolumeOrLoads + ' loads' : '') +
         ' · 🧱 RC: ' + (rc.totalConcreteVolumeM3 || 0) + ' m³, ' +

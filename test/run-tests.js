@@ -21,7 +21,8 @@ const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
-        normalizeMachineStatus_, machineTrigger_, machineStatusFor_, machineEvidence_, statusRank_,
+        normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineEvidence_,
+        lifecycleStageFor_, elementStageForward_, clampLifecycle_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_ } = sandbox;
 
 let failures = 0;
@@ -251,66 +252,78 @@ assert(dayTexts.rto === 'DW1547 casting 42 m3\nkicker cast', 'buildDayTexts grou
 assert(dayTexts.ais === 'BP-T9-3 boring', 'buildDayTexts groups AIS stream');
 
 console.log('\nResource & Production — machine / excavation / RC:');
-// machineTrigger_ gate — BC Cutter needs "bite" OR casting; Boring Rig needs "depth" OR casting.
+// machineTrigger_ — three work stages: bite/depth, rebar cage, casting.
 assert(machineTrigger_('DW1547 1st bite : 21.50m', 'bc') === 'bite', 'bc trigger: bite');
-assert(machineTrigger_('DW04 concrete casting 42 m3', 'bc') === 'casting', 'bc trigger: casting (re-enabled)');
-assert(machineTrigger_('BP-T1 casting works', 'rig') === 'casting', 'rig trigger: casting (re-enabled)');
-assert(machineTrigger_('DW20 rebar cage lowering', 'bc') === '', 'bc: rebar cage alone -> not detected');
-assert(machineTrigger_('DW1547 excavation ongoing', 'bc') === '', 'bc: no bite/casting -> not detected');
-assert(machineTrigger_('BP-T9-3 current depth: 27.5m', 'rig') === 'depth', 'rig trigger: current depth');
-assert(machineTrigger_('BP-T4-1 depth 30m', 'rig') === 'depth', 'rig trigger: bare "depth"');
-assert(machineTrigger_('BP-T9-3 drilling in progress', 'rig') === '', 'rig: no depth/casting -> not detected');
+assert(machineTrigger_('DW20 rebar cage lowering', 'bc') === 'rebar', 'bc trigger: rebar cage');
+assert(machineTrigger_('DW04 concrete casting 42 m3', 'bc') === 'casting', 'bc trigger: casting');
+assert(machineTrigger_('DW1547 site cleared', 'bc') === '', 'bc: no work stage -> not detected');
+assert(machineTrigger_('BP-T9-3 current depth: 27.5m', 'rig') === 'depth', 'rig trigger: depth');
+assert(machineTrigger_('BP-T4-1 rebar cage', 'rig') === 'rebar', 'rig trigger: rebar cage');
+assert(machineTrigger_('BP-T9-3 drilling in progress', 'rig') === '', 'rig: no depth/rebar/casting -> not detected');
 
-// machineStatusFor_
-assert(machineStatusFor_('DW04 3rd bite; concrete casting 54/54 m3') === 'Completed', 'casting -> Completed');
-assert(machineStatusFor_('DW7 2nd bite; BC cutter breakdown') === 'Maintenance', 'breakdown -> Maintenance (no casting)');
-assert(machineStatusFor_('DW1547 1st bite : 21.50m') === 'Active', 'bite only -> Active');
-assert(statusRank_('Maintenance') > statusRank_('Active') && statusRank_('Active') > statusRank_('Completed'),
-  'status precedence Maintenance > Active > Completed');
+// lifecycleStageFor_ maps text -> the 4-stage enum
+assert(lifecycleStageFor_('DW1 1st bite 21m') === 'Excavation', 'bite -> Excavation');
+assert(lifecycleStageFor_('DW1 rebar cage lowering') === 'Rebar', 'rebar cage -> Rebar');
+assert(lifecycleStageFor_('DW1 concrete casting 54 m3') === 'Concreting', 'casting -> Concreting');
+assert(lifecycleStageFor_('DW1 concrete casting completed') === 'Completed', 'casting completed -> Completed');
 
-// normalizeMachineStatus_ — new shape {area, location, assignedIds[]} + grouping + gate
+// elementStageForward_ never regresses
+assert(elementStageForward_('Concreting', 'Excavation') === 'Concreting', 'forward-only: keeps Concreting over Excavation');
+assert(elementStageForward_('Excavation', 'Rebar') === 'Rebar', 'forward-only: advances Excavation -> Rebar');
+assert(elementStageForward_('', 'Excavation') === 'Excavation', 'forward-only: empty -> new');
+assert(machineStateFor_('BC cutter breakdown') === 'Maintenance' && machineStateFor_('1st bite') === 'Active',
+  'machineStateFor_: breakdown -> Maintenance, else Active');
+
+// normalizeMachineStatus_ — nested workingOnElements, grouping, fleet padding to 6/4
 var mActs = [
-  { elementId: 'DW1547', section: 'ER15', area: 'Area 2', activity: 'DW1547 1st bite : 21.50m' },   // bite -> logged
-  { elementId: 'CW99', section: 'Sec-D', area: 'Area 3', activity: 'CW99 excavation ongoing' },      // no trigger -> dropped
-  { elementId: 'BP-T9-3', section: 'Opp SJII', area: 'Area 3', activity: 'BP-T9-3 current depth: 27.5m' }, // depth -> logged
-  { elementId: 'BP-T9-4', section: 'Opp SJII', area: 'Area 3', activity: 'BP-T9-4 depth 30m' },      // same area+loc -> grouped
+  { elementId: 'DW1547', section: 'ER15', area: 'Area 2', activity: 'DW1547 1st bite : 21.50m' },   // Excavation
+  { elementId: 'DW04', section: 'ER15', area: 'Area 2', activity: 'DW04 rebar cage lowering' },      // same machine -> grouped, Rebar
+  { elementId: 'CW99', section: 'Sec-D', area: 'Area 3', activity: 'CW99 site cleared' },            // no stage -> dropped
+  { elementId: 'BP-T9-3', section: 'Opp SJII', area: 'Area 3', activity: 'BP-T9-3 current depth: 27.5m' }, // rig Excavation
   { elementId: 'BP-T4-1', section: 'Ja', area: 'Area 1', activity: 'BP-T4-1 drilling in progress' }  // no depth -> dropped
 ];
 var ms = normalizeMachineStatus_(null, mActs);
-assert(ms.bcCutters.length === 1, 'strict: only the "bite" DW is a BC Cutter (got ' + ms.bcCutters.length + ')');
-assert(ms.boringRigs.length === 1, 'grouping: the two BPs at Area 3 · Opp SJII collapse into ONE rig card');
-assert(ms.boringRigs[0].assignedIds.length === 2 &&
-  ms.boringRigs[0].assignedIds.indexOf('BP-T9-3') >= 0 && ms.boringRigs[0].assignedIds.indexOf('BP-T9-4') >= 0,
-  'both pile ids grouped into assignedIds');
-assert(ms.bcCutters[0].area === 'Area 2' && ms.bcCutters[0].location === 'ER15', 'cutter carries area + location');
-assert(ms.bcCutters[0].assignedIds[0] === 'DW1547' && ms.bcCutters[0].status === 'Active', 'cutter assignedIds + Active');
-assert(/21\.50m/.test(ms.bcCutters[0].evidence), 'evidence keeps the decimal depth (21.50m not truncated)');
-assert(ms.boringRigs[0].area === 'Area 3', 'rig carries area');
+assert(ms.bcCutters.length === 6 && ms.boringRigs.length === 4, 'fleet padded to 6 cutters + 4 rigs');
+var bc1 = ms.bcCutters[0];
+assert(bc1.machineId === 'BC Cutter 1' && bc1.area === 'Area 2' && bc1.location === 'ER15', 'cutter 1 header: id + area + location');
+assert(bc1.workingOnElements.length === 2, 'cutter 1 groups DW1547 + DW04 into workingOnElements');
+assert(bc1.workingOnElements[0].elementId === 'DW1547' && bc1.workingOnElements[0].lifecycleStage === 'Excavation', 'element 1 stage Excavation');
+assert(bc1.workingOnElements[1].elementId === 'DW04' && bc1.workingOnElements[1].lifecycleStage === 'Rebar', 'element 2 stage Rebar');
+assert(bc1.machineState === 'Active', 'cutter 1 machineState Active');
+assert(ms.bcCutters[5].machineState === 'Idle' && ms.bcCutters[5].workingOnElements.length === 0, 'padded cutter 6 is Idle');
+var rigActive = ms.boringRigs.filter(function (r) { return r.machineState !== 'Idle'; });
+assert(rigActive.length === 1 && rigActive[0].workingOnElements[0].elementId === 'BP-T9-3', 'one rig active with BP-T9-3');
 
-// casting is now a valid trigger on its own
+// casting-only line still detects (Concreting) and nests the element
 var msCast = normalizeMachineStatus_(null, [{ elementId: 'DW05', section: 'ER10', area: 'Area 1', activity: 'DW05 concrete casting 42 m3' }]);
-assert(msCast.bcCutters.length === 1 && msCast.bcCutters[0].status === 'Completed', 'casting-only line -> BC Cutter, Completed');
+var cActive = msCast.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; });
+assert(cActive.length === 1 && cActive[0].workingOnElements[0].lifecycleStage === 'Concreting', 'casting-only -> Concreting element');
 
-// grouping mixes statuses -> precedence wins (Maintenance over Active)
+// maintenance keyword on a grouped machine -> machineState Maintenance
 var msMix = normalizeMachineStatus_(null, [
   { elementId: 'DW7', section: 'ER15', area: 'Area 2', activity: 'DW7 1st bite 10m' },
-  { elementId: 'DW8', section: 'ER15', area: 'Area 2', activity: 'DW8 2nd bite; BC cutter breakdown' }
+  { elementId: 'DW8', section: 'ER15', area: 'Area 2', activity: 'DW8 rebar cage; BC cutter breakdown' }
 ]);
-assert(msMix.bcCutters.length === 1 && msMix.bcCutters[0].status === 'Maintenance' && msMix.bcCutters[0].assignedIds.length === 2,
-  'grouped card takes Maintenance status and both ids');
+assert(msMix.bcCutters[0].machineState === 'Maintenance' && msMix.bcCutters[0].workingOnElements.length === 2,
+  'grouped machine -> Maintenance state + both elements');
 
-// AI entries: assignedIds[] + area kept, gated by evidence; legacy assignedId string still read
+// AI nested entries kept; legacy assignedIds[] still read into workingOnElements
 var msAi = normalizeMachineStatus_({ bcCutters: [
-  { area: 'Area 2', location: 'ER15', assignedIds: ['DW1547', 'DW1548'], status: 'Active', evidence: '2nd bite 30m' },
-  { assignedId: 'DW999', location: 'ZZ', status: 'Active', evidence: 'rebar cage lowering' }   // no trigger -> dropped
+  { machineId: 'BC Cutter A', area: 'Area 2', location: 'ER15', machineState: 'Active',
+    workingOnElements: [{ elementId: 'DW1547', lifecycleStage: 'Excavation' }, { elementId: 'DW1548', lifecycleStage: 'Rebar' }], evidence: '2nd bite 30m' },
+  { area: 'Area 1', location: 'ZZ', assignedIds: ['DW999'], status: 'Active', evidence: 'DW999 1st bite 5m' }  // legacy shape
 ], boringRigs: [] }, []);
-assert(msAi.bcCutters.length === 1, 'AI entry without a trigger in evidence is dropped');
-assert(msAi.bcCutters[0].assignedIds.length === 2 && msAi.bcCutters[0].area === 'Area 2', 'AI assignedIds array + area kept');
+var aiActive = msAi.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; });
+assert(aiActive.length === 2, 'AI nested + legacy machines both kept');
+assert(aiActive[0].machineId === 'BC Cutter A' && aiActive[0].workingOnElements.length === 2, 'AI machineId + nested elements kept');
+assert(aiActive[1].workingOnElements[0].elementId === 'DW999', 'legacy assignedIds folded into workingOnElements');
 
-// capped at fleet size
+// overflow: >6 cutter groups fold into the 6 machines (no data lost, still 6 cards)
 var manyDW = []; for (var i = 0; i < 10; i++) manyDW.push({ elementId: 'DW' + i, section: 'L' + i, area: 'Area ' + ((i % 4) + 1), activity: 'DW' + i + ' 1st bite 10m' });
 var msCap = normalizeMachineStatus_(null, manyDW);
-assert(msCap.bcCutters.length === 6, 'BC Cutters capped at fleet size 6 (got ' + msCap.bcCutters.length + ')');
+assert(msCap.bcCutters.length === 6, 'still exactly 6 BC Cutters after overflow');
+var totalEls = msCap.bcCutters.reduce(function (n, c) { return n + c.workingOnElements.length; }, 0);
+assert(totalEls === 10, 'all 10 elements retained across the 6 machines (got ' + totalEls + ')');
 
 // depth / loads parsing
 assert(parseDepthM_('1st bite excavation reaching 24.2 m') === 24.2, 'parseDepthM 24.2 m');
@@ -343,19 +356,23 @@ var rawAi = {
   areas: [{ areaName: 'Area 1', kpiBreakdown: {}, activities: [
     { elementId: 'DW1547', section: 'ER15', activityDescription: 'DW1547 concrete casting 54/54 m3', stage: 'Concrete Casting', manpower: 8 }] }],
   grandTotals: { totalConcreteVolumeM3: 54, totalManpower: 8 },
-  machineStatus: { bcCutters: [{ area: 'Area 2', location: 'ER15', assignedIds: ['DW1547'], status: 'Active', evidence: '1st bite : 21.50m' }], boringRigs: [] },
+  machineStatus: { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 2', location: 'ER15', machineState: 'Active',
+    workingOnElements: [{ elementId: 'DW1547', lifecycleStage: 'Excavation' }], evidence: 'DW1547 1st bite : 21.50m' }], boringRigs: [] },
   excavation: { totalVolumeOrLoads: 0, activeExcavations: [] },
   reinforcedConcrete: { totalConcreteVolumeM3: 54, rcActivities: [{ location: 'DW1547', type: 'Concreting', activity: 'casting 54 m3' }] }
 };
 var np = normalizeProductivity_(rawAi, '2026-08-05', 'ai');
-assert(np.machineStatus && np.machineStatus.bcCutters[0].assignedIds[0] === 'DW1547', 'normalizeProductivity_ overlays AI machineStatus (assignedIds)');
-assert(np.machineStatus.bcCutters[0].location === 'ER15' && np.machineStatus.bcCutters[0].area === 'Area 2', 'AI machine location + area kept');
+var npBc = np.machineStatus.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; })[0];
+assert(npBc && npBc.workingOnElements[0].elementId === 'DW1547', 'normalizeProductivity_ overlays AI machineStatus (nested element)');
+assert(npBc.location === 'ER15' && npBc.area === 'Area 2', 'AI machine location + area kept');
+assert(np.machineStatus.bcCutters.length === 6, 'AI path also pads to 6 cutters');
 assert(np.reinforcedConcrete.totalConcreteVolumeM3 === 54, 'normalizeProductivity_ carries RC total');
 
-// offline fallback also produces the three nodes
+// offline fallback also produces the nested machine nodes
 var fbRes = productivityFromRecords_(
   '[5/8/26, 10:00:00] ~ Eng: Sec-C/Mb\nDW04 1st bite 20m, concrete casting 42 m3\nManpower: 8\n', '', '2026-08-05');
-assert(fbRes.machineStatus && fbRes.machineStatus.bcCutters.length >= 1, 'fallback detects a BC Cutter (bite)');
+var fbBc = fbRes.machineStatus.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; });
+assert(fbBc.length >= 1 && fbBc[0].workingOnElements.length >= 1, 'fallback detects a BC Cutter with a nested element');
 assert(fbRes.reinforcedConcrete.totalConcreteVolumeM3 === 42, 'fallback RC total = concrete cast (42)');
 
 console.log('\n' + (failures ? (failures + ' FAILED') : 'ALL PASSED'));

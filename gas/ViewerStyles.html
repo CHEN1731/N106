@@ -108,26 +108,32 @@
   .machcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;
     border-left:4px solid var(--grid);display:flex;flex-direction:column;gap:6px}
   .machcard.st-active{border-left-color:var(--bt)}
-  .machcard.st-completed{border-left-color:var(--dw)}
   .machcard.st-maint{border-left-color:#e5484d}
+  .machcard.st-idle{border-left-color:var(--muted);opacity:.72}
   .machcard .mtop{display:flex;align-items:center;gap:6px}
   .statusdot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--muted)}
   .st-active .statusdot{background:var(--bt)}
-  .st-completed .statusdot{background:var(--dw)}
   .st-maint .statusdot{background:#e5484d}
+  .st-idle .statusdot{background:var(--muted)}
   .machcard .mtitle{font-weight:700;font-size:13px}
   .machcard .mstat{margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.03em}
   .st-active .mstat{background:var(--bt)}
-  .st-completed .mstat{background:var(--dw)}
   .st-maint .mstat{background:#e5484d}
+  .st-idle .mstat{background:var(--muted)}
   .machcard .mareabadge{align-self:flex-start;font-size:11px;font-weight:600;color:var(--ink2);
     background:var(--grid);border-radius:6px;padding:2px 8px}
-  .machcard .mids{font-size:12px;color:var(--ink2);display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+  /* element rows (📌 id ➔ [lifecycle badge]) */
+  .machcard .elbody{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--grid);padding-top:6px}
   .machcard .midlabel{color:var(--muted);font-size:11px}
-  .idchip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;font-weight:700;
-    background:var(--dw-bg);color:var(--dw);border-radius:6px;padding:2px 7px;white-space:nowrap}
-  .idnone{color:var(--muted)}
-  .machcard .mact{font-size:11px;color:var(--muted);line-height:1.35}
+  .elrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .elid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:700}
+  .elarrow{color:var(--muted)}
+  .elidle{color:var(--muted);font-size:11.5px;font-style:italic}
+  .lcbadge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;color:#fff}
+  .lcbadge.lc-exc{background:#b45309}   /* amber/brown — Excavation */
+  .lcbadge.lc-rebar{background:var(--dw)} /* blue — Rebar */
+  .lcbadge.lc-conc{background:var(--bp)}  /* orange — Concreting */
+  .lcbadge.lc-done{background:var(--bt)}  /* green — Completed */
 
   table.excav th,table.excav td{padding:8px 12px}
   .excav .depthwrap{display:flex;align-items:center;gap:8px;min-width:120px}

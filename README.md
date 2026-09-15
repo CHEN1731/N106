@@ -81,19 +81,22 @@ The same AI call also returns three **Resource & Production** nodes, and the Vie
 with them (the Area KPIs, charts, and activity table stay below):
 
 ```
-{ machineStatus:{ bcCutters:[{area,location,assignedIds:[…],status,evidence}], boringRigs:[…] },  // status ∈ Active|Completed|Maintenance
+{ machineStatus:{ bcCutters:[{machineId,area,location,machineState,workingOnElements:[{elementId,lifecycleStage}],evidence}], boringRigs:[…] },  // machineState ∈ Active|Maintenance|Idle · lifecycleStage ∈ Excavation|Rebar|Concreting|Completed
   excavation:{ totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] },
   reinforcedConcrete:{ totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } }  // type ∈ Rebar|Concreting|Formwork
 ```
 
-- **Machine Status** (top KPI cards) — one card per machine showing its type + status, an
-  **"Area · Location"** badge (e.g. `Area 2 · ER15`), and the specific **`assignedIds`** it is
-  working (e.g. `DW1547`, `BT20-2`), colour-coded **green Active / blue Completed / red
-  Maintenance**. Detection is **strict** (enforced in the backend, not just requested of the
-  AI): a **BC Cutter** is logged only for a DW/BT/CW with **"bite"** or casting; a **Boring
-  Rig** only for a BP/pile with **"depth"** or casting. Multiple walls/piles done by one
-  machine at one spot are **grouped** into that card's `assignedIds`. A machine without its
-  trigger word is **not** logged, so idle panels no longer show phantom rigs.
+- **Machine Status & Element Lifecycle** (top KPI cards) — the machine and element tracking
+  are **one unified workflow**. There are 6 BC Cutters + 4 Boring Rigs; each card's **header**
+  shows `machineId`, an **"Area · Location"** badge, and a **machineState** badge (green
+  Active / red Maintenance / grey Idle). The card **body** lists every element that machine
+  worked today as **📌 `elementId` ➔ [lifecycle badge]** (amber Excavation / blue Rebar /
+  orange Concreting / green Completed). An element is logged only when its text hits a work
+  stage — **bite** (DW/BT/CW) / **depth** (BP), **rebar cage**, or **casting** — and several
+  elements a machine did at one spot are grouped onto its card. On Save, one loop writes both
+  a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
+  **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
+  element's *tracked* stage).
 - **Excavation Tracker** — active zones with depth (m, shown as a mini progress bar) and
   the day's soil-disposal loads.
 - **Reinforced Concrete** — a prominent total-m³ KPI plus RC activities with type-coloured
