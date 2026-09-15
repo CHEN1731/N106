@@ -59,7 +59,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-30 · unified machine+lifecycle';
+var APP_VERSION = 'build-31 · fix machine save';
 
 /**
  * Route:
@@ -120,7 +120,13 @@ function runComparison(rtoText, aisText, reportDate) {
     areas: prod.areas,
     grandTotals: prod.grandTotals,
     mergedActivities: prod.mergedActivities,
-    productivityData: prod.productivityData
+    productivityData: prod.productivityData,
+    // Resource & Production nodes — MUST be passed through so the uploader's Save
+    // (saveToSheet(lastResult)) persists them. Omitting these made machines/excavation/RC
+    // save as empty (Viewer showed 0).
+    machineStatus: prod.machineStatus,
+    excavation: prod.excavation,
+    reinforcedConcrete: prod.reinforcedConcrete
   };
 }
 

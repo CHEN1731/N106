@@ -206,6 +206,11 @@ assert(rc.reportDate === '2026-08-05', 'runComparison reports the date');
 assert(Array.isArray(rc.areas) && rc.areas.length === 3, 'runComparison returns area breakdown');
 assert(rc.productivityData && rc.productivityData.dWallCount === 2, 'runComparison returns grand productivityData');
 assert(Array.isArray(rc.mergedActivities) && rc.mergedActivities.length === 3, 'runComparison returns mergedActivities');
+// Regression (build-31): runComparison MUST pass the Resource & Production nodes through,
+// or the uploader's Save persists empty machine/excavation/RC data (Viewer showed 0).
+assert(rc.machineStatus && rc.machineStatus.bcCutters.length === 6 && rc.machineStatus.boringRigs.length === 4,
+  'runComparison returns machineStatus (padded fleet 6/4)');
+assert(!!rc.excavation && !!rc.reinforcedConcrete, 'runComparison returns excavation + reinforcedConcrete');
 
 console.log('\nWhatsApp Cloud API webhook ingestion:');
 const waPayload = {
