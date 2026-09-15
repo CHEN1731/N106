@@ -91,11 +91,10 @@
       .concat(ACTS.map(function(a){return String(a.date);}))
       .concat(SUMMARIES.map(function(s){return String(s.date);})))
       .sort();
-    // From: "(earliest)" + dates; To: "(latest)" + dates. Default = All dates.
-    $('fFrom').innerHTML = '<option value="">(earliest)</option>' +
-      ALL_DATES.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('');
-    $('fTo').innerHTML = '<option value="">(latest)</option>' +
-      ALL_DATES.map(function(d){return '<option value="'+esc(d)+'">'+esc(fmtDate(d))+'</option>';}).join('');
+    // From / To are native date-pickers (calendars). Set the calendar bounds to the data
+    // range; leave the values empty (= all dates). Existing selections are preserved.
+    var lo = ALL_DATES[0] || '', hi = ALL_DATES[ALL_DATES.length - 1] || '';
+    ['fFrom','fTo'].forEach(function(id){ var el=$(id); if(el){ if(lo) el.min=lo; else el.removeAttribute('min'); if(hi) el.max=hi; else el.removeAttribute('max'); } });
     // Area options from activities.
     var areas = uniq(ACTS.map(function(a){return String(a.area||'');}).filter(Boolean)).sort();
     $('fArea').innerHTML = '<option value="">All areas</option>' +
