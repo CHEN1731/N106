@@ -55,11 +55,25 @@ function debugGetReport() {
   if (r.activities[0]) Logger.log('first activity: ' + JSON.stringify(r.activities[0]));
   Logger.log('productivity days: ' + r.productivity.length);
   if (r.productivity[0]) Logger.log('latest productivity: ' + JSON.stringify(r.productivity[r.productivity.length - 1]));
+  // Machine data check — shows, per DailySummaries date, how many machines are saved and
+  // how many are actually deployed (have elements). If "deployed" is 0 for a day you know
+  // had machines in Compare, that day was NOT re-Saved on this Sheet after the fix.
+  var sums = r.summaries || [];
+  Logger.log('DailySummaries days: ' + sums.length);
+  sums.forEach(function (s) {
+    var ms = s.machineStatus || { bcCutters: [], boringRigs: [] };
+    var all = (ms.bcCutters || []).concat(ms.boringRigs || []);
+    var deployed = all.filter(function (m) {
+      return m && ((m.workingOnElements && m.workingOnElements.length) ||
+        String(m.machineState || m.status || '').toLowerCase() !== 'idle');
+    }).length;
+    Logger.log('  ' + s.date + ' — machines saved: ' + all.length + ', deployed: ' + deployed);
+  });
 }
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-33 · machine below dates';
+var APP_VERSION = 'build-34 · machine display fix';
 
 /**
  * Route:

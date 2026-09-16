@@ -196,8 +196,19 @@
     for (var i=0;i<SUMMARIES.length;i++) if (String(SUMMARIES[i].date)===String(d)) return SUMMARIES[i];
     return null;
   }
+  // Does a day's summary have at least one DEPLOYED machine (not just idle padding)?
+  function hasDeployed(sm){
+    var m=(sm&&sm.machineStatus)||{};
+    return [].concat(m.bcCutters||[], m.boringRigs||[]).some(function(x){
+      if(!x) return false;
+      if (x.workingOnElements && x.workingOnElements.length) return true;
+      if (x.assignedIds && x.assignedIds.length) return true;   // legacy shape
+      return String(x.machineState||x.status||'').toLowerCase()!=='idle';
+    });
+  }
   // Aggregate the pillar nodes over the selected dates. Single day -> that day.
-  // Multi-day -> latest day's machines, union of excavation zones, summed RC + concat list.
+  // Multi-day -> machines from the latest day that actually has deployed machines (so an
+  // empty newest day doesn't blank the banner), union of excavation zones, summed RC.
   function summaryForRange(dates){
     var empty = { machineStatus:{bcCutters:[],boringRigs:[]},
       excavation:{totalVolumeOrLoads:0,activeExcavations:[]},
@@ -205,9 +216,11 @@
     var inRange = dates.map(sumForDate).filter(Boolean);
     if (!inRange.length) return empty;
     if (inRange.length===1) return inRange[0];
-    // latest first for "current" machine snapshot
+    // latest first
     var byDateDesc = inRange.slice().sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); });
-    var machine = byDateDesc[0].machineStatus || {bcCutters:[],boringRigs:[]};
+    // machine snapshot = latest day that has deployed machines, else latest day
+    var pick = byDateDesc.filter(hasDeployed)[0] || byDateDesc[0];
+    var machine = pick.machineStatus || {bcCutters:[],boringRigs:[]};
     var zones=[], loads=0, rcTotal=0, rcActs=[];
     inRange.forEach(function(s){
       var ex=s.excavation||{}; loads += Number(ex.totalVolumeOrLoads)||0;
@@ -251,7 +264,7 @@
     var active = machines.filter(function(x){ return String(x.machineState).toLowerCase()!=='idle'; }).length;
     if ($('siteSub')) $('siteSub').textContent =
       active+' of '+machines.length+' machines deployed · elements shown with lifecycle stage';
-    if (!machines.length){ host.innerHTML='<div class="resempty">No machine data for this range.</div>'; return; }
+    if (!machines.length){ host.innerHTML='<div class="resempty">No machine data saved for this range. If Compare showed machines, re-Save that day on the current Sheet, then Refresh.</div>'; return; }
 
     host.innerHTML = machines.map(function(mc){
       var cls=stateClass(mc.machineState);
