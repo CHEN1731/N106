@@ -304,6 +304,36 @@ var msCast = normalizeMachineStatus_(null, [{ elementId: 'DW05', section: 'ER10'
 var cActive = msCast.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; });
 assert(cActive.length === 1 && cActive[0].workingOnElements[0].lifecycleStage === 'Concreting', 'casting-only -> Concreting element');
 
+// GLOBAL dedup: the same element listed on two AI machines lands on ONE machine only
+var msDup = normalizeMachineStatus_({ bcCutters: [
+  { machineId: 'BC Cutter 1', area: 'Area 2', location: 'ER15', machineState: 'Active',
+    workingOnElements: [{ elementId: 'DW04', lifecycleStage: 'Excavation' }], evidence: '1st bite' },
+  { machineId: 'BC Cutter 2', area: 'Area 2', location: 'ER16', machineState: 'Active',
+    workingOnElements: [{ elementId: 'DW04', lifecycleStage: 'Rebar' }], evidence: 'rebar cage' }
+], boringRigs: [] }, []);
+(function(){
+  var occ = 0; msDup.bcCutters.forEach(function(c){ c.workingOnElements.forEach(function(e){ if(e.elementId==='DW04') occ++; }); });
+  assert(occ === 1, 'DW04 appears on exactly one BC Cutter (got ' + occ + ')');
+})();
+var msDupRig = normalizeMachineStatus_({ boringRigs: [
+  { machineId: 'Boring Rig 1', area: 'Area 3', location: 'Opp SJII', machineState: 'Active', workingOnElements: [{ elementId: 'BP-T9-3', lifecycleStage: 'Excavation' }], evidence: 'depth 27m' },
+  { machineId: 'Boring Rig 2', area: 'Area 3', location: 'Opp SJII', machineState: 'Active', workingOnElements: [{ elementId: 'BP-T9-3', lifecycleStage: 'Rebar' }], evidence: 'rebar cage' }
+], bcCutters: [] }, []);
+(function(){
+  var occ = 0; msDupRig.boringRigs.forEach(function(c){ c.workingOnElements.forEach(function(e){ if(e.elementId==='BP-T9-3') occ++; }); });
+  assert(occ === 1, 'BP-T9-3 appears on exactly one Boring Rig (got ' + occ + ')');
+})();
+
+// Area comes from the element's activity even when the machine location is a bare "ER15"
+var msArea = normalizeMachineStatus_(
+  { bcCutters: [{ machineId: 'BC Cutter 1', area: '', location: 'ER15', machineState: 'Active',
+    workingOnElements: [{ elementId: 'DW04', lifecycleStage: 'Excavation' }], evidence: '1st bite' }], boringRigs: [] },
+  [{ elementId: 'DW04', section: 'Sec-C/Mb', area: 'Area 2', activity: 'DW04 1st bite' }]);
+(function(){
+  var c = msArea.bcCutters.filter(function(x){ return x.machineState !== 'Idle'; })[0];
+  assert(c && c.area === 'Area 2', 'ER15 machine inherits Area 2 from DW04 activity (got ' + (c && c.area) + ')');
+})();
+
 // maintenance keyword on a grouped machine -> machineState Maintenance
 var msMix = normalizeMachineStatus_(null, [
   { elementId: 'DW7', section: 'ER15', area: 'Area 2', activity: 'DW7 1st bite 10m' },
@@ -358,8 +388,8 @@ assert(rcFallback.totalConcreteVolumeM3 === 42 && rcFallback.rcActivities[0].typ
 // end-to-end: normalizeProductivity_ (AI shape) carries the three nodes
 var rawAi = {
   date: '2026-08-05',
-  areas: [{ areaName: 'Area 1', kpiBreakdown: {}, activities: [
-    { elementId: 'DW1547', section: 'ER15', activityDescription: 'DW1547 concrete casting 54/54 m3', stage: 'Concrete Casting', manpower: 8 }] }],
+  areas: [{ areaName: 'Area 2', kpiBreakdown: {}, activities: [
+    { elementId: 'DW1547', section: 'Sec-C/Mb', activityDescription: 'DW1547 concrete casting 54/54 m3', stage: 'Concrete Casting', manpower: 8 }] }],
   grandTotals: { totalConcreteVolumeM3: 54, totalManpower: 8 },
   machineStatus: { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 2', location: 'ER15', machineState: 'Active',
     workingOnElements: [{ elementId: 'DW1547', lifecycleStage: 'Excavation' }], evidence: 'DW1547 1st bite : 21.50m' }], boringRigs: [] },
@@ -369,7 +399,7 @@ var rawAi = {
 var np = normalizeProductivity_(rawAi, '2026-08-05', 'ai');
 var npBc = np.machineStatus.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; })[0];
 assert(npBc && npBc.workingOnElements[0].elementId === 'DW1547', 'normalizeProductivity_ overlays AI machineStatus (nested element)');
-assert(npBc.location === 'ER15' && npBc.area === 'Area 2', 'AI machine location + area kept');
+assert(npBc.location === 'ER15' && npBc.area === 'Area 2', 'AI machine location kept + area from element activity (Area 2)');
 assert(np.machineStatus.bcCutters.length === 6, 'AI path also pads to 6 cutters');
 assert(np.reinforcedConcrete.totalConcreteVolumeM3 === 54, 'normalizeProductivity_ carries RC total');
 

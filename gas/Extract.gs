@@ -802,6 +802,19 @@ function machineEvidence_(text, family) {
 function normalizeMachineStatus_(raw, mergedActivities) {
   raw = raw || {};
   var cards = {}, order = [], counts = { bc: 0, rig: 0 };
+  // An element belongs to exactly ONE machine of its family (global dedup). Maps a
+  // normalised elementId -> the card that owns it.
+  var claimedBy = { bc: {}, rig: {} };
+  // Authoritative area per worked element, from the activity it appears in (a section like
+  // "Sec-C/Mb" resolves to Area 2 even when the machine's location is a bare "ER15").
+  var elArea = {};
+  (mergedActivities || []).forEach(function (a) {
+    var id = a.elementId || firstElementId_((a.section || '') + ' ' + (a.activity || ''));
+    if (!id) return;
+    var n = id.toUpperCase().replace(/\s+/g, '');
+    var ar = normAreaName_(a.area) || areaFromSection_(a.section) || '';
+    if (ar && !elArea[n]) elArea[n] = ar;   // first real "Area N" wins
+  });
 
   function overflowCard(family) {
     var fams = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
@@ -814,7 +827,26 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var ev = String(evidence == null ? '' : evidence).trim();
     stage = clampLifecycle_(stage) || lifecycleStageFor_(ev);
     if (!stage) { if (!machineTrigger_(ev, family)) return; stage = 'Excavation'; }  // gate
-    area = normAreaName_(area) || areaFromSection_(location) || areaFromSection_(elementId || '') || '';
+    var eid = String(elementId == null ? '' : elementId).trim();
+    var n = eid ? eid.toUpperCase().replace(/\s+/g, '') : '';
+
+    // GLOBAL dedup: if this element is already on a machine, advance its stage there and
+    // stop — never place the same element on a second machine.
+    if (n && claimedBy[family][n]) {
+      var owner = claimedBy[family][n];
+      for (var j = 0; j < owner.workingOnElements.length; j++) {
+        var ow = owner.workingOnElements[j];
+        if (String(ow.elementId).toUpperCase().replace(/\s+/g, '') === n) {
+          ow.lifecycleStage = elementStageForward_(ow.lifecycleStage, stage); break;
+        }
+      }
+      if (MAINT_RE.test(ev)) owner.machineState = 'Maintenance';
+      return;
+    }
+
+    // Area comes from the element's activity first (so ER15 -> Area 2), then the AI's area,
+    // then the location/element codes.
+    area = (n && elArea[n]) || normAreaName_(area) || areaFromSection_(location) || areaFromSection_(eid) || '';
     var loc = String(location == null ? '' : location).trim();
     var key = family + '|' + area.toUpperCase() + '|' + locKey_(loc);
     var card = cards[key];
@@ -823,19 +855,13 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       if (counts[family] >= cap) { card = overflowCard(family); if (!card) return; }
       else {
         card = { family: family, machineId: String(machineIdHint == null ? '' : machineIdHint).trim(),
-          area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '', _els: {} };
+          area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '' };
         cards[key] = card; order.push(key); counts[family]++;
       }
     }
-    var eid = String(elementId == null ? '' : elementId).trim();
     if (eid) {
-      var n = eid.toUpperCase().replace(/\s+/g, '');
-      if (card._els[n]) {
-        for (var i = 0; i < card.workingOnElements.length; i++) {
-          var w = card.workingOnElements[i];
-          if (String(w.elementId).toUpperCase().replace(/\s+/g, '') === n) { w.lifecycleStage = elementStageForward_(w.lifecycleStage, stage); break; }
-        }
-      } else { card._els[n] = 1; card.workingOnElements.push({ elementId: eid, lifecycleStage: stage }); }
+      card.workingOnElements.push({ elementId: eid, lifecycleStage: stage });
+      claimedBy[family][n] = card;
     }
     if (MAINT_RE.test(ev)) card.machineState = 'Maintenance';
     if (machineIdHint && !card.machineId) card.machineId = String(machineIdHint).trim();
@@ -879,7 +905,6 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var out = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
     var label = family === 'bc' ? 'BC Cutter ' : 'Boring Rig ';
     out.forEach(function (c, i) {
-      delete c._els;
       if (!c.machineId) c.machineId = label + (i + 1);
       if (!c.workingOnElements.length && c.machineState !== 'Maintenance') c.machineState = 'Idle';
     });

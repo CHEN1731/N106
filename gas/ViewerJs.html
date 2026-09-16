@@ -3,6 +3,7 @@
   var PROD = [];    // productivity history (asc by date)
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
+  var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
   var ALL_DATES = [];  // every known date, oldest -> newest
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
@@ -82,6 +83,14 @@
     SUMMARIES = ((report && report.summaries) || []).slice().sort(function(a,b){
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
     ELEMENT_STAGES = (report && report.elementStages) || {};
+    // element -> Area, from the activities (a section like "Sec-C/Mb" carries Area 2), so a
+    // machine card at a bare location like "ER15" still shows the correct Area.
+    EL_AREA = {};
+    ACTS.forEach(function(a){
+      var ids = elementIdsOf(a); var ar = String(a.area||'');
+      if (!/^Area [1-4]$/.test(ar)) return;
+      ids.forEach(function(id){ var n=String(id).toUpperCase().replace(/\s+/g,''); if(n && !EL_AREA[n]) EL_AREA[n]=ar; });
+    });
     var name = (report && report.spreadsheetName) || '(no sheet)';
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
     $('src').textContent = PROD.length + ' days · ' + name + ver;
@@ -261,6 +270,23 @@
         machineState:x.machineState||x.status||(els.length?'Active':'Idle'),
         workingOnElements:els, evidence:x.evidence||x.activity||'' };
     }
+    // Safety net for already-saved (pre-fix) data: an element belongs to ONE machine per
+    // family — drop duplicate element rows across cards — and a card's Area follows its
+    // element's true area (so ER15 shows Area 2).
+    var seenEl = {};
+    machines.forEach(function(mc){
+      mc.workingOnElements = mc.workingOnElements.filter(function(e){
+        if (!e.elementId) return true;
+        var k = mc.type + '|' + normId(e.elementId);
+        if (seenEl[k]) return false; seenEl[k]=1; return true;
+      });
+      for (var i=0;i<mc.workingOnElements.length;i++){
+        var ar = EL_AREA[normId(mc.workingOnElements[i].elementId)];
+        if (ar){ mc.area = ar; break; }
+      }
+      if (!mc.workingOnElements.length && String(mc.machineState).toLowerCase()!=='maintenance') mc.machineState='Idle';
+    });
+
     var active = machines.filter(function(x){ return String(x.machineState).toLowerCase()!=='idle'; }).length;
     if ($('siteSub')) $('siteSub').textContent =
       active+' of '+machines.length+' machines deployed · elements shown with lifecycle stage';
