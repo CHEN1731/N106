@@ -4,6 +4,8 @@
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
+  var EXCAV_PROGRESS = [];  // static soil-volume tracker rows (Tunnel/FB): planned vs cumulative m3
+  var LOADS_TO_M3 = 6;      // loads -> m3 factor for the reported-this-range readout
   var ALL_DATES = [];  // every known date, oldest -> newest
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
@@ -83,6 +85,8 @@
     SUMMARIES = ((report && report.summaries) || []).slice().sort(function(a,b){
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
     ELEMENT_STAGES = (report && report.elementStages) || {};
+    EXCAV_PROGRESS = (report && report.excavationProgress) || [];
+    LOADS_TO_M3 = (report && report.config && Number(report.config.loadsToM3)) || 6;
     // element -> Area, from the activities (a section like "Sec-C/Mb" carries Area 2), so a
     // machine card at a bare location like "ER15" still shows the correct Area.
     EL_AREA = {};
@@ -191,7 +195,7 @@
 
     var sum = summaryForRange(dates);
     renderMachineCards(sum);
-    renderExcavation(sum);
+    renderExcavationProgress(sum);
     renderRC(sum);
 
     renderActivities(selSet, multi);
@@ -251,6 +255,8 @@
     if (v==='completed') return 'lc-done'; return 'lc-exc'; }
   var LC_ICON={'lc-exc':'🟤','lc-rebar':'🔵','lc-conc':'🟠','lc-done':'🟢'};
   function normId(id){ return String(id==null?'':id).toUpperCase().replace(/\s+/g,''); }
+  // Parse a depth in metres from text ("1st bite 21.5m" -> 21.5); never matches m3/m³.
+  function parseDepth(t){ var m=/(\d+(?:\.\d+)?)\s*m(?![0-9³a-z])/i.exec(String(t==null?'':t)); return m?parseFloat(m[1]):null; }
 
   // Integrated Machine + Element-lifecycle KPI cards. Header = machineId + Area·Location +
   // machineState badge; body = each element it worked -> its tracked lifecycle stage badge.
@@ -263,9 +269,9 @@
     function norm(x,label){
       // tolerate the older flat shape (assignedIds[] / status) as well as the nested one
       var els = Array.isArray(x.workingOnElements) ? x.workingOnElements.map(function(e){
-        return { elementId:(e&&e.elementId)||'', lifecycleStage:(e&&e.lifecycleStage)||'' }; })
-        : (Array.isArray(x.assignedIds) ? x.assignedIds.map(function(id){ return {elementId:id, lifecycleStage:''}; })
-        : (x.assignedId ? [{elementId:x.assignedId, lifecycleStage:''}] : []));
+        return { elementId:(e&&e.elementId)||'', lifecycleStage:(e&&e.lifecycleStage)||'', depth:(e&&e.depth!=null?e.depth:null) }; })
+        : (Array.isArray(x.assignedIds) ? x.assignedIds.map(function(id){ return {elementId:id, lifecycleStage:'', depth:null}; })
+        : (x.assignedId ? [{elementId:x.assignedId, lifecycleStage:'', depth:null}] : []));
       return { type:label, machineId:x.machineId||label, area:x.area||'', location:x.location||'',
         machineState:x.machineState||x.status||(els.length?'Active':'Idle'),
         workingOnElements:els, evidence:x.evidence||x.activity||'' };
@@ -300,7 +306,11 @@
         body = '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
           var stage = ELEMENT_STAGES[normId(e.elementId)] || e.lifecycleStage || 'Excavation';
           var lc = lcClass(stage);
-          return '<div class="elrow"><span class="elid">📌 '+esc(e.elementId||'—')+'</span>'+
+          // Depth shows right after the element ID; fall back to parsing the card evidence
+          // for rows saved before depth was tracked.
+          var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : parseDepth(mc.evidence);
+          var depthTag = (d!=null && d>0) ? '<span class="eldepth">'+d+' m</span>' : '';
+          return '<div class="elrow"><span class="elid">📌 '+esc(e.elementId||'—')+'</span>'+depthTag+
             '<span class="elarrow">➔</span><span class="lcbadge '+lc+'">'+(LC_ICON[lc]||'')+' '+esc(stage)+'</span></div>';
         }).join('');
       } else {
@@ -314,26 +324,37 @@
     }).join('');
   }
 
-  function renderExcavation(sum){
-    var ex = (sum && sum.excavation) || {totalVolumeOrLoads:0,activeExcavations:[]};
-    var zones = ex.activeExcavations || [];
-    var maxDepth = zones.reduce(function(mx,z){ return Math.max(mx, Number(z.currentDepth)||0); }, 0) || 1;
-    if ($('excavSub')) $('excavSub').textContent = zones.length
-      ? (zones.length+' active zone'+(zones.length===1?'':'s')+
-         (ex.totalVolumeOrLoads ? ' · '+ex.totalVolumeOrLoads+' soil loads' : ''))
-      : 'No active excavation zones';
+  // Static soil-volume tracker (Tunnel / FB): planned vs cumulative m3 from ExcavationProgress,
+  // with Remaining + % computed here. A muted subline shows what the reports imply for the range.
+  function renderExcavationProgress(sum){
+    var rows = EXCAV_PROGRESS || [];
     var body=$('excavBody'); if(!body) return;
-    if (!zones.length){ body.innerHTML='<tr><td colspan="3" class="resempty">No excavation data for this range.</td></tr>'; return; }
-    body.innerHTML = zones.map(function(z){
-      var d = Number(z.currentDepth);
-      var depthCell = isFinite(d) && d>0
-        ? '<div class="depthwrap"><span class="depthval">'+d+' m</span>'+
-          '<span class="depthbar"><span style="width:'+Math.min(100,Math.round(d/maxDepth*100))+'%"></span></span></div>'
-        : '<span class="depthval">—</span>';
-      return '<tr><td class="mono">'+esc(z.location||'—')+'</td><td>'+depthCell+'</td>'+
-        '<td class="act">'+esc(z.activity||'')+'</td></tr>';
+    // Reported-this-range readout (secondary, not official): loads x factor.
+    var ex = (sum && sum.excavation) || {totalVolumeOrLoads:0};
+    var loads = Number(ex.totalVolumeOrLoads)||0;
+    var reportedM3 = Math.round(loads * (Number(LOADS_TO_M3)||6));
+    if ($('excavSub')) $('excavSub').textContent = 'Soil excavated — Tunnel & Facility Building (m³)'
+      + (loads ? ' · reported this range ≈ '+fmt(reportedM3)+' m³ ('+loads+' loads × '+(Number(LOADS_TO_M3)||6)+')' : '');
+    if (!rows.length){ body.innerHTML='<tr><td colspan="5" class="resempty">No excavation tracker rows. They are auto-created (Tunnel / FB) on the next Save.</td></tr>'; return; }
+    var tp=0,tc=0;
+    var html = rows.map(function(r){
+      var planned=Number(r.plannedM3)||0, cum=Number(r.cumulativeM3)||0;
+      var rem=Math.max(0,planned-cum); tp+=planned; tc+=cum;
+      var pct=planned>0?Math.min(100,Math.round(cum/planned*1000)/10):0;
+      return '<tr><td><b>'+esc(r.zone||'—')+'</b>'+(r.description?' <span class="zsub">'+esc(r.description)+'</span>':'')+'</td>'+
+        '<td class="num">'+fmt(planned)+'</td><td class="num">'+fmt(cum)+'</td><td class="num">'+fmt(rem)+'</td>'+
+        '<td>'+pctCell(pct)+'</td></tr>';
     }).join('');
+    var tpct=tp>0?Math.min(100,Math.round(tc/tp*1000)/10):0;
+    html += '<tr class="totalrow"><td><b>TOTAL</b></td><td class="num">'+fmt(tp)+'</td>'+
+      '<td class="num">'+fmt(tc)+'</td><td class="num">'+fmt(Math.max(0,tp-tc))+'</td><td>'+pctCell(tpct)+'</td></tr>';
+    body.innerHTML = html;
   }
+  function pctCell(pct){
+    return '<div class="depthwrap"><span class="depthval">'+pct+'%</span>'+
+      '<span class="depthbar"><span style="width:'+Math.max(0,Math.min(100,pct))+'%"></span></span></div>';
+  }
+  function fmt(n){ n=Number(n)||0; return n.toLocaleString('en-US'); }
 
   function rcBadgeClass(t){ var v=String(t||'').toLowerCase();
     if (v==='rebar') return 'rc-rebar'; if (v==='formwork') return 'rc-form'; return 'rc-conc'; }

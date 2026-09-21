@@ -61,8 +61,8 @@ quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs ar
 | `total_loads` | Number | total soil-disposal loads for the day |
 | `active_cutters` | Number | BC Cutters not Idle (Active + Maintenance) |
 | `active_rigs` | Number | Boring Rigs not Idle |
-| `machine_status_json` | Text (JSON) | `{bcCutters:[{machineId,area,location,machineState,workingOnElements:[{elementId,lifecycleStage}],evidence}], boringRigs:[…]}` — `machineState` ∈ Active/Maintenance/Idle; `lifecycleStage` ∈ Excavation/Rebar/Concreting/Completed |
-| `excavation_json` | Text (JSON) | `{totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}]}` |
+| `machine_status_json` | Text (JSON) | `{bcCutters:[{machineId,area,location,machineState,workingOnElements:[{elementId,lifecycleStage,depth}],evidence}], boringRigs:[…]}` — `machineState` ∈ Active/Maintenance/Idle; `lifecycleStage` ∈ Excavation/Rebar/Concreting/Completed; `depth` = the element's dug/drilling depth in metres (number, or null) |
+| `excavation_json` | Text (JSON) | `{totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}]}` — soil-disposal loads for the day; feeds only the "reported this range" readout now (per-element depth moved into `machine_status_json`) |
 | `rc_json` | Text (JSON) | `{totalConcreteVolumeM3, rcActivities:[{location,type,activity}]}` — `type` ∈ Rebar/Concreting/Formwork |
 
 Machine detection is **strict** (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8, enforced
@@ -75,6 +75,30 @@ breakdown/hose-change, else **Active** (precedence Maintenance > Active > Comple
 card merges several lines); `evidence` holds the trigger snippet. The Viewer leads with
 **Machine Status** KPI cards — each showing type + status, an "Area · Location" badge, and the
 `assignedIds` — then the Excavation Tracker, RC section, Area KPIs, charts, and activity table.
+Each machine card now shows every worked element's **depth** right after its id
+(`📌 DW05 · 24.1 m ➔ Excavation`), parsed from the report evidence (`parseDepthM_`).
+
+## Tab: `ExcavationProgress` — static soil-volume tracker (Tunnel / FB)
+
+Mirrors the site team's own Excavation Tracker spreadsheet: total excavated **soil (m³)** for
+the whole Tunnel and Facility Building, by zone, as Planned vs Cumulative → % Progress. This
+tab is **user-maintained** (auto-created + seeded on first Save via `ensureExcavationProgress_`,
+never overwritten after) — update the numbers here or paste them from your spreadsheet. The
+Viewer reads it read-only and computes Remaining + % + a TOTAL row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `zone` | Text | `Tunnel` / `FB` |
+| `category` | Text | e.g. `Tunnel`, `FB` |
+| `description` | Text | e.g. `Area 2`, `Area 4 - FB` |
+| `planned_m3` | Number | planned excavation volume (m³) |
+| `cumulative_m3` | Number | excavated to date (m³) — you update this |
+| `updated` | Text | optional note / date of last update |
+
+Seeded from `N106_Excavation_Tracker.xlsx`: Tunnel 53,722 / 1,178,552 m³; FB 20,882 / 171,749 m³.
+A muted subline under the tracker shows what the day's/range's WhatsApp reports imply
+(`N loads × LOADS_TO_M3`, a Script Property, default 6) — informational only, **not** added to
+the official cumulative.
 
 ## Tab: `DailyMachineLogs` — one row per machine per date (Action A)
 
@@ -89,7 +113,7 @@ upserted by date. A daily snapshot of the 6 BC Cutters + 4 Boring Rigs.
 | `area` | Text | Area 1–4 / Others (blank for Idle) |
 | `location` | Text | site location, e.g. `ER15` |
 | `machine_state` | Text | Active / Maintenance / Idle |
-| `elements` | Text | the elements worked, `DW1547:Excavation, DW04:Rebar` |
+| `elements` | Text | the elements worked, `DW1547:Excavation@21.5m, DW04:Rebar` (`@Nm` = depth if reported) |
 | `evidence` | Text | snippet justifying the log |
 
 ## Tab: `ElementTracker` — persistent element lifecycle DB (Action B)

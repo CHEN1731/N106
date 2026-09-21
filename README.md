@@ -81,7 +81,7 @@ The same AI call also returns three **Resource & Production** nodes, and the Vie
 with them (the Area KPIs, charts, and activity table stay below):
 
 ```
-{ machineStatus:{ bcCutters:[{machineId,area,location,machineState,workingOnElements:[{elementId,lifecycleStage}],evidence}], boringRigs:[…] },  // machineState ∈ Active|Maintenance|Idle · lifecycleStage ∈ Excavation|Rebar|Concreting|Completed
+{ machineStatus:{ bcCutters:[{machineId,area,location,machineState,workingOnElements:[{elementId,lifecycleStage,depth}],evidence}], boringRigs:[…] },  // machineState ∈ Active|Maintenance|Idle · lifecycleStage ∈ Excavation|Rebar|Concreting|Completed · depth = metres (or null)
   excavation:{ totalVolumeOrLoads, activeExcavations:[{location,currentDepth,activity}] },
   reinforcedConcrete:{ totalConcreteVolumeM3, rcActivities:[{location,type,activity}] } }  // type ∈ Rebar|Concreting|Formwork
 ```
@@ -90,15 +90,21 @@ with them (the Area KPIs, charts, and activity table stay below):
   are **one unified workflow**. There are 6 BC Cutters + 4 Boring Rigs; each card's **header**
   shows `machineId`, an **"Area · Location"** badge, and a **machineState** badge (green
   Active / red Maintenance / grey Idle). The card **body** lists every element that machine
-  worked today as **📌 `elementId` ➔ [lifecycle badge]** (amber Excavation / blue Rebar /
-  orange Concreting / green Completed). An element is logged only when its text hits a work
+  worked today as **📌 `elementId` · `depth` m ➔ [lifecycle badge]** (amber Excavation / blue
+  Rebar / orange Concreting / green Completed) — the dug/drilling **depth** now shows right
+  after the element id, parsed from the report. An element is logged only when its text hits a work
   stage — **bite** (DW/BT/CW) / **depth** (BP), **rebar cage**, or **casting** — and several
   elements a machine did at one spot are grouped onto its card. On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
   **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
   element's *tracked* stage).
-- **Excavation Tracker** — active zones with depth (m, shown as a mini progress bar) and
-  the day's soil-disposal loads.
+- **Excavation Tracker** — a **static soil-volume tracker** (m³) for the whole **Tunnel +
+  Facility Building**, mirroring the site team's own spreadsheet: per-zone **Planned /
+  Cumulative / Remaining / % Progress** (with a bar) + a TOTAL row. The figures live in the
+  user-maintained **`ExcavationProgress`** tab (auto-created & seeded on first Save); update
+  them there or paste from your sheet. A muted subline shows what the range's reports imply
+  (`N loads × LOADS_TO_M3`, Script Property, default 6) — informational, not the official
+  cumulative. (Per-element depth moved from here into the machine cards, above.)
 - **Reinforced Concrete** — a prominent total-m³ KPI plus RC activities with type-coloured
   badges (blue Rebar / orange Formwork / grey Concreting).
 
@@ -184,7 +190,9 @@ falls back to the regex parser otherwise. To enable it:
 
 1. Apps Script → **Project Settings → Script properties** → add
    **`ANTHROPIC_API_KEY`** = your Anthropic key. (Optional `CLAUDE_MODEL`, default
-   `claude-opus-5`; set a cheaper model if you prefer.)
+   `claude-opus-5`; set a cheaper model if you prefer. Optional **`LOADS_TO_M3`** =
+   your truck loads→m³ factor, default 6, used only for the Excavation Tracker's
+   "reported this range" subline.)
 2. That's it — **Compare** now sends each day's messages to Claude and gets back
    clean, structured records. Cost is a few cents/day; a failed call or missing key
    just uses the parser, so the app always works.

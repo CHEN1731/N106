@@ -294,10 +294,22 @@ assert(bc1.machineId === 'BC Cutter 1' && bc1.area === 'Area 2' && bc1.location 
 assert(bc1.workingOnElements.length === 2, 'cutter 1 groups DW1547 + DW04 into workingOnElements');
 assert(bc1.workingOnElements[0].elementId === 'DW1547' && bc1.workingOnElements[0].lifecycleStage === 'Excavation', 'element 1 stage Excavation');
 assert(bc1.workingOnElements[1].elementId === 'DW04' && bc1.workingOnElements[1].lifecycleStage === 'Rebar', 'element 2 stage Rebar');
+// depth is parsed from the element's evidence and lives on the element (for the machine card)
+assert(bc1.workingOnElements[0].depth === 21.5, 'element 1 depth 21.5 m parsed onto the element');
+assert(bc1.workingOnElements[1].depth === null, 'element 2 (rebar cage, no depth) has null depth');
 assert(bc1.machineState === 'Active', 'cutter 1 machineState Active');
 assert(ms.bcCutters[5].machineState === 'Idle' && ms.bcCutters[5].workingOnElements.length === 0, 'padded cutter 6 is Idle');
 var rigActive = ms.boringRigs.filter(function (r) { return r.machineState !== 'Idle'; });
 assert(rigActive.length === 1 && rigActive[0].workingOnElements[0].elementId === 'BP-T9-3', 'one rig active with BP-T9-3');
+assert(rigActive[0].workingOnElements[0].depth === 27.5, 'rig element depth 27.5 m parsed from "current depth: 27.5m"');
+
+// depth advances with the element when it recurs at a deeper stage/reading
+var msDepth = normalizeMachineStatus_(null, [
+  { elementId: 'DW07', section: 'ER15', area: 'Area 2', activity: 'DW07 1st bite 12.0m' },
+  { elementId: 'DW07', section: 'ER15', area: 'Area 2', activity: 'DW07 2nd bite 22.5m' }
+]);
+var d7 = msDepth.bcCutters[0].workingOnElements[0];
+assert(d7.elementId === 'DW07' && d7.depth === 22.5, 'recurring element keeps the latest depth (22.5 m)');
 
 // casting-only line still detects (Concreting) and nests the element
 var msCast = normalizeMachineStatus_(null, [{ elementId: 'DW05', section: 'ER10', area: 'Area 1', activity: 'DW05 concrete casting 42 m3' }]);

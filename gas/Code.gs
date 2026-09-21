@@ -22,8 +22,18 @@ var TABS = {
   raw: 'Raw_Logs',               // append-only audit of inbound WhatsApp Cloud API messages
   summaries: 'DailySummaries',   // one row per date: Resource & Production nodes (JSON) + flat totals
   machineLogs: 'DailyMachineLogs', // one row per machine per date: machineId/area/location/state/elements
-  elementTracker: 'ElementTracker' // persistent, one row per element: forward-only lifecycle stage
+  elementTracker: 'ElementTracker', // persistent, one row per element: forward-only lifecycle stage
+  excavationProgress: 'ExcavationProgress' // static soil-volume tracker (Tunnel/FB): planned vs cumulative m3
 };
+
+// Static soil-volume tracker — mirrors the user's Excavation Tracker spreadsheet. The user
+// maintains planned_m3 / cumulative_m3 here (or pastes from their sheet); the Viewer computes
+// Remaining + % Progress. Seeded from N106_Excavation_Tracker.xlsx (Progress tab) on first run.
+var EXCAV_PROGRESS_HEADER = ['zone', 'category', 'description', 'planned_m3', 'cumulative_m3', 'updated'];
+var EXCAV_PROGRESS_SEED = [
+  ['Tunnel', 'Tunnel', 'Area 2', 1178552, 53722, ''],
+  ['FB', 'FB', 'Area 4 - FB', 171749, 20882, '']
+];
 
 /**
  * DIAGNOSTIC — run this from the Apps Script editor (select debugSheet -> Run),
@@ -73,7 +83,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-35 · machine dedup + area';
+var APP_VERSION = 'build-36 · depth in machine card + soil tracker';
 
 /**
  * Route:
@@ -162,6 +172,7 @@ var ELEMENT_TRACKER_HEADER = ['element_id', 'type', 'area', 'location', 'lifecyc
 function saveToSheet(result) {
   var ss = getSpreadsheet_();
   var date = result.date || result.reportDate || '';
+  ensureExcavationProgress_(ss);   // make sure the static soil-volume tracker tab exists
 
   // Activities: one row per merged activity (all rows for this date replaced).
   upsertByDate_(ss, TABS.activities, ACTIVITY_HEADER, 0,
@@ -238,8 +249,11 @@ function saveMachinesAndElements_(ss, date, machine) {
     var family = m.family || '';
     var els = Array.isArray(m.workingOnElements) ? m.workingOnElements : [];
     // Action A — daily machine log row.
-    var elemStr = els.map(function (e) { return (e.elementId || '') + ':' + (e.lifecycleStage || ''); })
-      .filter(function (s) { return s !== ':'; }).join(', ');
+    var elemStr = els.map(function (e) {
+      var s = (e.elementId || '') + ':' + (e.lifecycleStage || '');
+      if (e.depth != null && e.depth !== '' && Number(e.depth) > 0) s += '@' + e.depth + 'm';
+      return s;
+    }).filter(function (s) { return s !== ':'; }).join(', ');
     logRows.push([date, m.machineId || '', family, m.area || '', m.location || '',
       m.machineState || '', elemStr, m.evidence || '']);
 
@@ -534,11 +548,26 @@ function getReport() {
     if (id) elementStages[id.toUpperCase().replace(/\s+/g, '')] = String(r.lifecycle_stage || '');
   });
 
+  // Static soil-volume tracker (Tunnel / FB): the user-maintained planned vs cumulative m3.
+  ensureExcavationProgress_(ss);
+  var excavationProgress = readTable_(ss, TABS.excavationProgress).map(function (r) {
+    return {
+      zone: String(r.zone == null ? '' : r.zone).trim(),
+      category: String(r.category == null ? '' : r.category).trim(),
+      description: String(r.description == null ? '' : r.description).trim(),
+      plannedM3: Number(r.planned_m3) || 0,
+      cumulativeM3: Number(r.cumulative_m3) || 0,
+      updated: String(r.updated == null ? '' : r.updated).trim()
+    };
+  }).filter(function (r) { return r.zone; });
+
   return {
     activities: activities,
     productivity: prod,
     summaries: summaries,
     elementStages: elementStages,
+    excavationProgress: excavationProgress,
+    config: { loadsToM3: loadsToM3_() },
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };
@@ -632,4 +661,23 @@ function writeTable_(ss, name, header, rows) {
   );
   sheet.setFrozenRows(1);
   sheet.getRange(1, 1, 1, header.length).setFontWeight('bold');
+}
+
+/**
+ * Ensure the static Excavation soil-volume tracker tab exists, seeded with the two zones
+ * (Tunnel / FB) and the user's current planned/cumulative m3. Never overwrites once created,
+ * so the user's own edits (or pastes from their spreadsheet) persist.
+ */
+function ensureExcavationProgress_(ss) {
+  var sheet = ss.getSheetByName(TABS.excavationProgress);
+  if (sheet && sheet.getLastRow() >= 1) return sheet;
+  if (!sheet) sheet = ss.insertSheet(TABS.excavationProgress);
+  writeTable_(ss, TABS.excavationProgress, EXCAV_PROGRESS_HEADER, EXCAV_PROGRESS_SEED);
+  return ss.getSheetByName(TABS.excavationProgress);
+}
+
+/** Loads -> m3 conversion factor for the reported-this-range readout (Script Property, default 6). */
+function loadsToM3_() {
+  var v = Number(PropertiesService.getScriptProperties().getProperty('LOADS_TO_M3'));
+  return (isFinite(v) && v > 0) ? v : 6;
 }

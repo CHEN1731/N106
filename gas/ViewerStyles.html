@@ -128,6 +128,8 @@
   .elrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .elid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:700}
   .elarrow{color:var(--muted)}
+  .eldepth{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;white-space:nowrap;
+    background:var(--grid);color:var(--muted);font-variant-numeric:tabular-nums}
   .elidle{color:var(--muted);font-size:11.5px;font-style:italic}
   .lcbadge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;color:#fff}
   .lcbadge.lc-exc{background:#b45309}   /* amber/brown — Excavation */
@@ -140,6 +142,9 @@
   .excav .depthbar{flex:1;height:8px;border-radius:999px;background:var(--grid);overflow:hidden}
   .excav .depthbar>span{display:block;height:100%;background:var(--dw);border-radius:999px}
   .excav .depthval{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+  table.excav th.num,table.excav td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .excav .zsub{color:var(--muted);font-weight:400;font-size:11px}
+  .excav tr.totalrow td{border-top:2px solid var(--grid);font-weight:700}
 
   .rchead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
   .rckpi{text-align:right}

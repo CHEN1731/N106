@@ -319,9 +319,11 @@ var PRODUCTIVITY_SYSTEM =
   'casting"/"casting"/"concreting" = Concreting (or Completed when the casting is done). If ' +
   'an element hits none of these, do NOT log it.\n' +
   '- NEST the worked elements inside the machine: each machine object is { machineId, area, ' +
-  'location, machineState, workingOnElements:[{ elementId, lifecycleStage }], evidence }. ' +
+  'location, machineState, workingOnElements:[{ elementId, lifecycleStage, depth }], evidence }. ' +
   '"lifecycleStage" is exactly "Excavation", "Rebar", "Concreting", or "Completed" (the ' +
-  'stage that element reached). GROUP every element one machine worked at one location into ' +
+  'stage that element reached). "depth" = that element\'s current dug/drilling depth in ' +
+  'metres if the text states one (e.g. "1st bite 21.5m" -> 21.5, "current depth 27.5m" -> ' +
+  '27.5), else 0. GROUP every element one machine worked at one location into ' +
   'that machine\'s workingOnElements array (a machine can finish one and start the next).\n' +
   '- "machineId" = the machine name if stated, else a generic slot like "BC Cutter 1". ' +
   '"area" = "Area 1".."Area 4"/"Others" (site-plan map). "location" = the site location ' +
@@ -418,7 +420,8 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
                       type: 'object',
                       properties: {
                         elementId: { type: 'string', description: 'e.g. DW1547' },
-                        lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' }
+                        lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' },
+                        depth: { type: 'number', description: 'current dug depth in metres if stated (e.g. 21.5), else 0' }
                       },
                       required: ['elementId', 'lifecycleStage']
                     }
@@ -445,7 +448,8 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
                       type: 'object',
                       properties: {
                         elementId: { type: 'string', description: 'e.g. BP-T9-3' },
-                        lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' }
+                        lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' },
+                        depth: { type: 'number', description: 'current drilling depth in metres if stated (e.g. 27.5), else 0' }
                       },
                       required: ['elementId', 'lifecycleStage']
                     }
@@ -518,7 +522,8 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'ALSO populate the Resource & Production nodes (see rule 8):\n' +
     '   - "machineStatus": { bcCutters:[…], boringRigs:[…] } using the triggers in rule 8. ' +
     'NEST the worked elements: each machine = { machineId, area, location, machineState, ' +
-    'workingOnElements:[{ elementId, lifecycleStage }], evidence }. lifecycleStage ∈ ' +
+    'workingOnElements:[{ elementId, lifecycleStage, depth }], evidence }. depth = the ' +
+    'element\'s dug/drilling depth in metres if stated (else 0). lifecycleStage ∈ ' +
     'Excavation | Rebar | Concreting | Completed (bite/depth→Excavation, rebar cage→Rebar, ' +
     'casting→Concreting/Completed). Group every element one machine worked at one location ' +
     'into its workingOnElements. machineState ∈ Active | Maintenance | Idle. 6 BC Cutters + ' +
@@ -823,12 +828,17 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     return fams[0];   // append to the least-loaded machine of this family
   }
 
-  function addElement(family, area, location, elementId, stage, evidence, machineIdHint) {
+  function addElement(family, area, location, elementId, stage, evidence, machineIdHint, depthHint) {
     var ev = String(evidence == null ? '' : evidence).trim();
     stage = clampLifecycle_(stage) || lifecycleStageFor_(ev);
     if (!stage) { if (!machineTrigger_(ev, family)) return; stage = 'Excavation'; }  // gate
     var eid = String(elementId == null ? '' : elementId).trim();
     var n = eid ? eid.toUpperCase().replace(/\s+/g, '') : '';
+    // Depth (metres) belongs to the element: prefer an AI-supplied value, else parse the
+    // evidence/activity ("1st bite 21.5m", "current depth 27.5m").
+    var depth = toNum_(depthHint);
+    if (!depth) depth = parseDepthM_(ev);
+    depth = (depth === null || depth === undefined || !isFinite(depth) || depth <= 0) ? null : toNum_(depth);
 
     // GLOBAL dedup: if this element is already on a machine, advance its stage there and
     // stop — never place the same element on a second machine.
@@ -837,7 +847,9 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       for (var j = 0; j < owner.workingOnElements.length; j++) {
         var ow = owner.workingOnElements[j];
         if (String(ow.elementId).toUpperCase().replace(/\s+/g, '') === n) {
-          ow.lifecycleStage = elementStageForward_(ow.lifecycleStage, stage); break;
+          ow.lifecycleStage = elementStageForward_(ow.lifecycleStage, stage);
+          if (depth !== null) ow.depth = depth;   // keep the latest reported depth
+          break;
         }
       }
       if (MAINT_RE.test(ev)) owner.machineState = 'Maintenance';
@@ -860,7 +872,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       }
     }
     if (eid) {
-      card.workingOnElements.push({ elementId: eid, lifecycleStage: stage });
+      card.workingOnElements.push({ elementId: eid, lifecycleStage: stage, depth: depth });
       claimedBy[family][n] = card;
     }
     if (MAINT_RE.test(ev)) card.machineState = 'Maintenance';
@@ -879,7 +891,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       if (Array.isArray(m.workingOnElements) && m.workingOnElements.length) {
         m.workingOnElements.forEach(function (e) {
           e = e || {};
-          addElement(fam, m.area, m.location, e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId);
+          addElement(fam, m.area, m.location, e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId, e.depth);
         });
       } else {
         var ids = Array.isArray(m.assignedIds) ? m.assignedIds
