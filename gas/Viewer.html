@@ -25,23 +25,93 @@
         <span class="note" id="ctx"></span>
       </div>
 
-      <!-- ===== Site Machine Layout (location-first banner) — below the date selection ===== -->
-      <div class="panel sitebanner">
-        <h2>Machine Status &amp; Element Lifecycle</h2>
-        <p class="sub" id="siteSub">6 BC Cutters &amp; 4 Boring Rigs — with the elements each is working</p>
-        <div id="siteMachines" class="sitegrid"></div>
-      </div>
+      <!-- ===== Tab navigation ===== -->
+      <nav class="tabs" id="tabs">
+        <button class="tabbtn" type="button" data-tab="overview">📊 Overview</button>
+        <button class="tabbtn" type="button" data-tab="erss">🏗️ ERSS</button>
+        <button class="tabbtn" type="button" data-tab="excav">⛏️ Excavation</button>
+        <button class="tabbtn" type="button" data-tab="rc">🧱 Reinforced Concrete</button>
+      </nav>
 
-      <div class="kpis">
-        <div class="kpi dw"><div class="v" id="kDW">–</div><div class="k">Diaphragm Walls (DW)</div></div>
-        <div class="kpi bp"><div class="v" id="kBP">–</div><div class="k">Bored Piles (BP)</div></div>
-        <div class="kpi bt"><div class="v" id="kBT">–</div><div class="k">Buttress Walls (BT)</div></div>
-        <div class="kpi cw"><div class="v" id="kCW">–</div><div class="k">Cross Walls (CW)</div></div>
-        <div class="kpi con"><div class="v" id="kCon">–</div><div class="k">Concrete (m³)</div></div>
-        <div class="kpi mp"><div class="v" id="kMP">–</div><div class="k">Total Manpower</div></div>
-      </div>
+      <!-- ===== Overview page ===== -->
+      <section class="tabpage" data-tab="overview">
+        <div class="kpis">
+          <div class="kpi mp"><div class="v" id="kMP">–</div><div class="k">Total Manpower</div></div>
+        </div>
+        <div class="row2">
+          <div class="panel">
+            <h2>Concrete volume (m³)</h2>
+            <p class="sub" id="concSub">Daily concrete casting trend</p>
+            <div class="chartbox"><canvas id="concreteChart"></canvas></div>
+          </div>
+          <div class="panel">
+            <h2>Active structures — <span id="doughDate">today</span></h2>
+            <p class="sub">DW / BP / BT / CW counts</p>
+            <div class="chartbox"><canvas id="structChart"></canvas></div>
+          </div>
+        </div>
+        <div class="panel stagepanel">
+          <h2>Elements by construction stage</h2>
+          <p class="sub" id="stageSub">Distinct elements at their furthest stage, by structure type</p>
+          <div class="chartbox"><canvas id="stageChart"></canvas></div>
+        </div>
+      </section>
 
-      <div class="row2">
+      <!-- ===== ERSS page (Earth-Retaining & Stabilising Structure) ===== -->
+      <section class="tabpage" data-tab="erss">
+        <div class="kpis">
+          <div class="kpi dw"><div class="v" id="kDW">–</div><div class="k">Diaphragm Walls (DW)</div></div>
+          <div class="kpi bp"><div class="v" id="kBP">–</div><div class="k">Bored Piles (BP)</div></div>
+          <div class="kpi bt"><div class="v" id="kBT">–</div><div class="k">Buttress Walls (BT)</div></div>
+          <div class="kpi cw"><div class="v" id="kCW">–</div><div class="k">Cross Walls (CW)</div></div>
+        </div>
+
+        <div class="panel sitebanner">
+          <h2>Machine Status &amp; Element Lifecycle</h2>
+          <p class="sub" id="siteSub">6 BC Cutters &amp; 4 Boring Rigs — with the elements each is working</p>
+          <div id="siteMachines" class="sitegrid"></div>
+        </div>
+
+        <div class="actwrap">
+          <div class="panel">
+            <div class="acthead">
+              <div>
+                <h2>Merged activities</h2>
+                <p class="sub" id="actMeta">Combined &amp; de-duplicated — <b>✎ Edit</b> / <b>🗑</b> a record, or add one. Changes save to the Google Sheet.</p>
+              </div>
+              <button id="addToggle" class="primary">＋ Add activity</button>
+            </div>
+            <div id="addForm" class="addform" hidden>
+              <label>Date <input type="date" id="aDate"></label>
+              <label>Area
+                <select id="aArea">
+                  <option value="">(auto from section)</option>
+                  <option>Area 1</option><option>Area 2</option>
+                  <option>Area 3</option><option>Area 4</option>
+                </select>
+              </label>
+              <label>Section <input id="aSection" placeholder="e.g. Sec-C/Mb"></label>
+              <label>Element <input id="aElement" placeholder="e.g. DW1547"></label>
+              <label class="grow">Activity <input id="aActivity" placeholder="work description"></label>
+              <label>Stage
+                <select id="aStage">
+                  <option value="">(auto)</option>
+                  <option>Guide Wall</option><option>Excavation</option><option>Rebar Cage</option>
+                  <option>Concrete Casting</option><option>Trimming</option><option>Breaking</option>
+                  <option>Completed</option><option>Other</option>
+                </select>
+              </label>
+              <label>Manpower <input type="number" id="aManpower" min="0" step="1" value="0"></label>
+              <button id="aSave" class="primary">Add</button>
+              <button id="aCancel">Cancel</button>
+            </div>
+          </div>
+          <div id="areas"></div>
+        </div>
+      </section>
+
+      <!-- ===== Excavation page ===== -->
+      <section class="tabpage" data-tab="excav">
         <div class="panel respanel">
           <h2>Excavation Tracker</h2>
           <p class="sub" id="excavSub">Soil excavated — Tunnel &amp; Facility Building (m³)</p>
@@ -51,6 +121,13 @@
               <tbody id="excavBody"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- ===== Reinforced Concrete page ===== -->
+      <section class="tabpage" data-tab="rc">
+        <div class="kpis">
+          <div class="kpi con"><div class="v" id="kCon">–</div><div class="k">Concrete (m³)</div></div>
         </div>
         <div class="panel respanel">
           <div class="rchead">
@@ -62,63 +139,7 @@
           </div>
           <div id="rcList" class="rclist"></div>
         </div>
-      </div>
-
-      <div class="row2">
-        <div class="panel">
-          <h2>Concrete volume (m³)</h2>
-          <p class="sub" id="concSub">Daily concrete casting trend</p>
-          <div class="chartbox"><canvas id="concreteChart"></canvas></div>
-        </div>
-        <div class="panel">
-          <h2>Active structures — <span id="doughDate">today</span></h2>
-          <p class="sub">DW / BP / BT / CW counts</p>
-          <div class="chartbox"><canvas id="structChart"></canvas></div>
-        </div>
-      </div>
-
-      <div class="panel stagepanel">
-        <h2>Elements by construction stage</h2>
-        <p class="sub" id="stageSub">Distinct elements at their furthest stage, by structure type</p>
-        <div class="chartbox"><canvas id="stageChart"></canvas></div>
-      </div>
-
-      <div class="actwrap">
-        <div class="panel">
-          <div class="acthead">
-            <div>
-              <h2>Merged activities</h2>
-              <p class="sub" id="actMeta">Combined &amp; de-duplicated — <b>✎ Edit</b> / <b>🗑</b> a record, or add one. Changes save to the Google Sheet.</p>
-            </div>
-            <button id="addToggle" class="primary">＋ Add activity</button>
-          </div>
-          <div id="addForm" class="addform" hidden>
-            <label>Date <input type="date" id="aDate"></label>
-            <label>Area
-              <select id="aArea">
-                <option value="">(auto from section)</option>
-                <option>Area 1</option><option>Area 2</option>
-                <option>Area 3</option><option>Area 4</option>
-              </select>
-            </label>
-            <label>Section <input id="aSection" placeholder="e.g. Sec-C/Mb"></label>
-            <label>Element <input id="aElement" placeholder="e.g. DW1547"></label>
-            <label class="grow">Activity <input id="aActivity" placeholder="work description"></label>
-            <label>Stage
-              <select id="aStage">
-                <option value="">(auto)</option>
-                <option>Guide Wall</option><option>Excavation</option><option>Rebar Cage</option>
-                <option>Concrete Casting</option><option>Trimming</option><option>Breaking</option>
-                <option>Completed</option><option>Other</option>
-              </select>
-            </label>
-            <label>Manpower <input type="number" id="aManpower" min="0" step="1" value="0"></label>
-            <button id="aSave" class="primary">Add</button>
-            <button id="aCancel">Cancel</button>
-          </div>
-        </div>
-        <div id="areas"></div>
-      </div>
+      </section>
     </div>
     <div id="toast" class="toast hidden"></div>
     <script>

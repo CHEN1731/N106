@@ -114,6 +114,7 @@
       areas.map(function(a){return '<option>'+esc(a)+'</option>';}).join('');
 
     render();
+    showTab(initialTab());   // apply the saved/default tab after the page is populated
   }
 
   function uniq(list){ var s={},o=[]; list.forEach(function(v){ if(v!=='' && !s[v]){s[v]=1;o.push(v);} }); return o; }
@@ -132,6 +133,24 @@
   $('reload').addEventListener('click', function(){
     if (window.__REPORT__ !== undefined && !window.__MOCK__) location.reload(); else load();
   });
+
+  // ---- Tab pages (client-side; no reload, keeps loaded data + the date range) ----------
+  var TABS = ['overview','erss','excav','rc'];
+  function showTab(name){
+    if (TABS.indexOf(name) === -1) name = 'overview';
+    var btns = document.querySelectorAll('.tabbtn');
+    for (var i=0;i<btns.length;i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-tab')===name);
+    var pages = document.querySelectorAll('.tabpage');
+    for (var j=0;j<pages.length;j++) pages[j].classList.toggle('active', pages[j].getAttribute('data-tab')===name);
+    try { localStorage.setItem('n106_tab', name); } catch(e){}
+    // Chart.js sizes to the canvas at draw time; a chart first drawn while its tab was
+    // display:none renders at 0px, so resize the now-visible charts.
+    [concreteChart, structChart, stageChart].forEach(function(c){ if (c && c.resize) { try { c.resize(); } catch(e){} } });
+  }
+  document.querySelectorAll('.tabbtn').forEach(function(b){
+    b.addEventListener('click', function(){ showTab(b.getAttribute('data-tab')); });
+  });
+  function initialTab(){ try { return localStorage.getItem('n106_tab') || 'overview'; } catch(e){ return 'overview'; } }
 
   function prodForDate(d){
     for (var i=0;i<PROD.length;i++) if (String(PROD[i].date)===String(d)) return PROD[i];

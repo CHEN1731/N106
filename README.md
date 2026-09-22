@@ -34,10 +34,13 @@ dashboard.
    [`dashboard/sheet-schema.md`](dashboard/sheet-schema.md).
 
 3. **Productivity & Summary Dashboard (director & team) — the same web app at
-   `?page=view`.** Reads the Sheet live and shows **KPI cards** (DW / BP / BT / CW
-   counts, concrete m³, total manpower), a **concrete-volume bar chart**, a
-   **DW/BP/BT/CW doughnut** (Chart.js), and the **merged activities** list —
-   with a **From/To date range** (blank = all dates), Area and search filters.
+   `?page=view`.** Reads the Sheet live and is organised into **clickable tab pages**
+   — **Overview** (total manpower + the concrete-volume, active-structures and
+   by-stage charts), **ERSS** (DW/BP/BT/CW KPIs + Machine Status & Element Lifecycle +
+   the merged activities table), **Excavation** (the Tunnel/FB soil-volume tracker),
+   and **Reinforced Concrete** (concrete m³ + RC activities). The **From/To date
+   range** (blank = all dates), Area and search filters stay pinned above the tabs and
+   apply to every page; the chosen tab is remembered between visits.
    Activities are fully editable in the Viewer: **✎ Edit**, **🗑 Delete**, and
    **＋ Add activity** all write straight back to the `Activities` tab (and keep
    the day's manpower KPI in sync), so corrections are stored permanently.

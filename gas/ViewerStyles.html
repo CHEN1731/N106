@@ -34,7 +34,16 @@
     border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:13px}
   button.linky{padding:6px 11px;font-size:12.5px}
 
-  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  /* Tab navigation */
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 16px;border-bottom:1px solid var(--grid)}
+  .tabbtn{border:none;background:none;color:var(--ink2);padding:9px 15px;border-radius:8px 8px 0 0;
+    font-size:13.5px;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+  .tabbtn:hover{color:var(--ink);background:var(--surface)}
+  .tabbtn.active{color:var(--ink);border-bottom-color:var(--dw)}
+  .tabpage{display:none}
+  .tabpage.active{display:block}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:12px}
   .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;
     border-left:4px solid var(--grid)}
   .kpi.dw{border-left-color:var(--dw)} .kpi.bp{border-left-color:var(--bp)}
