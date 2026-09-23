@@ -121,6 +121,11 @@
   .mareacount{font-size:10.5px;font-weight:700;color:var(--ink2);background:var(--surface);
     border:1px solid var(--border);border-radius:999px;padding:0 7px;min-width:18px;text-align:center}
   .marea .sitegrid{margin-top:8px}
+  /* Daily/Weekly/Monthly segmented toggle */
+  .seg{display:inline-flex;gap:2px;border:1px solid var(--border);border-radius:8px;padding:2px;background:var(--plane)}
+  .segbtn{border:none;background:none;color:var(--ink2);padding:5px 12px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .segbtn:hover{color:var(--ink)}
+  .segbtn.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
   .sitegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:6px}
   .machcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;
     border-left:4px solid var(--grid);display:flex;flex-direction:column;gap:6px}

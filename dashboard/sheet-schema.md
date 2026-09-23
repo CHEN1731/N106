@@ -100,6 +100,24 @@ A muted subline under the tracker shows what the day's/range's WhatsApp reports 
 (`N loads × LOADS_TO_M3`, a Script Property, default 6) — informational only, **not** added to
 the official cumulative.
 
+## Tab: `ExcavationDaily` — daily soil log (Daily / Weekly / Monthly view)
+
+The per-day soil-disposal volume the Viewer rolls up into the Excavation page's
+**Daily / Weekly / Monthly** chart + table. **User-maintained** (auto-created header-only via
+`ensureExcavationDaily_`, never overwritten) — fill it or paste from your spreadsheet's
+Daily_Log. For any date with **no** row here, the Viewer falls back to that date's reported
+`N loads × LOADS_TO_M3` (shown as a grey **“Site (reported)”** series, flagged as estimated).
+
+| Column | Type | Notes |
+|---|---|---|
+| `date` | Date | the excavation date |
+| `zone` | Text | `Tunnel` / `FB` (free text tolerated; blank → `Site`) |
+| `m3` | Number | soil excavated that day for that zone (m³) |
+| `note` | Text | optional |
+
+Weekly groups by week (Mon–Sun), Monthly by calendar month; both respect the Viewer's From/To
+date range.
+
 ## Tab: `DailyMachineLogs` — one row per machine per date (Action A)
 
 Written by `saveToSheet` in the unified machine+lifecycle loop (`saveMachinesAndElements_`),

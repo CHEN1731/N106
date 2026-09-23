@@ -24,6 +24,7 @@ var TABS = {
   machineLogs: 'DailyMachineLogs', // one row per machine per date: machineId/area/location/state/elements
   elementTracker: 'ElementTracker', // persistent, one row per element: forward-only lifecycle stage
   excavationProgress: 'ExcavationProgress' // static soil-volume tracker (Tunnel/FB): planned vs cumulative m3
+  , excavationDaily: 'ExcavationDaily' // user-maintained daily soil log: date/zone/m3 (rolled up D/W/M in the Viewer)
 };
 
 // Static soil-volume tracker — mirrors the user's Excavation Tracker spreadsheet. The user
@@ -34,6 +35,11 @@ var EXCAV_PROGRESS_SEED = [
   ['Tunnel', 'Tunnel', 'Area 2', 1178552, 53722, ''],
   ['FB', 'FB', 'Area 4 - FB', 171749, 20882, '']
 ];
+
+// Daily soil-disposal log — one row per date+zone in m3. The user fills this (or pastes from
+// their spreadsheet's Daily_Log); the Viewer rolls it up Daily / Weekly / Monthly and falls
+// back to the reported loads x factor for any day with no rows here.
+var EXCAV_DAILY_HEADER = ['date', 'zone', 'm3', 'note'];
 
 /**
  * DIAGNOSTIC — run this from the Apps Script editor (select debugSheet -> Run),
@@ -83,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-38 · machines grouped by area';
+var APP_VERSION = 'build-39 · excavation daily/weekly/monthly';
 
 /**
  * Route:
@@ -173,6 +179,7 @@ function saveToSheet(result) {
   var ss = getSpreadsheet_();
   var date = result.date || result.reportDate || '';
   ensureExcavationProgress_(ss);   // make sure the static soil-volume tracker tab exists
+  ensureExcavationDaily_(ss);      // and the daily soil-log tab
 
   // Activities: one row per merged activity (all rows for this date replaced).
   upsertByDate_(ss, TABS.activities, ACTIVITY_HEADER, 0,
@@ -561,12 +568,24 @@ function getReport() {
     };
   }).filter(function (r) { return r.zone; });
 
+  // Daily soil log (user-maintained): date/zone/m3, rolled up D/W/M in the Viewer.
+  ensureExcavationDaily_(ss);
+  var excavationDaily = readTable_(ss, TABS.excavationDaily).map(function (r) {
+    return {
+      date: toDateStr_(r.date),
+      zone: String(r.zone == null ? '' : r.zone).trim() || 'Site',
+      m3: Number(r.m3) || 0,
+      note: String(r.note == null ? '' : r.note).trim()
+    };
+  }).filter(function (r) { return r.date && r.m3 > 0; });
+
   return {
     activities: activities,
     productivity: prod,
     summaries: summaries,
     elementStages: elementStages,
     excavationProgress: excavationProgress,
+    excavationDaily: excavationDaily,
     config: { loadsToM3: loadsToM3_() },
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
@@ -674,6 +693,18 @@ function ensureExcavationProgress_(ss) {
   if (!sheet) sheet = ss.insertSheet(TABS.excavationProgress);
   writeTable_(ss, TABS.excavationProgress, EXCAV_PROGRESS_HEADER, EXCAV_PROGRESS_SEED);
   return ss.getSheetByName(TABS.excavationProgress);
+}
+
+/**
+ * Ensure the daily soil-log tab exists (header only — the user fills it or pastes from their
+ * spreadsheet's Daily_Log). Never seeded with data and never overwritten.
+ */
+function ensureExcavationDaily_(ss) {
+  var sheet = ss.getSheetByName(TABS.excavationDaily);
+  if (sheet && sheet.getLastRow() >= 1) return sheet;
+  if (!sheet) sheet = ss.insertSheet(TABS.excavationDaily);
+  writeTable_(ss, TABS.excavationDaily, EXCAV_DAILY_HEADER, []);
+  return ss.getSheetByName(TABS.excavationDaily);
 }
 
 /** Loads -> m3 conversion factor for the reported-this-range readout (Script Property, default 6). */

@@ -5,7 +5,10 @@
   var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
   var EXCAV_PROGRESS = [];  // static soil-volume tracker rows (Tunnel/FB): planned vs cumulative m3
+  var EXCAV_DAILY = [];     // user-maintained daily soil log rows: {date, zone, m3, note}
   var LOADS_TO_M3 = 6;      // loads -> m3 factor for the reported-this-range readout
+  var excavTimeChart = null;// D/W/M excavation bar chart
+  var excavPeriod = 'daily';// current Daily/Weekly/Monthly grouping
   var ALL_DATES = [];  // every known date, oldest -> newest
   var concreteChart = null, structChart = null;
   var editingRow = null;   // _row of the activity currently being edited (or null)
@@ -86,7 +89,9 @@
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
     ELEMENT_STAGES = (report && report.elementStages) || {};
     EXCAV_PROGRESS = (report && report.excavationProgress) || [];
+    EXCAV_DAILY = (report && report.excavationDaily) || [];
     LOADS_TO_M3 = (report && report.config && Number(report.config.loadsToM3)) || 6;
+    try { excavPeriod = localStorage.getItem('n106_excavp') || 'daily'; } catch(e){}
     // element -> Area, from the activities (a section like "Sec-C/Mb" carries Area 2), so a
     // machine card at a bare location like "ER15" still shows the correct Area.
     EL_AREA = {};
@@ -102,7 +107,8 @@
     // All known dates, oldest -> newest, for the From / To range pickers.
     ALL_DATES = uniq(PROD.map(function(p){return p.date;})
       .concat(ACTS.map(function(a){return String(a.date);}))
-      .concat(SUMMARIES.map(function(s){return String(s.date);})))
+      .concat(SUMMARIES.map(function(s){return String(s.date);}))
+      .concat(EXCAV_DAILY.map(function(d){return String(d.date);})))
       .sort();
     // From / To are native date-pickers (calendars). Set the calendar bounds to the data
     // range; leave the values empty (= all dates). Existing selections are preserved.
@@ -145,10 +151,18 @@
     try { localStorage.setItem('n106_tab', name); } catch(e){}
     // Chart.js sizes to the canvas at draw time; a chart first drawn while its tab was
     // display:none renders at 0px, so resize the now-visible charts.
-    [concreteChart, structChart, stageChart].forEach(function(c){ if (c && c.resize) { try { c.resize(); } catch(e){} } });
+    [concreteChart, structChart, stageChart, excavTimeChart].forEach(function(c){ if (c && c.resize) { try { c.resize(); } catch(e){} } });
   }
   document.querySelectorAll('.tabbtn').forEach(function(b){
     b.addEventListener('click', function(){ showTab(b.getAttribute('data-tab')); });
+  });
+  // Daily / Weekly / Monthly toggle on the Excavation page.
+  document.querySelectorAll('#excavSeg .segbtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      excavPeriod = b.getAttribute('data-period') || 'daily';
+      try { localStorage.setItem('n106_excavp', excavPeriod); } catch(e){}
+      renderExcavTime();
+    });
   });
   function initialTab(){ try { return localStorage.getItem('n106_tab') || 'overview'; } catch(e){ return 'overview'; } }
 
@@ -215,6 +229,7 @@
     var sum = summaryForRange(dates);
     renderMachineCards(sum);
     renderExcavationProgress(sum);
+    renderExcavTime();
     renderRC(sum);
 
     renderActivities(selSet, multi);
@@ -411,6 +426,97 @@
       '<span class="depthbar"><span style="width:'+Math.max(0,Math.min(100,pct))+'%"></span></span></div>';
   }
   function fmt(n){ n=Number(n)||0; return n.toLocaleString('en-US'); }
+
+  // ---- Excavation over time: Daily / Weekly / Monthly ------------------------------------
+  var REPORTED_ZONE = 'Site (reported)';
+  // Build per-date, per-zone m3 for the selected dates: use the daily log where present,
+  // else fall back to that day's reported soil loads x factor (flagged as reported).
+  function buildDailyExcav(dates){
+    var inSet={}; dates.forEach(function(d){ inSet[String(d)]=1; });
+    var logByDate={};
+    EXCAV_DAILY.forEach(function(r){
+      var d=String(r.date); if(!inSet[d]) return;
+      (logByDate[d]=logByDate[d]||[]).push({zone:r.zone||'Site', m3:Number(r.m3)||0, est:false});
+    });
+    var out=[];
+    dates.forEach(function(d){
+      d=String(d);
+      if (logByDate[d]){ logByDate[d].forEach(function(e){ out.push({date:d, zone:e.zone, m3:e.m3, est:false}); }); return; }
+      var s=sumForDate(d); var loads = s && s.excavation ? Number(s.excavation.totalVolumeOrLoads)||0 : 0;
+      if (loads>0) out.push({date:d, zone:REPORTED_ZONE, m3:Math.round(loads*(Number(LOADS_TO_M3)||6)), est:true});
+    });
+    return out;
+  }
+  // A period bucket key + label for a yyyy-mm-dd date.
+  function periodKey(dateStr, mode){
+    var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr||'')); if(!m) return {key:String(dateStr||''), label:String(dateStr||'')};
+    var y=+m[1], mo=+m[2], da=+m[3];
+    if (mode==='monthly') return {key:m[1]+'-'+m[2], label:MONTHS[mo-1]+' '+y};
+    if (mode==='weekly'){
+      var dt=new Date(Date.UTC(y,mo-1,da));
+      var dow=(dt.getUTCDay()+6)%7;            // Mon=0 … Sun=6
+      var mon=new Date(dt.getTime()-dow*86400000);
+      var sun=new Date(mon.getTime()+6*86400000);
+      var k=mon.toISOString().slice(0,10);
+      var lbl=mon.getUTCDate()+' '+MONTHS[mon.getUTCMonth()]+' – '+sun.getUTCDate()+' '+MONTHS[sun.getUTCMonth()];
+      return {key:k, label:lbl};
+    }
+    return {key:m[1]+'-'+m[2]+'-'+m[3], label:String(da)+' '+MONTHS[mo-1]+' '+y};
+  }
+  function renderExcavTime(){
+    // reflect the active toggle button
+    var segs=document.querySelectorAll('#excavSeg .segbtn');
+    for (var i=0;i<segs.length;i++) segs[i].classList.toggle('active', segs[i].getAttribute('data-period')===excavPeriod);
+    var daily = buildDailyExcav(selectedDates());
+    // group by period, then by zone
+    var periods={}, order=[], zoneSet={};
+    daily.forEach(function(e){
+      var pk=periodKey(e.date, excavPeriod);
+      var g=periods[pk.key]; if(!g){ g=periods[pk.key]={label:pk.label, zones:{}, total:0}; order.push(pk.key); }
+      g.zones[e.zone]=(g.zones[e.zone]||0)+e.m3; g.total+=e.m3; zoneSet[e.zone]=1;
+    });
+    order.sort();
+    var zones=Object.keys(zoneSet).sort(function(a,b){
+      if(a===REPORTED_ZONE) return 1; if(b===REPORTED_ZONE) return -1; return a<b?-1:1; });
+    var grand=order.reduce(function(s,k){return s+periods[k].total;},0);
+    if ($('excavTimeSub')) $('excavTimeSub').textContent =
+      (excavPeriod.charAt(0).toUpperCase()+excavPeriod.slice(1))+' soil volume · '+fmt(Math.round(grand))+' m³ total in range'
+      + (EXCAV_DAILY.length ? '' : ' · from reported loads (fill the ExcavationDaily tab for official m³)');
+    // table
+    var head=$('excavTimeHead'), body=$('excavTimeBody');
+    if (head) head.innerHTML='<tr><th>Period</th>'+zones.map(function(z){return '<th class="num">'+esc(z)+'</th>';}).join('')+'<th class="num">Total m³</th></tr>';
+    if (body){
+      if(!order.length){ body.innerHTML='<tr><td colspan="'+(zones.length+2)+'" class="resempty">No excavation logged for this range. Fill the ExcavationDaily tab, or the reported loads will show here.</td></tr>'; }
+      else {
+        var rows=order.map(function(k){
+          var g=periods[k];
+          return '<tr><td>'+esc(g.label)+'</td>'+
+            zones.map(function(z){return '<td class="num">'+(g.zones[z]?fmt(Math.round(g.zones[z])):'–')+'</td>';}).join('')+
+            '<td class="num"><b>'+fmt(Math.round(g.total))+'</b></td></tr>';
+        }).join('');
+        rows+='<tr class="totalrow"><td><b>TOTAL</b></td>'+
+          zones.map(function(z){var t=order.reduce(function(s,k){return s+(periods[k].zones[z]||0);},0);return '<td class="num">'+fmt(Math.round(t))+'</td>';}).join('')+
+          '<td class="num">'+fmt(Math.round(grand))+'</td></tr>';
+        body.innerHTML=rows;
+      }
+    }
+    // stacked bar chart
+    var cv=$('excavTimeChart'); if(!cv || !window.Chart) return;
+    if (excavTimeChart) excavTimeChart.destroy();
+    var zColor={}; zColor[REPORTED_ZONE]=cssVar('--muted');
+    var palette=[cssVar('--dw'),cssVar('--bp'),cssVar('--bt'),cssVar('--cw'),cssVar('--con')];
+    var pi=0; zones.forEach(function(z){ if(!zColor[z]) zColor[z]=palette[pi++ % palette.length]; });
+    excavTimeChart=new Chart(cv.getContext('2d'), {
+      type:'bar',
+      data:{ labels:order.map(function(k){return periods[k].label;}),
+        datasets:zones.map(function(z){ return { label:z, backgroundColor:zColor[z],
+          data:order.map(function(k){return Math.round(periods[k].zones[z]||0);}) }; }) },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{ color:cssVar('--ink2'), boxWidth:12 } } },
+        scales:{ x:{ stacked:true, ticks:{ color:cssVar('--ink2') }, grid:{ display:false } },
+          y:{ stacked:true, beginAtZero:true, ticks:{ color:cssVar('--ink2') }, grid:{ color:cssVar('--grid') } } } }
+    });
+  }
 
   function rcBadgeClass(t){ var v=String(t||'').toLowerCase();
     if (v==='rebar') return 'rc-rebar'; if (v==='formwork') return 'rc-form'; return 'rc-conc'; }

@@ -111,7 +111,10 @@ with them (the Area KPIs, charts, and activity table stay below):
   user-maintained **`ExcavationProgress`** tab (auto-created & seeded on first Save); update
   them there or paste from your sheet. A muted subline shows what the range's reports imply
   (`N loads × LOADS_TO_M3`, Script Property, default 6) — informational, not the official
-  cumulative. (Per-element depth moved from here into the machine cards, above.)
+  cumulative. (Per-element depth moved from here into the machine cards, above.) Below the
+  tracker, a **Daily / Weekly / Monthly** toggle shows a **stacked bar chart + table** of soil
+  excavated per period per zone — from the user-maintained **`ExcavationDaily`** tab
+  (date · zone · m³), falling back to the reported loads×factor for any unlogged day.
 - **Reinforced Concrete** — a prominent total-m³ KPI plus RC activities with type-coloured
   badges (blue Rebar / orange Formwork / grey Concreting).
 

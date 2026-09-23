@@ -122,6 +122,26 @@
             </table>
           </div>
         </div>
+        <div class="panel respanel">
+          <div class="rchead">
+            <div>
+              <h2>Soil excavated over time (m³)</h2>
+              <p class="sub" id="excavTimeSub">From the daily soil log · reported loads where unlogged</p>
+            </div>
+            <div class="seg" id="excavSeg">
+              <button type="button" class="segbtn" data-period="daily">Daily</button>
+              <button type="button" class="segbtn" data-period="weekly">Weekly</button>
+              <button type="button" class="segbtn" data-period="monthly">Monthly</button>
+            </div>
+          </div>
+          <div class="chartbox"><canvas id="excavTimeChart"></canvas></div>
+          <div class="tablewrap">
+            <table class="excav">
+              <thead id="excavTimeHead"></thead>
+              <tbody id="excavTimeBody"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ===== Reinforced Concrete page ===== -->
