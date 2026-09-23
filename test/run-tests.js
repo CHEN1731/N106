@@ -257,14 +257,14 @@ assert(dayTexts.rto === 'DW1547 casting 42 m3\nkicker cast', 'buildDayTexts grou
 assert(dayTexts.ais === 'BP-T9-3 boring', 'buildDayTexts groups AIS stream');
 
 console.log('\nResource & Production — machine / excavation / RC:');
-// machineTrigger_ — three work stages: bite/depth, rebar cage, casting.
+// machineTrigger_ — ONLY bite (bc) / depth (rig) attaches an element; rebar cage / casting do NOT.
 assert(machineTrigger_('DW1547 1st bite : 21.50m', 'bc') === 'bite', 'bc trigger: bite');
-assert(machineTrigger_('DW20 rebar cage lowering', 'bc') === 'rebar', 'bc trigger: rebar cage');
-assert(machineTrigger_('DW04 concrete casting 42 m3', 'bc') === 'casting', 'bc trigger: casting');
+assert(machineTrigger_('DW20 rebar cage lowering', 'bc') === '', 'bc: rebar cage alone -> NOT detected');
+assert(machineTrigger_('DW04 concrete casting 42 m3', 'bc') === '', 'bc: casting alone -> NOT detected');
 assert(machineTrigger_('DW1547 site cleared', 'bc') === '', 'bc: no work stage -> not detected');
 assert(machineTrigger_('BP-T9-3 current depth: 27.5m', 'rig') === 'depth', 'rig trigger: depth');
-assert(machineTrigger_('BP-T4-1 rebar cage', 'rig') === 'rebar', 'rig trigger: rebar cage');
-assert(machineTrigger_('BP-T9-3 drilling in progress', 'rig') === '', 'rig: no depth/rebar/casting -> not detected');
+assert(machineTrigger_('BP-T4-1 rebar cage', 'rig') === '', 'rig: rebar cage alone -> NOT detected');
+assert(machineTrigger_('BP-T9-3 drilling in progress', 'rig') === '', 'rig: no depth -> not detected');
 
 // lifecycleStageFor_ maps text -> the 4-stage enum
 assert(lifecycleStageFor_('DW1 1st bite 21m') === 'Excavation', 'bite -> Excavation');
@@ -282,7 +282,7 @@ assert(machineStateFor_('BC cutter breakdown') === 'Maintenance' && machineState
 // normalizeMachineStatus_ — nested workingOnElements, grouping, fleet padding to 6/4
 var mActs = [
   { elementId: 'DW1547', section: 'ER15', area: 'Area 2', activity: 'DW1547 1st bite : 21.50m' },   // Excavation
-  { elementId: 'DW04', section: 'ER15', area: 'Area 2', activity: 'DW04 rebar cage lowering' },      // same machine -> grouped, Rebar
+  { elementId: 'DW04', section: 'ER15', area: 'Area 2', activity: 'DW04 2nd bite; rebar cage lowering' }, // has bite -> grouped, stage Rebar
   { elementId: 'CW99', section: 'Sec-D', area: 'Area 3', activity: 'CW99 site cleared' },            // no stage -> dropped
   { elementId: 'BP-T9-3', section: 'Opp SJII', area: 'Area 3', activity: 'BP-T9-3 current depth: 27.5m' }, // rig Excavation
   { elementId: 'BP-T4-1', section: 'Ja', area: 'Area 1', activity: 'BP-T4-1 drilling in progress' }  // no depth -> dropped
@@ -310,10 +310,12 @@ var msDepth = normalizeMachineStatus_(null, [
 var d7 = msDepth.bcCutters[0].workingOnElements[0];
 assert(d7.elementId === 'DW07' && d7.depth === 22.5, 'recurring element keeps the latest depth (22.5 m)');
 
-// casting-only line still detects (Concreting) and nests the element
+// casting-only line (no bite) must NOT attach a BC Cutter (bite required)
 var msCast = normalizeMachineStatus_(null, [{ elementId: 'DW05', section: 'ER10', area: 'Area 1', activity: 'DW05 concrete casting 42 m3' }]);
-var cActive = msCast.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; });
-assert(cActive.length === 1 && cActive[0].workingOnElements[0].lifecycleStage === 'Concreting', 'casting-only -> Concreting element');
+assert(msCast.bcCutters.length === 0, 'casting-only (no bite) -> no BC Cutter logged');
+// a bitten element that also mentions casting still attaches, at the furthest stage
+var msBiteCast = normalizeMachineStatus_(null, [{ elementId: 'DW06', section: 'ER10', area: 'Area 1', activity: 'DW06 3rd bite; concrete casting done' }]);
+assert(msBiteCast.bcCutters.length === 1 && msBiteCast.bcCutters[0].workingOnElements[0].lifecycleStage === 'Completed', 'bite + casting done -> logged, stage Completed');
 
 // GLOBAL dedup: the same element listed on two AI machines lands on ONE machine only
 var msDup = normalizeMachineStatus_({ bcCutters: [
@@ -404,7 +406,7 @@ var msAreaSplit = normalizeMachineStatus_(
 // maintenance keyword on a grouped machine -> machineState Maintenance
 var msMix = normalizeMachineStatus_(null, [
   { elementId: 'DW7', section: 'ER15', area: 'Area 2', activity: 'DW7 1st bite 10m' },
-  { elementId: 'DW8', section: 'ER15', area: 'Area 2', activity: 'DW8 rebar cage; BC cutter breakdown' }
+  { elementId: 'DW8', section: 'ER15', area: 'Area 2', activity: 'DW8 2nd bite; rebar cage; BC cutter breakdown' }
 ]);
 assert(msMix.bcCutters[0].machineState === 'Maintenance' && msMix.bcCutters[0].workingOnElements.length === 2,
   'grouped machine -> Maintenance state + both elements');

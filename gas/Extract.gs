@@ -319,11 +319,13 @@ var PRODUCTIVITY_SYSTEM =
   'Populate machineStatus, excavation and reinforcedConcrete. For machineStatus apply these ' +
   'STRICT LOGICAL TRIGGERS — do NOT log a machine unless its trigger is present in the text:\n' +
   '- A BC Cutter works Diaphragm Walls (DW), Buttress Walls (BT) and Cross Walls (CW); a ' +
-  'Boring Rig works Bored Piles (BP / P-number piles). Log a machine ONLY when an element ' +
-  'it works hits one of the THREE work stages: (1) "bite" for DW/BT/CW or "depth" ' +
-  '(current/drilling depth) for BP = Excavation; (2) "rebar cage" = Rebar; (3) "concrete ' +
-  'casting"/"casting"/"concreting" = Concreting (or Completed when the casting is done). If ' +
-  'an element hits none of these, do NOT log it.\n' +
+  'Boring Rig works Bored Piles (BP / P-number piles). Log a BC Cutter ONLY when a DW/BT/CW ' +
+  'has "bite"; log a Boring Rig ONLY when a BP has "depth" (current/drilling depth). Rebar ' +
+  'cage and concrete casting are NOT machine triggers — an element with only rebar cage or ' +
+  'casting (and no bite/depth) must NOT be logged on a machine. They only set the ' +
+  'lifecycleStage of an element already logged via bite/depth (rebar cage = Rebar; casting = ' +
+  'Concreting, or Completed when done). If an element has no bite (BC) / depth (rig), do NOT ' +
+  'log it.\n' +
   '- NEST the worked elements inside the machine: each machine object is { machineId, area, ' +
   'location, machineState, workingOnElements:[{ elementId, lifecycleStage, depth }], evidence }. ' +
   '"lifecycleStage" is exactly "Excavation", "Rebar", "Concreting", or "Completed" (the ' +
@@ -751,13 +753,13 @@ var LIFECYCLE = ['Excavation', 'Rebar', 'Concreting', 'Completed'];
 var LIFECYCLE_RANK = { Excavation: 1, Rebar: 2, Concreting: 3, Completed: 4 };
 
 /**
- * Trigger for a machine of `family` ('bc' | 'rig'): 'casting' | 'rebar' | 'bite' (bc) |
- * 'depth' (rig), or '' to DROP. Casting and rebar cage count for both families.
+ * Trigger for a machine of `family` ('bc' | 'rig'): 'bite' (bc) or 'depth' (rig), else '' to
+ * DROP. ONLY "bite" attaches an element to a BC Cutter; ONLY "depth" attaches one to a Boring
+ * Rig. Rebar cage / casting are NOT machine triggers — they only refine the lifecycle stage of
+ * an element that is already attached via bite/depth.
  */
 function machineTrigger_(text, family) {
   var t = String(text == null ? '' : text);
-  if (CASTING_RE.test(t)) return 'casting';
-  if (REBAR_CAGE_RE.test(t)) return 'rebar';
   if (family === 'bc') return BITE_RE.test(t) ? 'bite' : '';
   if (family === 'rig') return DEPTH_RE.test(t) ? 'depth' : '';
   return '';
@@ -842,8 +844,11 @@ function normalizeMachineStatus_(raw, mergedActivities) {
 
   function addElement(family, area, location, elementId, stage, evidence, machineIdHint, depthHint) {
     var ev = String(evidence == null ? '' : evidence).trim();
-    stage = clampLifecycle_(stage) || lifecycleStageFor_(ev);
-    if (!stage) { if (!machineTrigger_(ev, family)) return; stage = 'Excavation'; }  // gate
+    // HARD GATE (always applied): an element attaches ONLY when its own evidence has the
+    // family trigger — "bite" for a BC Cutter, "depth" for a Boring Rig. Casting / rebar cage
+    // alone never attach (they only refine an already-attached element's stage).
+    if (!machineTrigger_(ev, family)) return;
+    stage = clampLifecycle_(stage) || lifecycleStageFor_(ev) || 'Excavation';
     var eid = String(elementId == null ? '' : elementId).trim();
     var n = eid ? eid.toUpperCase().replace(/\s+/g, '') : '';
     // Depth (metres) belongs to the element: prefer an AI-supplied value, else parse the

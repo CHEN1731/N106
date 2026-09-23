@@ -5,6 +5,8 @@
   var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
   var EL_LOC = {};          // elementId(normalised) -> its location/section (from activities)
+  var EL_KNOWN = {};        // elementId(normalised) -> true if it appears in the activities
+  var EL_TRIG = {};         // elementId(normalised) -> true if an activity has its family trigger (bite/depth)
   var SEG_AREA = {};        // segment code -> "Area N" (site-plan map, from getReport config)
   var SEC_AREA = {};        // Section letter A-E -> "Area N"
   var EXCAV_PROGRESS = [];  // static soil-volume tracker rows (Tunnel/FB): planned vs cumulative m3
@@ -100,14 +102,21 @@
     // element -> Area. Prefer the DETERMINISTIC site-plan map on the element's section
     // (so "Sec-C/ER15(Le)" -> Area 2 even if the stored/AI area says Area 1); fall back to the
     // stored activity area. This fixes already-saved days without re-Saving.
-    EL_AREA = {}; EL_LOC = {};
+    EL_AREA = {}; EL_LOC = {}; EL_KNOWN = {}; EL_TRIG = {};
     ACTS.forEach(function(a){
       var ids = elementIdsOf(a);
       var ar = areaFromSectionJS_(a.section) || (/^Area [1-4]$/.test(String(a.area||'')) ? String(a.area) : '');
       var loc = String(a.section||'').trim();
+      var txt = String((a.section||'')+' '+(a.activity||''));
       ids.forEach(function(id){ var n=String(id).toUpperCase().replace(/\s+/g,'');
-        if(n && ar && !EL_AREA[n]) EL_AREA[n]=ar;
-        if(n && loc && !EL_LOC[n]) EL_LOC[n]=loc; });
+        if(!n) return;
+        EL_KNOWN[n]=true;
+        if(ar && !EL_AREA[n]) EL_AREA[n]=ar;
+        if(loc && !EL_LOC[n]) EL_LOC[n]=loc;
+        // a machine trigger for this element's family: bite for DW/BT/CW, depth for BP
+        var fam = (classifyEl(id)==='BP') ? 'rig' : 'bc';
+        if ((fam==='rig' ? /\bdepth\b/i : /\bbite\b/i).test(txt)) EL_TRIG[n]=true;
+      });
     });
     var name = (report && report.spreadsheetName) || '(no sheet)';
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
@@ -336,6 +345,13 @@
     // even when the machine card was stored at Singtel), then dedup elements globally per family.
     var seenEl = {};
     machines.forEach(function(mc){
+      // Drop elements that are known in the activities but have NO machine trigger there
+      // (bite for DW/BT/CW, depth for BP) — casting/rebar-only elements don't belong on a
+      // machine. Unknown elements (not in the activities) are kept.
+      mc.workingOnElements = mc.workingOnElements.filter(function(e){
+        var id=normId(e.elementId);
+        return !(id && EL_KNOWN[id] && !EL_TRIG[id]);
+      });
       mc.workingOnElements.forEach(function(e){
         var id=normId(e.elementId);
         e.location = e.location || EL_LOC[id] || mc.location || '';

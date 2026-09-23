@@ -101,8 +101,11 @@ with them (the Area KPIs, charts, and activity table stay below):
   [lifecycle badge]** (amber Excavation / blue Rebar / orange Concreting / green Completed) —
   each element carries **its own** location and depth, parsed from its report line; within one
   card an element at *Completed* and one at *Excavation* can appear together. An element is
-  logged only when its text hits a work stage — **bite** (DW/BT/CW) / **depth** (BP),
-  **rebar cage**, or **casting**. On Save, one loop writes both
+  logged (and counted) only when its own text has its machine trigger — **bite** for a
+  BC Cutter (DW/BT/CW) or **depth** for a Boring Rig (BP). **Rebar cage / casting are NOT
+  triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
+  counted; they only refine the stage of an element already logged via bite/depth.
+  On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
   **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
   element's *tracked* stage).

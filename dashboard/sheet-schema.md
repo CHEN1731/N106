@@ -66,11 +66,14 @@ quick reading. This is a **new tab** — the `Activities`/`Productivity` tabs ar
 | `rc_json` | Text (JSON) | `{totalConcreteVolumeM3, rcActivities:[{location,type,activity}]}` — `type` ∈ Rebar/Concreting/Formwork |
 
 Machine detection is **strict** (see `gas/Extract.gs` `PRODUCTIVITY_SYSTEM` rule 8, enforced
-by `normalizeMachineStatus_`): a **BC Cutter** is logged only for a DW/BT/CW mentioned with
-**"bite"** or casting; a **Boring Rig** only for a BP/pile mentioned with **"depth"**
-(current/drilling/bare) or casting. Machines are **grouped by `area` + `location`**, so
-several walls/piles done by one machine at one spot collapse into one entry with all ids in
-**`assignedIds`**. `status` is **Completed** when casting is mentioned, **Maintenance** on
+by `normalizeMachineStatus_`): a **BC Cutter** is logged only for a DW/BT/CW whose text has
+**"bite"**; a **Boring Rig** only for a BP/pile whose text has **"depth"**
+(current/drilling/bare). **Rebar cage and casting are NOT triggers** — an element with only
+rebar cage or casting (no bite/depth) is never logged on a machine; they only set the
+lifecycle stage of an element already logged via bite/depth. Machines are **grouped by
+`area` + `location`**, so several walls/piles done by one machine at one spot collapse into
+one entry with all ids in **`assignedIds`**. `status` is **Completed** when casting is
+mentioned (on a bitten element), **Maintenance** on
 breakdown/hose-change, else **Active** (precedence Maintenance > Active > Completed when a
 card merges several lines); `evidence` holds the trigger snippet. The Viewer leads with
 **Machine Status** KPI cards — each showing type + status, an "Area · Location" badge, and the
