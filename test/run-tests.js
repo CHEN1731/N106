@@ -346,6 +346,25 @@ var msArea = normalizeMachineStatus_(
   assert(c && c.area === 'Area 2', 'ER15 machine inherits Area 2 from DW04 activity (got ' + (c && c.area) + ')');
 })();
 
+// The deterministic site map beats the AI's guessed area: AI says the machine + activity are
+// "Area 1" but the ER15(Le) section is Area 2 -> the card and the activity must be Area 2.
+(function(){
+  var ms = normalizeMachineStatus_(
+    { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 1', location: 'ER15', machineState: 'Active',
+      workingOnElements: [{ elementId: 'DW09', lifecycleStage: 'Excavation' }], evidence: 'DW09 1st bite 12m' }], boringRigs: [] },
+    [{ elementId: 'DW09', section: 'Sec-C/ER15(Le)', area: 'Area 1', activity: 'DW09 1st bite 12m' }]);
+  var c = ms.bcCutters.filter(function(x){ return x.machineState !== 'Idle'; })[0];
+  assert(c && c.area === 'Area 2', 'ER15(Le) card is Area 2 even when the AI said Area 1 (got ' + (c && c.area) + ')');
+})();
+// buildProductivityResult_: an activity the AI tagged Area 1 but whose section is ER15(Le)
+// -> normalised to Area 2 (site map wins).
+(function(){
+  var r = buildProductivityResult_('2026-09-22',
+    [{ elementId: 'DW09', section: 'Sec-C/ER15(Le)', area: 'Area 1', activity: 'DW09 1st bite 12m', manpower: 5 }], 'test');
+  var a2 = r.areas.filter(function(x){ return x.areaName === 'Area 2'; })[0];
+  assert(a2 && a2.kpiBreakdown.dWallCount === 1, 'ER15(Le) activity counted under Area 2, not the AI Area 1');
+})();
+
 // AREA PURITY: two elements resolving to different Areas must NOT share one card, even when
 // the AI put them on the same machine object. Each element goes to a card of its own Area.
 var msAreaSplit = normalizeMachineStatus_(

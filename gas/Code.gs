@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-39 · excavation daily/weekly/monthly';
+var APP_VERSION = 'build-40 · area from site map';
 
 /**
  * Route:
@@ -586,7 +586,9 @@ function getReport() {
     elementStages: elementStages,
     excavationProgress: excavationProgress,
     excavationDaily: excavationDaily,
-    config: { loadsToM3: loadsToM3_() },
+    config: { loadsToM3: loadsToM3_(),
+      segmentArea: (PARSER_CONFIG.locator && PARSER_CONFIG.locator.segmentArea) || {},
+      sectionArea: (PARSER_CONFIG.locator && PARSER_CONFIG.locator.sectionArea) || {} },
     spreadsheetUrl: ss.getUrl(),
     spreadsheetName: ss.getName()
   };

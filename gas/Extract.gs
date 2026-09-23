@@ -184,6 +184,12 @@ function scanTokens_(str, lower) {
     var v = lower[tokens[i].toLowerCase()];
     if (v) return v;
   }
+  // Fallback: a segment written with a sub-number (Le2 -> Le, Ld1 -> Ld). Only strip trailing
+  // digits when the alpha prefix is >= 2 chars, so "N106" never collapses to "N" (Area 1).
+  for (var j = 0; j < tokens.length; j++) {
+    var m = /^([A-Za-z]{2,})\d+$/.exec(tokens[j]);
+    if (m) { var w = lower[m[1].toLowerCase()]; if (w) return w; }
+  }
   return '';
 }
 
@@ -634,7 +640,7 @@ function buildProductivityResult_(date, acts, source) {
   var ORDER = ['Area 1', 'Area 2', 'Area 3', 'Area 4', 'Others'];
   var byArea = {};
   acts.forEach(function (a) {
-    a.area = normAreaName_(a.area) || areaFromSection_(a.section) || 'Others';
+    a.area = areaFromSection_(a.section) || normAreaName_(a.area) || 'Others';
     (byArea[a.area] = byArea[a.area] || []).push(a);
   });
   var areas = Object.keys(byArea).sort(function (x, y) {
@@ -817,7 +823,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var id = a.elementId || firstElementId_((a.section || '') + ' ' + (a.activity || ''));
     if (!id) return;
     var n = id.toUpperCase().replace(/\s+/g, '');
-    var ar = normAreaName_(a.area) || areaFromSection_(a.section) || '';
+    var ar = areaFromSection_(a.section) || normAreaName_(a.area) || '';
     if (ar && !elArea[n]) elArea[n] = ar;   // first real "Area N" wins
   });
 
@@ -862,7 +868,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
 
     // Area comes from the element's activity first (so ER15 -> Area 2), then the AI's area,
     // then the location/element codes.
-    area = (n && elArea[n]) || normAreaName_(area) || areaFromSection_(location) || areaFromSection_(eid) || '';
+    area = (n && elArea[n]) || areaFromSection_(location) || areaFromSection_(eid) || normAreaName_(area) || '';
     var loc = String(location == null ? '' : location).trim();
     var key = family + '|' + area.toUpperCase() + '|' + locKey_(loc);
     var card = cards[key];

@@ -337,9 +337,12 @@ your exports, no logic changes needed:
   `T9-3`, `CW319`). Extend to your numbering.
 - **`locator.sectionRe`** — how the Section is written (default matches `Sec-C`,
   `Sec C`, `Section C`).
-- **`locator.segmentArea`** — optional map from each segment to its **Area 1–4**
-  group (e.g. `{ 'Mb': 'Area 2', 'Ub': 'Area 4' }`) to power the dashboard's
-  higher-level filter. Unmapped segments leave `area_group` blank.
+- **`locator.segmentArea`** — the map from each segment/named location to its **Area 1–4**
+  group (e.g. `{ 'Mb': 'Area 2', 'Le': 'Area 2', 'ER15': 'Area 2' }`). This site-plan map is
+  **authoritative**: when a locator resolves here (incl. sub-numbered forms like `Le2 → Le`),
+  it **overrides the AI's guessed Area** everywhere — activity KPIs and the machine cards — so
+  a location like `ER15(Le)` always reads Area 2 even if the model mislabelled it. Add named
+  locations here to fix any mis-grouping. Unmapped segments leave `area_group` blank.
 - **`requireLocator`** — `true` (recommended): keep ONLY messages with a real
   `Sec-/segment` locator, so greetings, questions (RFI), emoji and coordination
   chatter never reach the Sheet. Set `false` to also keep `General`-bucket notes.

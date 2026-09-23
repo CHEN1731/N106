@@ -4,6 +4,8 @@
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
+  var SEG_AREA = {};        // segment code -> "Area N" (site-plan map, from getReport config)
+  var SEC_AREA = {};        // Section letter A-E -> "Area N"
   var EXCAV_PROGRESS = [];  // static soil-volume tracker rows (Tunnel/FB): planned vs cumulative m3
   var EXCAV_DAILY = [];     // user-maintained daily soil log rows: {date, zone, m3, note}
   var LOADS_TO_M3 = 6;      // loads -> m3 factor for the reported-this-range readout
@@ -91,13 +93,17 @@
     EXCAV_PROGRESS = (report && report.excavationProgress) || [];
     EXCAV_DAILY = (report && report.excavationDaily) || [];
     LOADS_TO_M3 = (report && report.config && Number(report.config.loadsToM3)) || 6;
+    SEG_AREA = (report && report.config && report.config.segmentArea) || {};
+    SEC_AREA = (report && report.config && report.config.sectionArea) || {};
     try { excavPeriod = localStorage.getItem('n106_excavp') || 'daily'; } catch(e){}
-    // element -> Area, from the activities (a section like "Sec-C/Mb" carries Area 2), so a
-    // machine card at a bare location like "ER15" still shows the correct Area.
+    // element -> Area. Prefer the DETERMINISTIC site-plan map on the element's section
+    // (so "Sec-C/ER15(Le)" -> Area 2 even if the stored/AI area says Area 1); fall back to the
+    // stored activity area. This fixes already-saved days without re-Saving.
     EL_AREA = {};
     ACTS.forEach(function(a){
-      var ids = elementIdsOf(a); var ar = String(a.area||'');
-      if (!/^Area [1-4]$/.test(ar)) return;
+      var ids = elementIdsOf(a);
+      var ar = areaFromSectionJS_(a.section) || (/^Area [1-4]$/.test(String(a.area||'')) ? String(a.area) : '');
+      if (!ar) return;
       ids.forEach(function(id){ var n=String(id).toUpperCase().replace(/\s+/g,''); if(n && !EL_AREA[n]) EL_AREA[n]=ar; });
     });
     var name = (report && report.spreadsheetName) || '(no sheet)';
@@ -290,6 +296,18 @@
   var LC_ICON={'lc-exc':'🟤','lc-rebar':'🔵','lc-conc':'🟠','lc-done':'🟢'};
   var BC_FLEET=6, RIG_FLEET=4;   // physical fleet totals (for the deployed/total count)
   function normId(id){ return String(id==null?'':id).toUpperCase().replace(/\s+/g,''); }
+  // Deterministic Area from a section/locator string, mirroring gas/Extract.gs areaFromSection_:
+  // scan tokens against the site-plan segment map (Le2 -> Le fallback), else the Sec-A..E letter.
+  function areaFromSectionJS_(section){
+    var s=String(section==null?'':section).trim(); if(!s) return '';
+    var am=/^area\s*([1-4])$/i.exec(s); if(am) return 'Area '+am[1];
+    var lower={}; for(var k in SEG_AREA){ if(SEG_AREA.hasOwnProperty(k)) lower[k.toLowerCase()]=SEG_AREA[k]; }
+    var toks=s.split(/[^A-Za-z0-9]+/).filter(Boolean).sort(function(a,b){return b.length-a.length;});
+    for(var i=0;i<toks.length;i++){ var v=lower[toks[i].toLowerCase()]; if(v) return v; }
+    for(var j=0;j<toks.length;j++){ var m=/^([A-Za-z]{2,})\d+$/.exec(toks[j]); if(m){ var w=lower[m[1].toLowerCase()]; if(w) return w; } }
+    var sec=/\bsec(?:tion)?[.\-\s]*([A-E])\b/i.exec(s); if(sec){ return SEC_AREA[sec[1].toUpperCase()]||''; }
+    return '';
+  }
   // Parse a depth in metres from text ("1st bite 21.5m" -> 21.5); never matches m3/m³.
   function parseDepth(t){ var m=/(\d+(?:\.\d+)?)\s*m(?![0-9³a-z])/i.exec(String(t==null?'':t)); return m?parseFloat(m[1]):null; }
 
@@ -330,7 +348,7 @@
       if (!mc.workingOnElements.length){ split.push(mc); return; }
       var byArea = {}, orderA = [];
       mc.workingOnElements.forEach(function(e){
-        var ar = EL_AREA[normId(e.elementId)] || mc.area || '';
+        var ar = EL_AREA[normId(e.elementId)] || areaFromSectionJS_(mc.location) || mc.area || '';
         if (!byArea[ar]){ byArea[ar]=[]; orderA.push(ar); }
         byArea[ar].push(e);
       });

@@ -79,7 +79,7 @@ var PARSER_CONFIG = {
       'La1': 'Area 4', 'La2': 'Area 4', 'La3': 'Area 4', 'Lb1': 'Area 4', 'Lb2': 'Area 4',
       'Lb3': 'Area 4', 'P5': 'Area 4', 'Lc': 'Area 4', 'Wc': 'Area 4', 'FB': 'Area 4',
       // Named location codes (not lettered segments)
-      'OPA': 'Area 2', 'SOD': 'Area 3', 'EI12': 'Area 3', 'XR14': 'Area 4'
+      'OPA': 'Area 2', 'SOD': 'Area 3', 'EI12': 'Area 3', 'XR14': 'Area 4', 'ER15': 'Area 2'
     },
     // Section-letter -> Area, for records that carry only a Section (Sec-A..Sec-E)
     // and no finer segment code. Used as a fallback after the segment map.
