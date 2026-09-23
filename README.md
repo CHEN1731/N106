@@ -90,18 +90,19 @@ with them (the Area KPIs, charts, and activity table stay below):
 ```
 
 - **Machine Status & Element Lifecycle** (top KPI cards) — the machine and element tracking
-  are **one unified workflow**. There are 6 BC Cutters + 4 Boring Rigs; the cards are
-  **grouped under Area headings** (Area 1 → 4, then an *Idle / Unassigned* group for the
-  remaining fleet slots) — a machine is auto-assigned to whichever Area its detected work is
-  in, and **never mixes two Areas on one card**. Each card's **header**
-  shows `machineId`, its **location** badge, and a **machineState** badge (green
-  Active / red Maintenance / grey Idle). The card **body** lists every element that machine
-  worked today as **📌 `elementId` · `depth` m ➔ [lifecycle badge]** (amber Excavation / blue
-  Rebar / orange Concreting / green Completed) — the dug/drilling **depth** shows right
-  after the element id, parsed from the report; within one card an element at *Completed* and
-  one at *Excavation* can appear together. An element is logged only when its text hits a work
-  stage — **bite** (DW/BT/CW) / **depth** (BP), **rebar cage**, or **casting** — and several
-  elements a machine did at one spot (same Area) are grouped onto its card. On Save, one loop writes both
+  are **one unified workflow**. The fleet is at most **6 BC Cutters + 4 Boring Rigs** (a hard
+  cap — never exceeded); only machines actually working are shown (fewer than 6/4 is fine, no
+  idle padding). Cards are **grouped under Area headings** (Area 1 → 4) — a machine is
+  auto-assigned to whichever Area its work is in and **never mixes two Areas on one card**; when
+  more location-groups appear in an Area than the fleet allows, same-Area cards **merge** (a
+  machine finished one element and moved to the next). Each card's **header** shows `machineId`
+  and a **machineState** badge (green Active / red Maintenance / grey Idle). The card **body**
+  lists every element that machine worked today as **📌 `elementId` · `location` · `depth` m ➔
+  [lifecycle badge]** (amber Excavation / blue Rebar / orange Concreting / green Completed) —
+  each element carries **its own** location and depth, parsed from its report line; within one
+  card an element at *Completed* and one at *Excavation* can appear together. An element is
+  logged only when its text hits a work stage — **bite** (DW/BT/CW) / **depth** (BP),
+  **rebar cage**, or **casting**. On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
   **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
   element's *tracked* stage).

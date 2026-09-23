@@ -427,7 +427,8 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
                       properties: {
                         elementId: { type: 'string', description: 'e.g. DW1547' },
                         lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' },
-                        depth: { type: 'number', description: 'current dug depth in metres if stated (e.g. 21.5), else 0' }
+                        depth: { type: 'number', description: 'current dug depth in metres if stated (e.g. 21.5), else 0' },
+                        location: { type: 'string', description: 'this element\'s own site location if it differs from the machine (else "")' }
                       },
                       required: ['elementId', 'lifecycleStage']
                     }
@@ -455,7 +456,8 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
                       properties: {
                         elementId: { type: 'string', description: 'e.g. BP-T9-3' },
                         lifecycleStage: { type: 'string', description: 'Excavation | Rebar | Concreting | Completed' },
-                        depth: { type: 'number', description: 'current drilling depth in metres if stated (e.g. 27.5), else 0' }
+                        depth: { type: 'number', description: 'current drilling depth in metres if stated (e.g. 27.5), else 0' },
+                        location: { type: 'string', description: 'this pile\'s own site location if it differs from the rig (else "")' }
                       },
                       required: ['elementId', 'lifecycleStage']
                     }
@@ -854,11 +856,13 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     // stop — never place the same element on a second machine.
     if (n && claimedBy[family][n]) {
       var owner = claimedBy[family][n];
+      var eloc0 = String(location == null ? '' : location).trim();
       for (var j = 0; j < owner.workingOnElements.length; j++) {
         var ow = owner.workingOnElements[j];
         if (String(ow.elementId).toUpperCase().replace(/\s+/g, '') === n) {
           ow.lifecycleStage = elementStageForward_(ow.lifecycleStage, stage);
           if (depth !== null) ow.depth = depth;   // keep the latest reported depth
+          if (eloc0 && !ow.location) ow.location = eloc0;  // fill a missing per-element location
           break;
         }
       }
@@ -873,21 +877,14 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var key = family + '|' + area.toUpperCase() + '|' + locKey_(loc);
     var card = cards[key];
     if (!card) {
-      var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
-      if (counts[family] >= cap) {
-        // At fleet cap: fold into a same-area machine if one exists; otherwise create a new
-        // card anyway — a soft cap, because showing an extra card for a new Area is far
-        // better than merging two Areas onto one machine.
-        card = overflowCard(family, area);
-      }
-      if (!card) {
-        card = { family: family, machineId: String(machineIdHint == null ? '' : machineIdHint).trim(),
-          area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '' };
-        cards[key] = card; order.push(key); counts[family]++;
-      }
+      // Build uncapped here; foldToCap_ enforces the hard fleet cap (<=6/<=4) afterwards by
+      // merging same-area cards. (No soft cap — the fleet total must never be exceeded.)
+      card = { family: family, machineId: String(machineIdHint == null ? '' : machineIdHint).trim(),
+        area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '' };
+      cards[key] = card; order.push(key); counts[family]++;
     }
     if (eid) {
-      card.workingOnElements.push({ elementId: eid, lifecycleStage: stage, depth: depth });
+      card.workingOnElements.push({ elementId: eid, lifecycleStage: stage, depth: depth, location: loc, area: area });
       claimedBy[family][n] = card;
     }
     if (MAINT_RE.test(ev)) card.machineState = 'Maintenance';
@@ -906,7 +903,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       if (Array.isArray(m.workingOnElements) && m.workingOnElements.length) {
         m.workingOnElements.forEach(function (e) {
           e = e || {};
-          addElement(fam, m.area, m.location, e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId, e.depth);
+          addElement(fam, m.area, (e.location || m.location), e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId, e.depth);
         });
       } else {
         var ids = Array.isArray(m.assignedIds) ? m.assignedIds
@@ -927,22 +924,49 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     addElement(fam, a.area, a.section || id || '', id, lifecycleStageFor_(a.activity || ''), a.activity || '', '');
   });
 
-  // Finalize each fleet: number machines, mark empty as Idle, pad to the fleet size.
-  function finalize(family) {
-    var out = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
-    var label = family === 'bc' ? 'BC Cutter ' : 'Boring Rig ';
-    out.forEach(function (c, i) {
-      if (!c.machineId) c.machineId = label + (i + 1);
-      if (!c.workingOnElements.length && c.machineState !== 'Maintenance') c.machineState = 'Idle';
-    });
-    var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
-    for (var i = out.length; i < cap; i++) {
-      out.push({ family: family, machineId: label + (i + 1), area: '', location: '',
-        machineState: 'Idle', workingOnElements: [], evidence: '' });
-    }
-    return out;
+  // Hard fleet cap: while a family has more cards than its fleet size, merge the two
+  // least-loaded cards OF THE SAME AREA (a machine that finished one element and moved to the
+  // next). Only ever merges within one area, so areas never mix; #distinct areas <= cap, so
+  // the cap is always reachable. Never pads with Idle — only deployed machines are returned.
+  var STATE_RANK = { 'Maintenance': 3, 'Active': 2, 'Idle': 1 };
+  function mergeCards_(dst, src) {
+    src.workingOnElements.forEach(function (e) { dst.workingOnElements.push(e); });
+    if (src.evidence && dst.evidence.indexOf(src.evidence) === -1) dst.evidence = dst.evidence ? (dst.evidence + '; ' + src.evidence) : src.evidence;
+    if ((STATE_RANK[src.machineState] || 0) > (STATE_RANK[dst.machineState] || 0)) dst.machineState = src.machineState;
   }
-  return { bcCutters: finalize('bc'), boringRigs: finalize('rig') };
+  function foldToCap_(family) {
+    var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
+    var list = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
+    while (list.length > cap) {
+      // group by area; pick an area with >= 2 cards (most cards first) and merge its two smallest
+      var byArea = {}, areasWith2 = [];
+      list.forEach(function (c) { (byArea[c.area] = byArea[c.area] || []).push(c); });
+      Object.keys(byArea).forEach(function (a) { if (byArea[a].length >= 2) areasWith2.push(a); });
+      var pickArea;
+      if (areasWith2.length) {
+        areasWith2.sort(function (a, b) { return byArea[b].length - byArea[a].length; });
+        pickArea = areasWith2[0];
+      } else {
+        // Fallback (shouldn't happen: #areas <= cap): merge the two globally smallest.
+        pickArea = null;
+      }
+      var pool = pickArea ? byArea[pickArea] : list.slice();
+      pool.sort(function (a, b) { return a.workingOnElements.length - b.workingOnElements.length; });
+      var keep = pool[0], drop = pool[1];
+      mergeCards_(keep, drop);
+      // remove drop from cards/order/list
+      var dropKey = null; Object.keys(cards).forEach(function (k) { if (cards[k] === drop) dropKey = k; });
+      if (dropKey) { delete cards[dropKey]; order = order.filter(function (k) { return k !== dropKey; }); }
+      list = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
+    }
+    var label = family === 'bc' ? 'BC Cutter ' : 'Boring Rig ';
+    list.forEach(function (c, i) {
+      if (!c.machineId) c.machineId = label + (i + 1);
+      if (c.machineState !== 'Maintenance') c.machineState = c.workingOnElements.length ? 'Active' : 'Idle';
+    });
+    return list;
+  }
+  return { bcCutters: foldToCap_('bc'), boringRigs: foldToCap_('rig') };
 }
 
 /** Parse a depth in metres from text ("24.2 m" -> 24.2), never matching "m3"/"m³". */

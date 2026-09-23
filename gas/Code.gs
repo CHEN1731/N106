@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-40 · area from site map';
+var APP_VERSION = 'build-41 · per-element location + hard fleet cap';
 
 /**
  * Route:

@@ -208,8 +208,8 @@ assert(rc.productivityData && rc.productivityData.dWallCount === 2, 'runComparis
 assert(Array.isArray(rc.mergedActivities) && rc.mergedActivities.length === 3, 'runComparison returns mergedActivities');
 // Regression (build-31): runComparison MUST pass the Resource & Production nodes through,
 // or the uploader's Save persists empty machine/excavation/RC data (Viewer showed 0).
-assert(rc.machineStatus && rc.machineStatus.bcCutters.length === 6 && rc.machineStatus.boringRigs.length === 4,
-  'runComparison returns machineStatus (padded fleet 6/4)');
+assert(rc.machineStatus && rc.machineStatus.bcCutters.length <= 6 && rc.machineStatus.boringRigs.length <= 4,
+  'runComparison returns machineStatus (deployed, hard-capped 6/4)');
 assert(!!rc.excavation && !!rc.reinforcedConcrete, 'runComparison returns excavation + reinforcedConcrete');
 
 console.log('\nWhatsApp Cloud API webhook ingestion:');
@@ -288,7 +288,7 @@ var mActs = [
   { elementId: 'BP-T4-1', section: 'Ja', area: 'Area 1', activity: 'BP-T4-1 drilling in progress' }  // no depth -> dropped
 ];
 var ms = normalizeMachineStatus_(null, mActs);
-assert(ms.bcCutters.length === 6 && ms.boringRigs.length === 4, 'fleet padded to 6 cutters + 4 rigs');
+assert(ms.bcCutters.length === 1 && ms.boringRigs.length === 1, 'only deployed machines shown (1 cutter + 1 rig), no idle padding');
 var bc1 = ms.bcCutters[0];
 assert(bc1.machineId === 'BC Cutter 1' && bc1.area === 'Area 2' && bc1.location === 'ER15', 'cutter 1 header: id + area + location');
 assert(bc1.workingOnElements.length === 2, 'cutter 1 groups DW1547 + DW04 into workingOnElements');
@@ -298,7 +298,6 @@ assert(bc1.workingOnElements[1].elementId === 'DW04' && bc1.workingOnElements[1]
 assert(bc1.workingOnElements[0].depth === 21.5, 'element 1 depth 21.5 m parsed onto the element');
 assert(bc1.workingOnElements[1].depth === null, 'element 2 (rebar cage, no depth) has null depth');
 assert(bc1.machineState === 'Active', 'cutter 1 machineState Active');
-assert(ms.bcCutters[5].machineState === 'Idle' && ms.bcCutters[5].workingOnElements.length === 0, 'padded cutter 6 is Idle');
 var rigActive = ms.boringRigs.filter(function (r) { return r.machineState !== 'Idle'; });
 assert(rigActive.length === 1 && rigActive[0].workingOnElements[0].elementId === 'BP-T9-3', 'one rig active with BP-T9-3');
 assert(rigActive[0].workingOnElements[0].depth === 27.5, 'rig element depth 27.5 m parsed from "current depth: 27.5m"');
@@ -386,17 +385,20 @@ var msAreaSplit = normalizeMachineStatus_(
     var ids = c.workingOnElements.map(function(e){return e.elementId;});
     return ids.indexOf('DW01')>=0 && ids.indexOf('DW02')>=0; });
   assert(mixed.length === 0, 'no card mixes DW01 (Area 1) and DW02 (Area 2)');
-  assert(msAreaSplit.bcCutters.length === 6, 'fleet still padded to 6 BC cutters (got ' + msAreaSplit.bcCutters.length + ')');
+  assert(msAreaSplit.bcCutters.length === 2, 'only the 2 deployed BC cutters shown (one per Area)');
 })();
 
-// Same-Area overflow: many locations in ONE area fold within that area (a machine does the
-// next one), never spilling into another area — and the fleet total stays 6.
+// Per-element location: two elements at DIFFERENT locations in the SAME area may share a folded
+// card, but each element keeps its own location.
 (function(){
-  var acts = [];
-  for (var i=1;i<=8;i++) acts.push({ elementId:'DW'+(100+i), section:'Sec-C/Mb', area:'Area 2', activity:'DW'+(100+i)+' 1st bite '+(10+i)+'m' });
+  var acts=[]; for (var i=1;i<=8;i++) acts.push({ elementId:'DW'+(200+i), section:'Sec-C/loc'+i, area:'Area 2', activity:'DW'+(200+i)+' 1st bite '+(10+i)+'m' });
   var ms8 = normalizeMachineStatus_(null, acts);
   ms8.bcCutters.forEach(function(c){ if(c.workingOnElements.length) assert(c.area==='Area 2', 'all folded cards stay Area 2'); });
-  assert(ms8.bcCutters.length === 6, '8 Area-2 walls fold into the 6-cutter fleet (got ' + ms8.bcCutters.length + ')');
+  assert(ms8.bcCutters.length === 6, '8 Area-2 locations fold within the area to exactly 6 cutters (got ' + ms8.bcCutters.length + ')');
+  var totalEls = ms8.bcCutters.reduce(function(n,c){return n+c.workingOnElements.length;},0);
+  assert(totalEls === 8, 'all 8 elements retained across the folded cards (got ' + totalEls + ')');
+  var withLoc = ms8.bcCutters.reduce(function(n,c){ return n + c.workingOnElements.filter(function(e){return /^Sec-C\/loc\d+$/.test(e.location||'');}).length; },0);
+  assert(withLoc === 8, 'each element keeps its own location (got ' + withLoc + ')');
 })();
 
 // maintenance keyword on a grouped machine -> machineState Maintenance
@@ -465,7 +467,7 @@ var np = normalizeProductivity_(rawAi, '2026-08-05', 'ai');
 var npBc = np.machineStatus.bcCutters.filter(function (c) { return c.machineState !== 'Idle'; })[0];
 assert(npBc && npBc.workingOnElements[0].elementId === 'DW1547', 'normalizeProductivity_ overlays AI machineStatus (nested element)');
 assert(npBc.location === 'ER15' && npBc.area === 'Area 2', 'AI machine location kept + area from element activity (Area 2)');
-assert(np.machineStatus.bcCutters.length === 6, 'AI path also pads to 6 cutters');
+assert(np.machineStatus.bcCutters.length === 1, 'AI path shows only the 1 deployed cutter (no padding)');
 assert(np.reinforcedConcrete.totalConcreteVolumeM3 === 54, 'normalizeProductivity_ carries RC total');
 
 // offline fallback also produces the nested machine nodes

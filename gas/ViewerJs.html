@@ -4,6 +4,7 @@
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
+  var EL_LOC = {};          // elementId(normalised) -> its location/section (from activities)
   var SEG_AREA = {};        // segment code -> "Area N" (site-plan map, from getReport config)
   var SEC_AREA = {};        // Section letter A-E -> "Area N"
   var EXCAV_PROGRESS = [];  // static soil-volume tracker rows (Tunnel/FB): planned vs cumulative m3
@@ -99,12 +100,14 @@
     // element -> Area. Prefer the DETERMINISTIC site-plan map on the element's section
     // (so "Sec-C/ER15(Le)" -> Area 2 even if the stored/AI area says Area 1); fall back to the
     // stored activity area. This fixes already-saved days without re-Saving.
-    EL_AREA = {};
+    EL_AREA = {}; EL_LOC = {};
     ACTS.forEach(function(a){
       var ids = elementIdsOf(a);
       var ar = areaFromSectionJS_(a.section) || (/^Area [1-4]$/.test(String(a.area||'')) ? String(a.area) : '');
-      if (!ar) return;
-      ids.forEach(function(id){ var n=String(id).toUpperCase().replace(/\s+/g,''); if(n && !EL_AREA[n]) EL_AREA[n]=ar; });
+      var loc = String(a.section||'').trim();
+      ids.forEach(function(id){ var n=String(id).toUpperCase().replace(/\s+/g,'');
+        if(n && ar && !EL_AREA[n]) EL_AREA[n]=ar;
+        if(n && loc && !EL_LOC[n]) EL_LOC[n]=loc; });
     });
     var name = (report && report.spreadsheetName) || '(no sheet)';
     var ver = window.__APPV__ ? ' · ' + window.__APPV__ : '';
@@ -322,95 +325,106 @@
     function norm(x,label){
       // tolerate the older flat shape (assignedIds[] / status) as well as the nested one
       var els = Array.isArray(x.workingOnElements) ? x.workingOnElements.map(function(e){
-        return { elementId:(e&&e.elementId)||'', lifecycleStage:(e&&e.lifecycleStage)||'', depth:(e&&e.depth!=null?e.depth:null) }; })
-        : (Array.isArray(x.assignedIds) ? x.assignedIds.map(function(id){ return {elementId:id, lifecycleStage:'', depth:null}; })
-        : (x.assignedId ? [{elementId:x.assignedId, lifecycleStage:'', depth:null}] : []));
+        return { elementId:(e&&e.elementId)||'', lifecycleStage:(e&&e.lifecycleStage)||'', depth:(e&&e.depth!=null?e.depth:null), location:(e&&e.location)||'', area:(e&&e.area)||'' }; })
+        : (Array.isArray(x.assignedIds) ? x.assignedIds.map(function(id){ return {elementId:id, lifecycleStage:'', depth:null, location:'', area:''}; })
+        : (x.assignedId ? [{elementId:x.assignedId, lifecycleStage:'', depth:null, location:'', area:''}] : []));
       return { type:label, machineId:x.machineId||label, area:x.area||'', location:x.location||'',
         machineState:x.machineState||x.status||(els.length?'Active':'Idle'),
         workingOnElements:els, evidence:x.evidence||x.activity||'' };
     }
-    // Safety net for already-saved (pre-fix) data: an element belongs to ONE machine per
-    // family — drop duplicate element rows across cards — and a card's Area follows its
-    // element's true area (so ER15 shows Area 2).
+    // Resolve each element's OWN location + area (the activity data wins, so CW323 shows Opp LAMH
+    // even when the machine card was stored at Singtel), then dedup elements globally per family.
     var seenEl = {};
     machines.forEach(function(mc){
+      mc.workingOnElements.forEach(function(e){
+        var id=normId(e.elementId);
+        e.location = e.location || EL_LOC[id] || mc.location || '';
+        e.area = e.area || EL_AREA[id] || areaFromSectionJS_(e.location) || mc.area || '';
+      });
       mc.workingOnElements = mc.workingOnElements.filter(function(e){
         if (!e.elementId) return true;
         var k = mc.type + '|' + normId(e.elementId);
         if (seenEl[k]) return false; seenEl[k]=1; return true;
       });
     });
-    // Area-aware safety net: an element's true Area comes from its activity (EL_AREA); a card
-    // must never mix Areas, so split any (already-saved, pre-fix) card whose elements span
-    // more than one Area into one card per Area. Cards keep their stored area as a fallback.
+    // Split each card so every card holds exactly ONE area (per-element area). Only-deployed:
+    // cards with no elements are dropped (no Idle padding).
     var split = [];
     machines.forEach(function(mc){
-      if (!mc.workingOnElements.length){ split.push(mc); return; }
+      if (!mc.workingOnElements.length) return;
       var byArea = {}, orderA = [];
       mc.workingOnElements.forEach(function(e){
-        var ar = EL_AREA[normId(e.elementId)] || areaFromSectionJS_(mc.location) || mc.area || '';
+        var ar = e.area || 'Others';
         if (!byArea[ar]){ byArea[ar]=[]; orderA.push(ar); }
         byArea[ar].push(e);
       });
-      if (orderA.length <= 1){ mc.area = orderA[0] || mc.area; split.push(mc); return; }
       orderA.forEach(function(ar){
-        split.push({ type:mc.type, machineId:mc.machineId, area:ar, location:mc.location,
+        split.push({ type:mc.type, machineId:mc.machineId, area:ar,
           machineState:mc.machineState, workingOnElements:byArea[ar], evidence:mc.evidence });
       });
     });
-    machines = split;
-    machines.forEach(function(mc){
-      if (!mc.workingOnElements.length && String(mc.machineState).toLowerCase()!=='maintenance') mc.machineState='Idle';
-    });
+    // Hard cap on display: fold same-area cards so a family never shows more than its fleet
+    // size (fixes already-saved >6 data too). Never merges across areas.
+    machines = foldDisplay_(split,'BC Cutter',BC_FLEET).concat(foldDisplay_(split,'Boring Rig',RIG_FLEET));
 
-    var deployed = machines.filter(function(x){ return x.workingOnElements.length>0; });
-    var bcN = deployed.filter(function(x){ return x.type==='BC Cutter'; }).length;
-    var rigN = deployed.filter(function(x){ return x.type==='Boring Rig'; }).length;
+    var bcN = machines.filter(function(x){ return x.type==='BC Cutter'; }).length;
+    var rigN = machines.filter(function(x){ return x.type==='Boring Rig'; }).length;
     if ($('siteSub')) $('siteSub').textContent =
-      bcN+'/'+BC_FLEET+' BC Cutters · '+rigN+'/'+RIG_FLEET+' Boring Rigs deployed — grouped by Area';
-    if (!machines.length){ host.innerHTML='<div class="resempty">No machine data saved for this range. If Compare showed machines, re-Save that day on the current Sheet, then Refresh.</div>'; return; }
+      bcN+' BC Cutter'+(bcN===1?'':'s')+' · '+rigN+' Boring Rig'+(rigN===1?'':'s')+' working (max '+BC_FLEET+' / '+RIG_FLEET+')';
+    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected for this range.</div>'; return; }
 
+    function cleanLoc(s){ return String(s||'').replace(/^Sec-[A-E]\s*\/\s*/i,'').trim(); }
     function cardHtml(mc){
       var cls=stateClass(mc.machineState);
-      var body;
-      if (mc.workingOnElements.length){
-        body = '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
-          var stage = ELEMENT_STAGES[normId(e.elementId)] || e.lifecycleStage || 'Excavation';
-          var lc = lcClass(stage);
-          var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : parseDepth(mc.evidence);
-          var depthTag = (d!=null && d>0) ? '<span class="eldepth">'+d+' m</span>' : '';
-          return '<div class="elrow"><span class="elid">📌 '+esc(e.elementId||'—')+'</span>'+depthTag+
-            '<span class="elarrow">➔</span><span class="lcbadge '+lc+'">'+(LC_ICON[lc]||'')+' '+esc(stage)+'</span></div>';
-        }).join('');
-      } else {
-        body = '<div class="elidle">Idle · no elements today</div>';
-      }
-      var loc = mc.location ? '<div class="mareabadge">'+esc(mc.location)+'</div>' : '';
+      var body = '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
+        var stage = ELEMENT_STAGES[normId(e.elementId)] || e.lifecycleStage || 'Excavation';
+        var lc = lcClass(stage);
+        var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : parseDepth(mc.evidence);
+        var depthTag = (d!=null && d>0) ? '<span class="eldepth">'+d+' m</span>' : '';
+        var locTag = e.location ? '<span class="elloc">'+esc(cleanLoc(e.location))+'</span>' : '';
+        return '<div class="elrow"><span class="elid">📌 '+esc(e.elementId||'—')+'</span>'+locTag+depthTag+
+          '<span class="elarrow">➔</span><span class="lcbadge '+lc+'">'+(LC_ICON[lc]||'')+' '+esc(stage)+'</span></div>';
+      }).join('');
       return '<div class="machcard '+cls+'">'+
         '<div class="mtop"><span class="statusdot"></span><span class="mtitle">🚜 '+esc(mc.machineId)+'</span>'+
         '<span class="mstat">'+esc(mc.machineState)+'</span></div>'+
-        loc + '<div class="elbody">'+body+'</div></div>';
+        '<div class="elbody">'+body+'</div></div>';
     }
 
-    // Group cards under Area headings: Area 1..4, then any other named area, then Idle.
+    // Group cards under Area headings: Area 1..4, then any other named area.
     var ORDER = ['Area 1','Area 2','Area 3','Area 4'];
     var groups = {}, groupOrder = [];
     function bucket(name){ if(!groups[name]){ groups[name]=[]; groupOrder.push(name); } return groups[name]; }
     machines.forEach(function(mc){
-      var isIdle = !mc.workingOnElements.length;
       var ar = String(mc.area||'').trim();
-      var key = isIdle ? 'Idle' : (/^Area [1-4]$/.test(ar) ? ar : (ar || 'Others'));
-      bucket(key).push(mc);
+      bucket(/^Area [1-4]$/.test(ar) ? ar : (ar || 'Others')).push(mc);
     });
     var ordered = ORDER.filter(function(a){ return groups[a]; })
-      .concat(groupOrder.filter(function(a){ return ORDER.indexOf(a)===-1 && a!=='Idle'; }))
-      .concat(groups['Idle'] ? ['Idle'] : []);
+      .concat(groupOrder.filter(function(a){ return ORDER.indexOf(a)===-1; }));
     host.innerHTML = ordered.map(function(name){
-      var label = name==='Idle' ? 'Idle / Unassigned' : name;
-      return '<div class="marea'+(name==='Idle'?' marea-idle':'')+'">'+
-        '<div class="mareahead">'+esc(label)+' <span class="mareacount">'+groups[name].length+'</span></div>'+
+      return '<div class="marea">'+
+        '<div class="mareahead">'+esc(name)+' <span class="mareacount">'+groups[name].length+'</span></div>'+
         '<div class="sitegrid">'+groups[name].map(cardHtml).join('')+'</div></div>';
     }).join('');
+  }
+  // Fold a family's cards to <= cap by merging the two least-loaded SAME-AREA cards (a machine
+  // that finished one element and moved to the next). Only-deployed; never mixes areas.
+  function foldDisplay_(all, type, cap){
+    var list = all.filter(function(c){ return c.type===type; });
+    while (list.length > cap){
+      var byArea={}, areas2=[];
+      list.forEach(function(c){ (byArea[c.area]=byArea[c.area]||[]).push(c); });
+      Object.keys(byArea).forEach(function(a){ if(byArea[a].length>=2) areas2.push(a); });
+      var pool;
+      if (areas2.length){ areas2.sort(function(a,b){ return byArea[b].length-byArea[a].length; }); pool=byArea[areas2[0]]; }
+      else pool=list.slice();   // fallback (shouldn't happen: #areas <= cap)
+      pool.sort(function(a,b){ return a.workingOnElements.length-b.workingOnElements.length; });
+      var keep=pool[0], drop=pool[1];
+      drop.workingOnElements.forEach(function(e){ keep.workingOnElements.push(e); });
+      if (drop.evidence && keep.evidence.indexOf(drop.evidence)===-1) keep.evidence = keep.evidence?(keep.evidence+'; '+drop.evidence):drop.evidence;
+      list = list.filter(function(c){ return c!==drop; });
+    }
+    return list;
   }
 
   // Static soil-volume tracker (Tunnel / FB): planned vs cumulative m3 from ExcavationProgress,
