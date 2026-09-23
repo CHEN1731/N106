@@ -346,6 +346,40 @@ var msArea = normalizeMachineStatus_(
   assert(c && c.area === 'Area 2', 'ER15 machine inherits Area 2 from DW04 activity (got ' + (c && c.area) + ')');
 })();
 
+// AREA PURITY: two elements resolving to different Areas must NOT share one card, even when
+// the AI put them on the same machine object. Each element goes to a card of its own Area.
+var msAreaSplit = normalizeMachineStatus_(
+  { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 1', location: 'mixed', machineState: 'Active',
+      workingOnElements: [{ elementId: 'DW01', lifecycleStage: 'Excavation' },
+                          { elementId: 'DW02', lifecycleStage: 'Excavation' }], evidence: 'bite' }], boringRigs: [] },
+  [{ elementId: 'DW01', section: 'Sec-A/Ka', area: 'Area 1', activity: 'DW01 1st bite 10m' },
+   { elementId: 'DW02', section: 'Sec-C/Mb', area: 'Area 2', activity: 'DW02 1st bite 12m' }]);
+(function(){
+  function cardOf(id){ return msAreaSplit.bcCutters.filter(function(c){
+    return c.workingOnElements.some(function(e){ return e.elementId==='DW01'||e.elementId==='DW02'; }) &&
+           c.workingOnElements.some(function(e){ return e.elementId===id; }); })[0]; }
+  var c1 = cardOf('DW01'), c2 = cardOf('DW02');
+  assert(c1 && c1.area === 'Area 1', 'DW01 lands on an Area 1 card (got ' + (c1&&c1.area) + ')');
+  assert(c2 && c2.area === 'Area 2', 'DW02 lands on an Area 2 card (got ' + (c2&&c2.area) + ')');
+  assert(c1 !== c2, 'Area 1 and Area 2 elements are on DIFFERENT cards (never mixed)');
+  // no single card holds both areas' elements
+  var mixed = msAreaSplit.bcCutters.filter(function(c){
+    var ids = c.workingOnElements.map(function(e){return e.elementId;});
+    return ids.indexOf('DW01')>=0 && ids.indexOf('DW02')>=0; });
+  assert(mixed.length === 0, 'no card mixes DW01 (Area 1) and DW02 (Area 2)');
+  assert(msAreaSplit.bcCutters.length === 6, 'fleet still padded to 6 BC cutters (got ' + msAreaSplit.bcCutters.length + ')');
+})();
+
+// Same-Area overflow: many locations in ONE area fold within that area (a machine does the
+// next one), never spilling into another area — and the fleet total stays 6.
+(function(){
+  var acts = [];
+  for (var i=1;i<=8;i++) acts.push({ elementId:'DW'+(100+i), section:'Sec-C/Mb', area:'Area 2', activity:'DW'+(100+i)+' 1st bite '+(10+i)+'m' });
+  var ms8 = normalizeMachineStatus_(null, acts);
+  ms8.bcCutters.forEach(function(c){ if(c.workingOnElements.length) assert(c.area==='Area 2', 'all folded cards stay Area 2'); });
+  assert(ms8.bcCutters.length === 6, '8 Area-2 walls fold into the 6-cutter fleet (got ' + ms8.bcCutters.length + ')');
+})();
+
 // maintenance keyword on a grouped machine -> machineState Maintenance
 var msMix = normalizeMachineStatus_(null, [
   { elementId: 'DW7', section: 'ER15', area: 'Area 2', activity: 'DW7 1st bite 10m' },

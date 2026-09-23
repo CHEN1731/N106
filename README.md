@@ -90,14 +90,18 @@ with them (the Area KPIs, charts, and activity table stay below):
 ```
 
 - **Machine Status & Element Lifecycle** (top KPI cards) — the machine and element tracking
-  are **one unified workflow**. There are 6 BC Cutters + 4 Boring Rigs; each card's **header**
-  shows `machineId`, an **"Area · Location"** badge, and a **machineState** badge (green
+  are **one unified workflow**. There are 6 BC Cutters + 4 Boring Rigs; the cards are
+  **grouped under Area headings** (Area 1 → 4, then an *Idle / Unassigned* group for the
+  remaining fleet slots) — a machine is auto-assigned to whichever Area its detected work is
+  in, and **never mixes two Areas on one card**. Each card's **header**
+  shows `machineId`, its **location** badge, and a **machineState** badge (green
   Active / red Maintenance / grey Idle). The card **body** lists every element that machine
   worked today as **📌 `elementId` · `depth` m ➔ [lifecycle badge]** (amber Excavation / blue
-  Rebar / orange Concreting / green Completed) — the dug/drilling **depth** now shows right
-  after the element id, parsed from the report. An element is logged only when its text hits a work
+  Rebar / orange Concreting / green Completed) — the dug/drilling **depth** shows right
+  after the element id, parsed from the report; within one card an element at *Completed* and
+  one at *Excavation* can appear together. An element is logged only when its text hits a work
   stage — **bite** (DW/BT/CW) / **depth** (BP), **rebar cage**, or **casting** — and several
-  elements a machine did at one spot are grouped onto its card. On Save, one loop writes both
+  elements a machine did at one spot (same Area) are grouped onto its card. On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
   **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
   element's *tracked* stage).

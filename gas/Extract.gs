@@ -821,11 +821,15 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     if (ar && !elArea[n]) elArea[n] = ar;   // first real "Area N" wins
   });
 
-  function overflowCard(family) {
-    var fams = order.map(function (k) { return cards[k]; }).filter(function (c) { return c.family === family; });
+  function overflowCard(family, area) {
+    var want = String(area || '').toUpperCase();
+    var fams = order.map(function (k) { return cards[k]; }).filter(function (c) {
+      // Only fold into a machine of the SAME family AND SAME area — never mix areas.
+      return c.family === family && String(c.area || '').toUpperCase() === want;
+    });
     if (!fams.length) return null;
     fams.sort(function (a, b) { return a.workingOnElements.length - b.workingOnElements.length; });
-    return fams[0];   // append to the least-loaded machine of this family
+    return fams[0];   // append to the least-loaded machine of this family in this area
   }
 
   function addElement(family, area, location, elementId, stage, evidence, machineIdHint, depthHint) {
@@ -864,8 +868,13 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var card = cards[key];
     if (!card) {
       var cap = family === 'bc' ? FLEET.bcCutters : FLEET.boringRigs;
-      if (counts[family] >= cap) { card = overflowCard(family); if (!card) return; }
-      else {
+      if (counts[family] >= cap) {
+        // At fleet cap: fold into a same-area machine if one exists; otherwise create a new
+        // card anyway — a soft cap, because showing an extra card for a new Area is far
+        // better than merging two Areas onto one machine.
+        card = overflowCard(family, area);
+      }
+      if (!card) {
         card = { family: family, machineId: String(machineIdHint == null ? '' : machineIdHint).trim(),
           area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '' };
         cards[key] = card; order.push(key); counts[family]++;
