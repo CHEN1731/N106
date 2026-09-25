@@ -151,10 +151,11 @@
     return String(Number(m[3])) + ' ' + MONTHS[Number(m[2])-1] + ' ' + m[1];
   }
 
-  ['fFrom','fTo','fArea'].forEach(function(id){ $(id).addEventListener('change', function(){ editingRow=null; render(); }); });
-  $('fSearch').addEventListener('input', render);
-  $('fAll').addEventListener('click', function(){ $('fFrom').value=''; $('fTo').value=''; editingRow=null; render(); });
-  $('reload').addEventListener('click', function(){
+  function on(id, ev, fn){ var el=$(id); if(el) el.addEventListener(ev, fn); }
+  ['fFrom','fTo','fArea'].forEach(function(id){ on(id, 'change', function(){ editingRow=null; render(); }); });
+  on('fSearch', 'input', render);
+  on('fAll', 'click', function(){ if($('fFrom'))$('fFrom').value=''; if($('fTo'))$('fTo').value=''; editingRow=null; render(); });
+  on('reload', 'click', function(){
     if (window.__REPORT__ !== undefined && !window.__MOCK__) location.reload(); else load();
   });
 
@@ -209,13 +210,14 @@
         {dWallCount:0,bPileCount:0,bWallCount:0,cWallCount:0,concreteM3:0,totalManpower:0};
     }
     var u={dw:{},bp:{},bt:{},cw:{}}, con=0, mp=0, mx={dw:0,bp:0,bt:0,cw:0};
+    function arr(x){ return Array.isArray(x) ? x : (x ? String(x).split(/[,;]\s*/).filter(Boolean) : []); }
     dates.forEach(function(d){
       var p=prodForDate(d); if(!p) return;
       con += p.concreteM3||0; mp += p.totalManpower||0;
-      (p.activeDWalls||[]).forEach(function(x){ if(x) u.dw[x.toLowerCase()]=1; });
-      (p.activeBoredPiles||[]).forEach(function(x){ if(x) u.bp[x.toLowerCase()]=1; });
-      (p.activeButtressWalls||[]).forEach(function(x){ if(x) u.bt[x.toLowerCase()]=1; });
-      (p.activeCrossWalls||[]).forEach(function(x){ if(x) u.cw[x.toLowerCase()]=1; });
+      arr(p.activeDWalls).forEach(function(x){ if(x) u.dw[String(x).toLowerCase()]=1; });
+      arr(p.activeBoredPiles).forEach(function(x){ if(x) u.bp[String(x).toLowerCase()]=1; });
+      arr(p.activeButtressWalls).forEach(function(x){ if(x) u.bt[String(x).toLowerCase()]=1; });
+      arr(p.activeCrossWalls).forEach(function(x){ if(x) u.cw[String(x).toLowerCase()]=1; });
       mx.dw=Math.max(mx.dw,p.dWallCount||0); mx.bp=Math.max(mx.bp,p.bPileCount||0);
       mx.bt=Math.max(mx.bt,p.bWallCount||0); mx.cw=Math.max(mx.cw,p.cWallCount||0);
     });
@@ -233,27 +235,31 @@
     var selSet={}; dates.forEach(function(d){ selSet[d]=1; });
     var multi = dates.length !== 1;
     var p = aggregateProd(dates);
-    $('kDW').textContent = p.dWallCount||0;
-    $('kBP').textContent = p.bPileCount||0;
-    $('kBT').textContent = p.bWallCount||0;
-    $('kCW').textContent = p.cWallCount||0;
-    $('kCon').textContent = p.concreteM3||0;
-    $('kMP').textContent = p.totalManpower||0;
-    $('doughDate').textContent = rangeLabel(dates);
+    // setText is null-safe: a missing element (e.g. a partially-updated deployment) must never
+    // throw and abort the whole refresh — the rest of the dashboard still updates.
+    function setText(id,v){ var el=$(id); if(el) el.textContent = v; }
+    setText('kDW', p.dWallCount||0);
+    setText('kBP', p.bPileCount||0);
+    setText('kBT', p.bWallCount||0);
+    setText('kCW', p.cWallCount||0);
+    setText('kCon', p.concreteM3||0);
+    setText('kMP', p.totalManpower||0);
+    setText('doughDate', rangeLabel(dates));
     if ($('concSub')) $('concSub').textContent = multi
       ? ('Concrete cast per day · ' + rangeLabel(dates))
       : 'Daily concrete casting';
 
+    // Each section is isolated so one failing render can't stop the others from refreshing.
     var sum = summaryForRange(dates);
-    renderMachineCards(sum);
-    renderExcavationProgress(sum);
-    renderExcavTime();
-    renderRC(sum);
-
-    renderActivities(selSet, multi);
-    renderConcreteChart(dates);
-    renderStructChart(p);
-    renderStageChart(selSet);
+    [function(){ renderMachineCards(sum); },
+     function(){ renderExcavationProgress(sum); },
+     function(){ renderExcavTime(); },
+     function(){ renderRC(sum); },
+     function(){ renderActivities(selSet, multi); },
+     function(){ renderConcreteChart(dates); },
+     function(){ renderStructChart(p); },
+     function(){ renderStageChart(selSet); }
+    ].forEach(function(fn){ try { fn(); } catch(e){ if (window.console) console.error('render section failed:', e); } });
   }
 
   // ---- Resource & Production (3 pillars) --------------------------------------
