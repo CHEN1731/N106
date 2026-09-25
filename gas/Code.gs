@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-43 · activities on own tab';
+var APP_VERSION = 'build-44 · DW/BP/BT/CW KPIs back on ERSS';
 
 /**
  * Route:
