@@ -31,6 +31,7 @@
         <button class="tabbtn" type="button" data-tab="erss">🏗️ ERSS</button>
         <button class="tabbtn" type="button" data-tab="excav">⛏️ Excavation</button>
         <button class="tabbtn" type="button" data-tab="rc">🧱 Reinforced Concrete</button>
+        <button class="tabbtn" type="button" data-tab="acts">📋 All Activities</button>
       </nav>
 
       <!-- ===== Overview page ===== -->
@@ -59,17 +60,20 @@
 
       <!-- ===== ERSS page (Earth-Retaining & Stabilising Structure) ===== -->
       <section class="tabpage" data-tab="erss">
+        <div class="panel sitebanner">
+          <h2>Machine Status &amp; Element Lifecycle</h2>
+          <p class="sub" id="siteSub">6 BC Cutters &amp; 4 Boring Rigs — with the elements each is working</p>
+          <div id="siteMachines" class="sitegrid"></div>
+        </div>
+      </section>
+
+      <!-- ===== All Activities page (full activity breakdown) ===== -->
+      <section class="tabpage" data-tab="acts">
         <div class="kpis">
           <div class="kpi dw"><div class="v" id="kDW">–</div><div class="k">Diaphragm Walls (DW)</div></div>
           <div class="kpi bp"><div class="v" id="kBP">–</div><div class="k">Bored Piles (BP)</div></div>
           <div class="kpi bt"><div class="v" id="kBT">–</div><div class="k">Buttress Walls (BT)</div></div>
           <div class="kpi cw"><div class="v" id="kCW">–</div><div class="k">Cross Walls (CW)</div></div>
-        </div>
-
-        <div class="panel sitebanner">
-          <h2>Machine Status &amp; Element Lifecycle</h2>
-          <p class="sub" id="siteSub">6 BC Cutters &amp; 4 Boring Rigs — with the elements each is working</p>
-          <div id="siteMachines" class="sitegrid"></div>
         </div>
 
         <div class="actwrap">

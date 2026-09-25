@@ -36,9 +36,11 @@ dashboard.
 3. **Productivity & Summary Dashboard (director & team) — the same web app at
    `?page=view`.** Reads the Sheet live and is organised into **clickable tab pages**
    — **Overview** (total manpower + the concrete-volume, active-structures and
-   by-stage charts), **ERSS** (DW/BP/BT/CW KPIs + Machine Status & Element Lifecycle +
-   the merged activities table), **Excavation** (the Tunnel/FB soil-volume tracker),
-   and **Reinforced Concrete** (concrete m³ + RC activities). The **From/To date
+   by-stage charts), **ERSS** (Machine Status & Element Lifecycle — the detected machine
+   data only), **Excavation** (the Tunnel/FB soil-volume tracker),
+   **Reinforced Concrete** (concrete m³ + RC activities), and **All Activities** (the
+   DW/BP/BT/CW KPI cards + the full merged-activities breakdown, kept separate from the
+   ERSS machine data). The **From/To date
    range** (blank = all dates), Area and search filters stay pinned above the tabs and
    apply to every page; the chosen tab is remembered between visits.
    Activities are fully editable in the Viewer: **✎ Edit**, **🗑 Delete**, and
