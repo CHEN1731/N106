@@ -155,9 +155,10 @@
   ['fFrom','fTo','fArea'].forEach(function(id){ on(id, 'change', function(){ editingRow=null; render(); }); });
   on('fSearch', 'input', render);
   on('fAll', 'click', function(){ if($('fFrom'))$('fFrom').value=''; if($('fTo'))$('fTo').value=''; editingRow=null; render(); });
-  on('reload', 'click', function(){
-    if (window.__REPORT__ !== undefined && !window.__MOCK__) location.reload(); else load();
-  });
+  // Refresh: re-fetch the latest sheet data via AJAX and re-apply the current date range.
+  // (Never location.reload() — the app runs in a sandboxed iframe, so reloading it blanks the
+  // page. reloadData keeps From/To/Area/Search, re-renders, and toasts on error.)
+  on('reload', 'click', reloadData);
 
   // ---- Tab pages (client-side; no reload, keeps loaded data + the date range) ----------
   var TABS = ['overview','erss','excav','rc','acts'];
