@@ -11,7 +11,8 @@ loads/depth** and **manpower**. No corrections needed later.
 
 ## 1. How to post
 
-- **One message per day.** Put the date on the first line.
+- **One message per day.** Put the date on the first line. Either D/M/Y (`25/9/26`)
+  or M/D/Y (`9/25/26`) is fine — the export order is auto-detected.
 - **One location per line.** Lead each line with the **Area** and the
   **Section/segment**, then the **element ID**, then **what stage it is at** using a
   trigger word, then optional machine id and manpower.

@@ -14,7 +14,7 @@ vm.createContext(sandbox);
 ['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, normalizeDate_, docxXmlToText_,
+const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
@@ -32,7 +32,14 @@ function assert(cond, msg) {
 }
 
 console.log('\nLocator + date + docx:');
-assert(normalizeDate_('5/8/26') === '2026-08-05', '"5/8/26" -> 2026-08-05');
+assert(normalizeDate_('5/8/26') === '2026-08-05', '"5/8/26" (ambiguous) -> 2026-08-05 (D/M/Y default)');
+assert(normalizeDate_('9/25/26') === '2026-09-25', '"9/25/26" (2nd>12) -> 2026-09-25 (M/D/Y)');
+assert(normalizeDate_('25/9/26') === '2026-09-25', '"25/9/26" (1st>12) -> 2026-09-25 (D/M/Y)');
+assert(normalizeDate_('5/8/26', 'mdy') === '2026-05-08', '"5/8/26" with mdy order -> 2026-05-08');
+assert(normalizeDate_('2026-09-25') === '2026-09-25', 'already-ISO date returned unchanged');
+assert(detectDateOrder_(['[9/25/26, 10:00:00] ~ Eng: hi']) === 'mdy', 'detectDateOrder_ -> mdy for 9/25 export');
+assert(detectDateOrder_(['[25/9/26, 10:00:00] ~ Eng: hi']) === 'dmy', 'detectDateOrder_ -> dmy for 25/9 export');
+assert(detectDateOrder_(['[5/8/26, 10:00:00] ~ Eng: hi']) === '', 'detectDateOrder_ -> "" when ambiguous');
 assert(resolveLocator_('Sec-C/ER15(Mb)\nDwall works').area === 'Sec-C/Mb', '"Sec-C/ER15(Mb)" -> Sec-C/Mb');
 assert(resolveLocator_('Sec-D/EI12/ CHCI').area === 'Sec-D/EI12', 'structure code EI12 -> Sec-D/EI12');
 const dt = docxXmlToText_('<w:p><w:r><w:t>Date: 28 Aug</w:t></w:r></w:p><w:p><w:r><w:t>Manpower &amp; 6</w:t></w:r></w:p>');
@@ -199,6 +206,19 @@ assert(fb.productivityData.totalConcreteVolumeM3 === 42, 'grand concrete m3 = 42
 assert(fb.productivityData.totalManpower === 23, 'grand manpower = 10+8+5 = 23 (got ' + fb.productivityData.totalManpower + ')');
 assert(fb.mergedActivities[0].elementId === 'DW1547' && !('sourceEvidence' in fb.mergedActivities[0]),
   'fallback activity carries elementId, no sourceEvidence');
+
+console.log('\nM/D/Y export (build-47): dates + traffic/diversion kept:');
+// A US-order export (2nd field 25 can only be a day) must resolve to 2026-09-25,
+// and a new traffic-diversion (TD 3A-7) line must survive to the merged activities.
+const mdyExport =
+  '[9/25/26, 09:00:00] ~ Eng: Sec-C/Mb\nDW1600 1st bite 12.5m\nManpower: 6\n' +
+  '[9/25/26, 09:30:00] ~ Eng: Sec-C/Mb\nTD 3A-7 steel decking install for new traffic diversion, lane closed\nManpower: 4\n';
+const mdyRecs = parseWhatsApp(mdyExport, 'RTO');
+assert(mdyRecs.length >= 2 && mdyRecs.every(r => r.date === '2026-09-25'),
+  'M/D/Y export records all date to 2026-09-25 (got ' + mdyRecs.map(r => r.date).join(',') + ')');
+const mdyFb = productivityFromRecords_(mdyExport, '', '2026-09-25');
+assert(mdyFb.mergedActivities.some(a => /3A-7|decking|diversion/i.test((a.activity || a.activityDescription || ''))),
+  'offline path keeps the TD 3A-7 traffic-diversion activity');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

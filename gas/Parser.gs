@@ -175,10 +175,11 @@ function sliceChatByDate_(text, dates) {
   dates.forEach(function (d) { want[String(d)] = true; });
   var lines = chatLines_(text);
   var format = detectFormat_(lines);
+  var order = detectDateOrder_(lines);
   var out = [], keep = false, any = false;
   for (var i = 0; i < lines.length; i++) {
     var m = format.re.exec(lines[i]);
-    if (m) { keep = !!want[normalizeDate_(m[1])]; if (keep) any = true; }
+    if (m) { keep = !!want[normalizeDate_(m[1], order)]; if (keep) any = true; }
     if (keep) out.push(lines[i]);
   }
   return any ? out.join('\n') : text; // no header matched -> don't lose the data
@@ -202,10 +203,11 @@ function parseWhatsApp(text, source) {
   if (!text) return [];
   var lines = chatLines_(text);
   var format = detectFormat_(lines);
+  var order = detectDateOrder_(lines);
   var messages = groupIntoMessages_(lines, format);
   var records = [];
   for (var i = 0; i < messages.length; i++) {
-    var rec = messageToRecord_(messages[i], source);
+    var rec = messageToRecord_(messages[i], source, order);
     if (!rec) continue;
     if (rec._photoOnly) {
       // A standalone media message: credit its photos to the most recent
@@ -261,7 +263,7 @@ function groupIntoMessages_(lines, format) {
 }
 
 /** Convert one message into a site record, or null if it is not one. */
-function messageToRecord_(msg, source) {
+function messageToRecord_(msg, source, order) {
   var body = msg.body;
 
   if (isSystem_(body)) return null;
@@ -278,11 +280,15 @@ function messageToRecord_(msg, source) {
 
   // Labelled-record mode: without a label this is chatter (or a media line).
   if (PARSER_CONFIG.requireLabelledRecord && !hasLabel) {
-    if (photos > 0) return { _photoOnly: true, photos: photos, date: normalizeDate_(msg.rawDate) };
+    if (photos > 0) return { _photoOnly: true, photos: photos, date: normalizeDate_(msg.rawDate, order) };
     return null;
   }
 
-  var date = fields.date ? normalizeDate_(fields.date) : normalizeDate_(msg.rawDate);
+  // The WhatsApp header timestamp follows the exporting phone's locale, so apply
+  // the file-detected order to it. A human-typed in-body "Date:" follows the
+  // reporter's own convention, so auto-detect that per value instead of forcing
+  // the file order (a forwarded "25/9" must not become month 25 in an mdy file).
+  var date = fields.date ? normalizeDate_(fields.date) : normalizeDate_(msg.rawDate, order);
 
   // Resolve the site locator (Section + segment) from the first line. A labelled
   // Area: still wins if present; the generic alias list is a last resort.
@@ -524,14 +530,58 @@ function isChatter_(body) {
 }
 
 
-/** Normalise D/M/Y (or D/M/YY) to ISO yyyy-mm-dd. */
-function normalizeDate_(raw) {
+/**
+ * Normalise a slash date to ISO yyyy-mm-dd. WhatsApp exports come in both
+ * D/M/Y (most common here) and M/D/Y (US exports, e.g. "9/25/26"), so which
+ * field is the day is genuinely ambiguous per value.
+ *
+ * @param {string} raw    the raw date (e.g. "9/25/26", "25/9/26", "2026-09-25")
+ * @param {string} order  optional 'mdy' or 'dmy' detected from the whole file
+ *                        (see detectDateOrder_). When omitted, auto-detect per
+ *                        value from an out-of-range field.
+ *
+ * Resolution: an explicit `order` wins. Otherwise, if the 2nd field > 12 it
+ * can only be a day ⇒ M/D/Y; if the 1st field > 12 ⇒ D/M/Y; if neither field
+ * disambiguates, default to D/M/Y (so "5/8/26" stays 2026-08-05, preserving the
+ * existing samples/tests). Already-ISO input (yyyy-mm-dd) is returned unchanged.
+ */
+function normalizeDate_(raw, order) {
   if (!raw) return '';
   var m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(raw);
   if (!m) return String(raw).trim();
-  var d = m[1], mo = m[2], y = m[3];
+  var a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = m[3];
+  var d, mo;
+  if (order === 'mdy') { mo = a; d = b; }
+  else if (order === 'dmy') { d = a; mo = b; }
+  else if (b > 12 && a <= 12) { mo = a; d = b; }   // 2nd field can't be a month → M/D/Y
+  else if (a > 12 && b <= 12) { d = a; mo = b; }   // 1st field can't be a month → D/M/Y
+  else { d = a; mo = b; }                          // ambiguous → keep D/M/Y
   if (y.length === 2) y = '20' + y;
   return y + '-' + pad2_(mo) + '-' + pad2_(d);
+}
+
+/**
+ * Inspect an export's header timestamps and decide the date field order.
+ * Returns 'mdy' if any timestamp's 2nd field exceeds 12 (only a day can),
+ * 'dmy' if any 1st field exceeds 12, else '' (ambiguous — caller defaults).
+ * A file-wide order fixes even the ambiguous dates within that file.
+ */
+function detectDateOrder_(lines) {
+  if (!lines || !lines.length) return '';
+  var fmt = detectFormat_(lines);
+  var sawMdy = false, sawDmy = false;
+  for (var i = 0; i < lines.length; i++) {
+    var m = fmt.re.exec(lines[i]);
+    if (!m) continue;
+    var dm = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(m[1]);
+    if (!dm) continue;
+    var a = parseInt(dm[1], 10), b = parseInt(dm[2], 10);
+    if (b > 12 && a <= 12) sawMdy = true;
+    else if (a > 12 && b <= 12) sawDmy = true;
+  }
+  if (sawMdy && !sawDmy) return 'mdy';
+  if (sawDmy && !sawMdy) return 'dmy';
+  return '';
 }
 
 function pad2_(s) { s = String(s); return s.length < 2 ? '0' + s : s; }
@@ -545,6 +595,7 @@ if (typeof module !== 'undefined' && module.exports) {
     canonicalArea_: canonicalArea_,
     hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,
+    detectDateOrder_: detectDateOrder_,
     sliceChatByDate_: sliceChatByDate_,
     filterByDates_: filterByDates_,
     PARSER_CONFIG: PARSER_CONFIG

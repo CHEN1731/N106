@@ -270,12 +270,18 @@ var PRODUCTIVITY_SYSTEM =
   'for these positive keywords:\n' +
   '- Piling & Walls (DW, BP, BT, CW): "drilling", "excavation", "lowering" (e.g., rebar ' +
   'cages), "concreting", "casting", "grouting", "backfilling", "hacking".\n' +
+  '- Traffic & Diversion: traffic deck (e.g. "TD 3A-7", "Traffic Deck 3A-7"), steel decking / ' +
+  'decking install or removal, traffic / road / drain / utility / services DIVERSION, lane ' +
+  'closure or opening, hoarding install or dismantle, and "mill & patch" / road reinstatement ' +
+  'are reportable site activities — KEEP them (they are new traffic diversions / critical path). ' +
+  'Never drop a traffic-deck or diversion line as noise.\n' +
   '- Metrics: Always extract any mention of volume ("m3", "m³"), depth ("m"), load counts ' +
   '("loads"), and "manpower".\n\n' +
   '2. EXCLUSION RULES (What to Ignore/Filter Out - Noise):\n' +
-  'DO NOT extract or include activities if they are purely non-value-adding or ' +
-  'administrative, UNLESS they block a critical path. Ignore entries with these negative ' +
-  'keywords:\n' +
+  'DO NOT extract a line ONLY when it is PURELY non-value-adding with no substantive work ' +
+  'elsewhere in the same line. If a line ALSO mentions any inclusion work above (piling/walls, ' +
+  'a traffic deck, decking, a diversion, hoarding, a metric), KEEP it. A line is noise only ' +
+  'when it is nothing but:\n' +
   '- "No activity" or "No Activity observed"\n' +
   '- "Housekeeping" or "Cleaning" (unless it is a specific major milestone)\n' +
   '- "Preparation work" (only extract if it involves physical installation like "platform setup")\n' +

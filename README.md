@@ -360,6 +360,18 @@ your exports, no logic changes needed:
 - **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
   message uses those over the heuristics (hybrid).
 - **`lineFormats`** — WhatsApp export headers (iOS / Android), auto-detected.
+- **Date order** — both **D/M/Y** (e.g. `25/9/26`) and **M/D/Y** US exports (e.g.
+  `9/25/26`) are handled automatically: `detectDateOrder_` reads the export's timestamps
+  and any value whose 2nd field can only be a day fixes the file as M/D/Y (or the 1st field
+  fixes it as D/M/Y); genuinely ambiguous dates default to D/M/Y. A human-typed in-body
+  `Date:` is auto-detected per value on its own, so a forwarded `25/9` never becomes month 25
+  inside an M/D/Y file. This prevents whole days (e.g. a 25 Sept upload) being dropped by
+  date-scoping when the phone exported US-order dates.
+
+The **AI extraction** prompt (`gas/Extract.gs`) keeps **traffic & diversion** works —
+traffic decks (e.g. `TD 3A-7`), steel decking, road/drain/utility diversions, lane closures,
+hoarding install/dismantle and mill-&-patch — alongside the piling/wall activities, so new
+traffic diversions are not filtered out as noise.
 
 Comparison lives in `gas/Compare.gs`: `COMPARE_CONFIG.agreeThreshold` (text-similarity
 bar) and `QUANTITY_RE` (which units count as a quantity). A **quantity** mismatch
