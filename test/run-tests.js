@@ -284,6 +284,21 @@ const spcExcav = spc.mergedActivities.find(a => /soil disposal/i.test(a.activity
 assert(spcWater && /\bSCT\b/.test(spcWater.activity), 'the water-pipe activity carries its SCT sub-header');
 assert(spcExcav && !/water pipe/i.test(spcExcav.activity), 'the SCT water-pipe work is NOT glued onto activity 1');
 
+console.log('\nSub-contractor sub-activities WITHOUT bullets (build-52):');
+// The activities have NO bullet — only the sub-contractor header (SCT / Huationg) delimits them.
+const spcNoBul =
+  '[9/25/26, 10:00:00 AM] ~ Eng: Sec A/SPC/CM(Ja)/Huationg & SCT/\n' +
+  '-\tRoof Slab (NB-CH4220 to CH4305)\n' +
+  'Deck soffit lvl 4.050mSHD to -0.134mSHD Mining Excavation from S02 to S01\n' +
+  'Current Excavation depth:4.50m/4.50m\n' +
+  'SCT\nExposing 150mm dia WP for support installation\n' +
+  'Huationg\nSoil disposal works on going to Gate #33 (3 loads)\n';
+const nb = productivityFromRecords_(spcNoBul, '', '2026-09-25');
+assert(nb.mergedActivities.length === 3, 'non-bulleted sub-contractor message -> 3 activities (got ' + nb.mergedActivities.length + ')');
+assert(nb.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)), 'the SCT "Exposing 150mm dia WP" activity is captured (was lost)');
+assert(nb.mergedActivities.some(a => /Soil disposal works on going to Gate #33/i.test(a.activity)), 'the Huationg soil-disposal activity is captured');
+assert(nb.mergedActivities.every(a => a.area === 'Area 1'), 'all three classified to Area 1');
+
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');
 assert(rc.reportDate === '2026-08-05', 'runComparison reports the date');

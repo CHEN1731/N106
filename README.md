@@ -373,7 +373,9 @@ your exports, no logic changes needed:
   (e.g. `SUPERVISOR-1`, `General worker -5`, `Crane - 1`, `Excavators -0`) are recognised as
   counts (`isRosterLine_`) and are **not** turned into activity rows. A short sub-header between
   bullets (a sub-contractor tag or cell header like `HTC`, `SCT`, `North Cell`) attaches to the
-  **following** activity, so two activities under one location keep their own sub-contractor.
+  **following** activity, so two activities under one location keep their own sub-contractor. A
+  sub-contractor header also **splits** the activities even when the work has **no bullet** (the
+  header on one line, the work on the next), so a `SCT` / `Huationg` sub-section is its own row.
 - **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
   header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
   being dropped.
