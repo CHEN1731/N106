@@ -531,13 +531,27 @@ function isHeaderNoise_(line) {
 }
 
 /**
+ * True when a line is a short header / label rather than activity content — a
+ * sub-contractor tag or cell header ("HTC", "SCT", "North Cell"). Such a line
+ * describes the NEXT work item, so it must attach to the following activity, not
+ * be glued onto the previous one. Kept narrow (few words, no digit, not a
+ * sentence) so real one-line activities are treated as content.
+ */
+function isHeaderLabel_(line) {
+  var s = String(line).replace(/\s+/g, ' ').trim();
+  if (!s) return false;
+  return s.split(' ').length <= 4 && !/\d/.test(s) && !/[.!?]$/.test(s) && /^[A-Za-z]/.test(s);
+}
+
+/**
  * Split a message's activity lines into distinct work-items. Site reports pack
  * several activities into one message as a bulleted / numbered list, which must
- * not collapse into a single row. When there are >= 2 marker lines, each item =
- * a marker line plus the following non-marker detail/parameter lines up to the
- * next marker; any non-marker lines before the first marker prepend to the first
- * item. Fewer than 2 markers => one item (the whole joined text), the prior
- * behaviour. Returns an array of trimmed item strings.
+ * not collapse into a single row. When there are >= 2 marker lines, each marker
+ * is one item; a short header/label line (sub-contractor tag, cell header)
+ * becomes context for the NEXT item, while a genuine detail/parameter line
+ * attaches to the CURRENT item. Banner/date/roster-heading noise is dropped.
+ * Fewer than 2 markers => one item (the whole joined text), the prior behaviour.
+ * Returns an array of trimmed item strings.
  */
 function splitActivityItems_(actLines) {
   var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); };
@@ -546,20 +560,24 @@ function splitActivityItems_(actLines) {
   for (var i = 0; i < actLines.length; i++) if (isListMarker_(actLines[i])) markerCount++;
   if (markerCount < 2) return [norm(actLines.join(' '))].filter(Boolean);
 
-  var items = [], lead = [], cur = null;
+  var items = [], pending = [], cur = -1;
   for (var j = 0; j < actLines.length; j++) {
     var line = actLines[j];
     if (isListMarker_(line)) {
-      if (cur) items.push(cur);
-      cur = stripListMarker_(line);
-    } else if (cur === null) {
-      if (!isHeaderNoise_(line)) lead.push(norm(line));  // context before first marker (skip banners)
-    } else if (!isHeaderNoise_(line)) {
-      cur += ' ' + norm(line);             // detail/parameter line for the current item
-    }                                      // else: a banner between items — don't glue it on
+      var text = stripListMarker_(line);
+      if (pending.length) { text = pending.join(' ') + ' ' + text; pending = []; }
+      items.push(norm(text));
+      cur = items.length - 1;
+    } else if (isHeaderNoise_(line)) {
+      continue;                                          // a banner/date/roster heading — drop it
+    } else if (cur >= 0 && !isHeaderLabel_(line)) {
+      items[cur] = norm(items[cur] + ' ' + norm(line));  // detail/parameter of the current item
+    } else {
+      pending.push(norm(line));                          // header/label -> context for the next item
+    }
   }
-  if (cur) items.push(cur);
-  if (lead.length && items.length) items[0] = (lead.join(' ') + ' ' + items[0]).trim();
+  // A trailing header with no following marker: fold it into the last item.
+  if (pending.length && items.length) items[items.length - 1] = norm(items[items.length - 1] + ' ' + pending.join(' '));
   return items.map(norm).filter(Boolean);
 }
 

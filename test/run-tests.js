@@ -268,6 +268,22 @@ assert(!isRosterLine_('Traffic control') && !isRosterLine_('Lifting work') && !i
 assert(isRosterLine_('SUPERVISOR-1') && isRosterLine_('General worker -5') && isRosterLine_('Excavators -0') && isRosterLine_('Foreman :'),
   'isRosterLine_ flags roster counts');
 
+console.log('\nSub-contractor sub-headers attach to the right activity (build-51):');
+// One location with two activities under HTC / SCT sub-headers -> two rows, both Area 1,
+// and the SCT tag belongs to activity 2 (not glued onto activity 1).
+const spcMsg =
+  '[9/25/26, 10:00:00 AM] ~ Eng: Sec A/SPC/CM(Ja)/Huationg & SCT/\n' +
+  'Roof Slab (NB-CH4220 to CH4305)\nCurrent Excavation depth:4.50m/4.50m\n' +
+  ' HTC \n- Excavation and soil disposal work ongoing to gate #33 \n' +
+  ' SCT \n- 300mm water pipe support installation.\n';
+const spc = productivityFromRecords_(spcMsg, '', '2026-09-25');
+assert(spc.mergedActivities.length === 2, 'SPC message -> 2 activities (got ' + spc.mergedActivities.length + ')');
+assert(spc.mergedActivities.every(a => a.area === 'Area 1'), 'both SPC activities classified to Area 1');
+const spcWater = spc.mergedActivities.find(a => /water pipe/i.test(a.activity));
+const spcExcav = spc.mergedActivities.find(a => /soil disposal/i.test(a.activity));
+assert(spcWater && /\bSCT\b/.test(spcWater.activity), 'the water-pipe activity carries its SCT sub-header');
+assert(spcExcav && !/water pipe/i.test(spcExcav.activity), 'the SCT water-pipe work is NOT glued onto activity 1');
+
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');
 assert(rc.reportDate === '2026-08-05', 'runComparison reports the date');

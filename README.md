@@ -371,7 +371,9 @@ your exports, no logic changes needed:
   is credited to the first item so area totals aren't multiplied. The AI path is likewise told
   to emit every list item. Manpower / machinery **roster** bullets in forwarded daily-summaries
   (e.g. `SUPERVISOR-1`, `General worker -5`, `Crane - 1`, `Excavators -0`) are recognised as
-  counts (`isRosterLine_`) and are **not** turned into activity rows.
+  counts (`isRosterLine_`) and are **not** turned into activity rows. A short sub-header between
+  bullets (a sub-contractor tag or cell header like `HTC`, `SCT`, `North Cell`) attaches to the
+  **following** activity, so two activities under one location keep their own sub-contractor.
 - **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
   header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
   being dropped.
