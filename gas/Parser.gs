@@ -331,6 +331,12 @@ function messageToRecord_(msg, source, order) {
     return null;
   }
 
+  // Distinct work-items packed into this one message (a bulleted/numbered list);
+  // a single-element array when it is a single activity. Kept alongside the joined
+  // `activity` so the dashboard can list each item without collapsing them, while
+  // Compare / Raw_Logs keep using the joined `activity`.
+  var items = (ar.items && ar.items.length) ? ar.items : [activity.trim()];
+
   return {
     source: source,
     date: date,
@@ -341,6 +347,7 @@ function messageToRecord_(msg, source, order) {
     section: (loc.section || '').trim(),
     segment: (loc.segment || '').trim(),
     activity: activity.trim(),
+    activityItems: items,
     remark: remark.trim(),
     photos: photos,
     sender: msg.sender,
@@ -476,7 +483,7 @@ function splitDescription_(body, fields, locatorLine) {
   if (locatorLine) {
     lines = lines.filter(function (l) { return l !== locatorLine; });
   }
-  if (!lines.length) return { activity: '', remark: '' };
+  if (!lines.length) return { activity: '', remark: '', items: [] };
   // Pull a manpower line into remark; the rest is the activity description.
   var remarkLines = [], actLines = [];
   lines.forEach(function (l) {
@@ -484,8 +491,53 @@ function splitDescription_(body, fields, locatorLine) {
   });
   return {
     activity: actLines.join(' ').replace(/\s+/g, ' ').trim(),
-    remark: remarkLines.join(' | ').trim()
+    remark: remarkLines.join(' | ').trim(),
+    // Distinct work-items when the description is a bulleted/numbered list (else one item).
+    items: splitActivityItems_(actLines)
   };
+}
+
+/** True when a line begins with a list marker (-, *, •, ·, ▪, ◦, or "1." / "1)"). */
+function isListMarker_(line) {
+  return /^\s*(?:[-*•·▪◦]\s+|\d{1,2}[.)]\s+)/.test(String(line));
+}
+
+/** Strip a leading list marker from a line. */
+function stripListMarker_(line) {
+  return String(line).replace(/^\s*(?:[-*•·▪◦]\s+|\d{1,2}[.)]\s+)/, '').trim();
+}
+
+/**
+ * Split a message's activity lines into distinct work-items. Site reports pack
+ * several activities into one message as a bulleted / numbered list, which must
+ * not collapse into a single row. When there are >= 2 marker lines, each item =
+ * a marker line plus the following non-marker detail/parameter lines up to the
+ * next marker; any non-marker lines before the first marker prepend to the first
+ * item. Fewer than 2 markers => one item (the whole joined text), the prior
+ * behaviour. Returns an array of trimmed item strings.
+ */
+function splitActivityItems_(actLines) {
+  var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); };
+  if (!actLines || !actLines.length) return [];
+  var markerCount = 0;
+  for (var i = 0; i < actLines.length; i++) if (isListMarker_(actLines[i])) markerCount++;
+  if (markerCount < 2) return [norm(actLines.join(' '))].filter(Boolean);
+
+  var items = [], lead = [], cur = null;
+  for (var j = 0; j < actLines.length; j++) {
+    var line = actLines[j];
+    if (isListMarker_(line)) {
+      if (cur) items.push(cur);
+      cur = stripListMarker_(line);
+    } else if (cur === null) {
+      lead.push(norm(line));               // context before the first marker
+    } else {
+      cur += ' ' + norm(line);             // detail/parameter line for the current item
+    }
+  }
+  if (cur) items.push(cur);
+  if (lead.length && items.length) items[0] = (lead.join(' ') + ' ' + items[0]).trim();
+  return items.map(norm).filter(Boolean);
 }
 
 /**
@@ -598,6 +650,7 @@ if (typeof module !== 'undefined' && module.exports) {
     hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,
     detectDateOrder_: detectDateOrder_,
+    splitActivityItems_: splitActivityItems_,
     sliceChatByDate_: sliceChatByDate_,
     filterByDates_: filterByDates_,
     PARSER_CONFIG: PARSER_CONFIG

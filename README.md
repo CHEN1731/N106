@@ -364,6 +364,12 @@ your exports, no logic changes needed:
 - **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
   message uses those over the heuristics (hybrid).
 - **`lineFormats`** — WhatsApp export headers (iOS / Android), auto-detected.
+- **Multi-activity messages** — when one message lists several works as a bulleted / numbered
+  list (lines starting with `-`, `*`, `•`, or `1.` / `2)`), each item becomes its **own
+  activity** row (`splitActivityItems_` in `gas/Parser.gs`) instead of collapsing into one; a
+  message with fewer than two markers stays a single activity. Manpower stated once for the list
+  is credited to the first item so area totals aren't multiplied. The AI path is likewise told
+  to emit every list item.
 - **Date order** — both **D/M/Y** (e.g. `25/9/26`) and **M/D/Y** US exports (e.g.
   `9/25/26`) are handled automatically: `detectDateOrder_` reads the export's timestamps
   and any value whose 2nd field can only be a day fixes the file as M/D/Y (or the 1st field

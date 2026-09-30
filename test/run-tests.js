@@ -14,7 +14,7 @@ vm.createContext(sandbox);
 ['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, docxXmlToText_,
+const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
@@ -227,6 +227,23 @@ assert(mdyRecs.length >= 2 && mdyRecs.every(r => r.date === '2026-09-25'),
 const mdyFb = productivityFromRecords_(mdyExport, '', '2026-09-25');
 assert(mdyFb.mergedActivities.some(a => /3A-7|decking|diversion/i.test((a.activity || a.activityDescription || ''))),
   'offline path keeps the TD 3A-7 traffic-diversion activity');
+
+console.log('\nMulti-activity messages (build-49): bullet lists split into rows:');
+// A message packing 3 bullet items must become 3 activities, not 1.
+assert(splitActivityItems_(['- Traffic control at Gate-8', '- BTC receiving shaft excavation', '* SBP drilling work']).length === 3,
+  'splitActivityItems_ -> 3 items for a 3-bullet list');
+assert(splitActivityItems_(['DW1547 rebar fixing']).length === 1, 'single line -> 1 item');
+assert(splitActivityItems_(['-Preparing Excavation', 'GL:+4.36mSHD', 'Current Level +2.35mSHD']).length === 1,
+  'one marker + detail lines -> 1 item (no false split)');
+const multiMsg =
+  '[9/25/26, 09:00:00] ~ Eng: Sec-C/Mb\n' +
+  '- DW1547 rebar cage lowering\n- DW04 concrete casting 42 m3\n* BT20-2 excavation ongoing\nManpower: 9\n';
+const multiRec = parseWhatsApp(multiMsg, 'RTO');
+assert(multiRec.length === 1 && multiRec[0].activityItems.length === 3,
+  'a 3-bullet message parses to 1 record carrying 3 activityItems (got ' + (multiRec[0] && multiRec[0].activityItems.length) + ')');
+const multiFb = productivityFromRecords_(multiMsg, '', '2026-09-25');
+assert(multiFb.mergedActivities.length === 3, 'offline path emits 3 activities from the 3-bullet message (got ' + multiFb.mergedActivities.length + ')');
+assert(multiFb.productivityData.totalManpower === 9, 'manpower counted once (9), not multiplied per item (got ' + multiFb.productivityData.totalManpower + ')');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

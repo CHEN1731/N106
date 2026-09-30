@@ -296,7 +296,12 @@ var PRODUCTIVITY_SYSTEM =
   'operation (e.g. RTO and AIS both report casting of "DW1547"). Do NOT over-merge: keep ' +
   'every DISTINCT work item as its own activity (a different element, panel, structure type, ' +
   'or operation is a separate entry), and never drop an activity that passed the inclusion ' +
-  'rules. Listing fewer activities than there are distinct work items is an error.\n\n' +
+  'rules. Listing fewer activities than there are distinct work items is an error.\n' +
+  'CRITICAL — MULTI-ITEM MESSAGES: a single message often lists several activities as a ' +
+  'bulleted or numbered list (lines starting with "-", "*", "•", or "1.", "2)"). Treat EACH ' +
+  'such line as its OWN activity and output ALL of them — never collapse a multi-item message ' +
+  'into one activity, and never omit trailing items. Only merge across RTO/AIS when the SAME ' +
+  'element+operation is reported twice.\n\n' +
   '5. TRACEABILITY (back-check):\n' +
   'For each activity, set "elementId" to the specific structural ID it concerns (DW1547, ' +
   'BP-T9-3, BT20-2, CW323 …) or "". Each area\'s kpiBreakdown lists ' +
@@ -525,6 +530,9 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'Build a daily productivity dashboard for construction project N106 from two inputs: ' +
     '(A) RTO field notes and (B) the AIS Daily Report. Apply the INCLUSION, EXCLUSION, ' +
     'GROUPING, MERGING, and TRACEABILITY rules from your instructions strictly.\n\n' +
+    'A single message often lists SEVERAL activities as a bulleted / numbered list (lines ' +
+    'starting with "-", "*", "•", or "1.", "2)"). Emit EVERY such line as its own activity — ' +
+    'do not collapse a multi-item message into one activity or drop trailing items.\n\n' +
     'Group all kept, merged activities BY AREA. Output one entry in "areas" per area worked ' +
     'on, each with:\n' +
     '   - "areaName": exactly "Area 1".."Area 4" or "Others".\n' +
@@ -558,7 +566,7 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
 
   var body = {
     model: getModel_(),
-    max_tokens: 8192,
+    max_tokens: 16384,                      // 8192 truncated big days -> trailing activities lost
     output_config: { effort: 'medium' },   // 'low' dropped activities; medium is more complete
     system: PRODUCTIVITY_SYSTEM,
     tools: [tool],
@@ -1075,19 +1083,27 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
 
   var seen = {}, acts = [];
   all.forEach(function (r) {
-    var act = r.activity || '';
-    var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
-    if (seen[k]) return;
-    seen[k] = true;
-    // Fold any remark into the activity text so a volume in the remark is still counted.
-    var full = (r.remark ? (act + ' — ' + r.remark) : act).trim();
-    acts.push({
-      area: r.areaGroup || areaFromSection_(r.area) || '',
-      section: r.area || '',
-      elementId: firstElementId_((r.area || '') + ' ' + act),
-      activity: full,
-      stage: stageFromText_(full),
-      manpower: firstManpower_((r.remark || '') + ' ' + act)
+    // A message can pack several activities as a bulleted/numbered list — emit one
+    // act per item so none collapse. Manpower goes on the FIRST item only so the
+    // area total isn't multiplied across the list.
+    var items = (r.activityItems && r.activityItems.length) ? r.activityItems : [r.activity || ''];
+    var msgManpower = firstManpower_((r.remark || '') + ' ' + (r.activity || ''));
+    items.forEach(function (act, idx) {
+      act = act || '';
+      if (!act) return;
+      var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (seen[k]) return;
+      seen[k] = true;
+      // Fold the remark into the last item's text so a volume in the remark is still counted.
+      var full = (r.remark && idx === items.length - 1 ? (act + ' — ' + r.remark) : act).trim();
+      acts.push({
+        area: r.areaGroup || areaFromSection_(r.area) || '',
+        section: r.area || '',
+        elementId: firstElementId_((r.area || '') + ' ' + act),
+        activity: full,
+        stage: stageFromText_(full),
+        manpower: idx === 0 ? msgManpower : 0
+      });
     });
   });
   acts = acts.filter(function (a) { return a.activity; });
