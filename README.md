@@ -349,6 +349,10 @@ your exports, no logic changes needed:
   it **overrides the AI's guessed Area** everywhere — activity KPIs and the machine cards — so
   a location like `ER15(Le)` always reads Area 2 even if the model mislabelled it. Add named
   locations here to fix any mis-grouping. Unmapped segments leave `area_group` blank.
+  E.g. **Section-N** (the BTC-canal / L&R-shaft / main-tunnel works) and **"Under PIE CM"**
+  (`PIE`) are mapped to **Area 2** — adding a named location both to `segmentArea` *and* to the
+  `segments` list is what lets a report leading with it (e.g. `Under PIE CM / …` with no
+  `Sec-B` prefix) resolve at all, instead of being dropped by `requireLocator`.
 - **`requireLocator`** — `true` (recommended): keep ONLY messages with a real
   `Sec-/segment` locator, so greetings, questions (RFI), emoji and coordination
   chatter never reach the Sheet. Set `false` to also keep `General`-bucket notes.

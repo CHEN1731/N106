@@ -47,7 +47,7 @@ var PARSER_CONFIG = {
     // locator line (split on / ( ) space). Add/trim to match your plan labels.
     // Multi-letter names are listed before single letters so they win.
     segments: [
-      'Portal', 'Cube8', 'SLF', 'SJII', 'TLQ', 'OPA', 'SPC', 'SOD',
+      'Portal', 'Cube8', 'SLF', 'SJII', 'TLQ', 'OPA', 'SPC', 'SOD', 'PIE', 'Sec-N',
       'Wc', 'Wb', 'Wa', 'Lc', 'Lb3', 'Lb2', 'Lb1', 'La3', 'La2', 'La1',
       'Le', 'Ld', 'Mb', 'Ma', 'P5', 'FB', 'Ja', 'Jb', 'Ka', 'Kb',
       'Qa', 'Qb', 'Qc', 'Qd', 'Sa', 'Sb', 'Ta', 'Tb', 'Tc', 'Ua', 'Ub',
@@ -68,8 +68,10 @@ var PARSER_CONFIG = {
     segmentArea: {
       // Area 1
       'Ja': 'Area 1', 'Jb': 'Area 1', 'Ka': 'Area 1', 'Kb': 'Area 1',
-      'Qa': 'Area 1', 'Qb': 'Area 1', 'N': 'Area 1',
-      // Area 2
+      'Qa': 'Area 1', 'Qb': 'Area 1',
+      // Area 2  ('N'/Sec-N = the BTC canal / L&R-shaft / main-tunnel works;
+      // 'PIE' = the "Under PIE CM / NB / Slip Rd" works — all Area 2 per site decision)
+      'N': 'Area 2', 'Sec-N': 'Area 2', 'PIE': 'Area 2',
       'P': 'Area 2', 'Qc': 'Area 2', 'Qd': 'Area 2', 'R': 'Area 2', 'Sa': 'Area 2',
       'Ma': 'Area 2', 'Mb': 'Area 2', 'Ld': 'Area 2', 'Le': 'Area 2', 'Wb': 'Area 2',
       // Area 3

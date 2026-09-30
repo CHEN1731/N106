@@ -84,6 +84,14 @@ assert(areaFromSection_('Sec-C') === 'Area 2', 'Sec-C -> Area 2');
 assert(areaFromSection_('Section D') === 'Area 3', 'Section D -> Area 3');
 assert(areaFromSection_('Sec-E') === 'Area 4', 'Sec-E -> Area 4');
 assert(areaFromSection_('OPA') === 'Area 2', 'OPA -> Area 2');
+// build-48: Section-N + "Under PIE CM" are Area 2 (BTC canal / tunnel + Under-PIE works)
+assert(areaFromSection_('N') === 'Area 2', 'N -> Area 2 (moved from Area 1)');
+assert(areaFromSection_('Sec-N') === 'Area 2', 'Sec-N -> Area 2');
+assert(areaFromSection_('Under PIE CM') === 'Area 2', 'Under PIE CM -> Area 2');
+assert(resolveLocator_('Sec-N(N2&N3)\nExcavation work in progress').areaGroup === 'Area 2',
+  'a header leading with Sec-N now resolves (was dropped) -> Area 2');
+assert(resolveLocator_('Under PIE CM / SCT\nExcavation work').areaGroup === 'Area 2',
+  'a header leading with Under PIE CM now resolves -> Area 2');
 assert(areaFromSection_('XR14') === 'Area 4', 'XR14 -> Area 4');
 // Segment wins over the section letter when both are present.
 assert(areaFromSection_('Sec-C/Sb') === 'Area 3', 'Sec-C/Sb -> segment Sb wins (Area 3)');
