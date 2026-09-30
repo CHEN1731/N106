@@ -1071,6 +1071,34 @@ function normalizeRC_(raw, mergedActivities, grandConcrete) {
 }
 
 /**
+ * True when an item is a manpower / machinery ROSTER count (e.g. "SUPERVISOR-1",
+ * "General worker -5", "Crane - 1 SCT", "Excavators -0") rather than a site
+ * activity. Forwarded daily-manpower summaries list the roster as bullets, which
+ * must not become activity rows. Conservative: only short items that start with a
+ * role/machine keyword (so real activities like "Traffic control", "Lifting work",
+ * "Hot work", "Site preparation" are kept — "Traffic controller -1", "Lifting
+ * supervisor 1", "Crane - 1" are dropped).
+ */
+function isRosterLine_(text) {
+  var s = String(text == null ? '' : text).replace(/[​-‏⁠﻿]/g, '').trim();
+  if (!s) return false;
+  var KW = '(?:site\\s+)?(?:supervisor|banksman|welder|foreman|carpenter|general\\s+worker|' +
+           'fire\\s*watch(?:man)?|traffic\\s+controller|lifting\\s+supervisor|safety(?:\\s+management)?|' +
+           '[\\w\\/]+\\s+operator|operator|(?:mini|lorry|telescopic|crawler)?\\s*crane|' +
+           '(?:mini|telescopic|crawler)?\\s*excavators?|equipments?|machinery|g\\/w|l\\/s|r\\/s|res|wshc|total)';
+  // (a) a line that STARTS with a role/machine keyword immediately followed by a
+  //     count: "SUPERVISOR-1", "General worker -5", "Mini excavator - 06",
+  //     "Excavators -0 …" (even when a forward glued more roster text after it).
+  //     Real activities describe the work, they don't lead with "<machine> <number>",
+  //     so "Crane lifting rebar cage", "Sambo Excavator shift to QC island",
+  //     "CHCI … using crane" (keyword not at the start / no trailing count) are kept.
+  if (new RegExp('^' + KW + '\\b[^A-Za-z\\n]*\\d{1,3}\\b', 'i').test(s)) return true;
+  // (b) a short bare roster label with a blank/colon count: "Foreman :", "welder :".
+  if (s.split(/\s+/).length <= 6 && new RegExp('^' + KW + '\\b\\s*[:\\-=]\\s*\\d{0,3}\\s*$', 'i').test(s)) return true;
+  return false;
+}
+
+/**
  * Deterministic fallback (no AI): parse both texts, merge/dedupe activities, and
  * regex-extract DW/BP/BT/CW codes, concrete m3 and manpower.
  */
@@ -1091,6 +1119,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
     items.forEach(function (act, idx) {
       act = act || '';
       if (!act) return;
+      if (isRosterLine_(act)) return;      // a manpower/machinery count, not an activity
       var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
       if (seen[k]) return;
       seen[k] = true;

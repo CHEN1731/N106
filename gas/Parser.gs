@@ -452,8 +452,9 @@ function resolveLocator_(body) {
 
 /** First segment code appearing as a whole token in the line, or ''. */
 function matchSegment_(line, segments) {
-  // Tokens are delimited by / ( ) , space and similar.
-  var tokens = String(line).split(/[\/()\[\],;:\s]+/).filter(Boolean);
+  // Tokens are delimited by / ( ) . , ; : space and similar. The "." matters for
+  // glued headers like "AREA-4.XR14 -FB", which must expose the XR14 segment.
+  var tokens = String(line).split(/[\/()\[\].,;:\s]+/).filter(Boolean);
   var byLower = {};
   for (var s = 0; s < segments.length; s++) byLower[String(segments[s]).toLowerCase()] = segments[s];
   var patterns = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.segmentPatterns) || [];
@@ -508,6 +509,28 @@ function stripListMarker_(line) {
 }
 
 /**
+ * True when a line is a forward's banner / section header rather than activity
+ * content — a date, a shift/section label, or a manpower/machinery heading. Used
+ * only to keep such lines out of the FIRST activity's text when splitting a list.
+ */
+function isHeaderNoise_(line) {
+  var s = String(line).replace(/[​-‏⁠﻿]/g, '').trim();
+  if (!s) return true;
+  if (/^[^A-Za-z0-9]+$/.test(s)) return true;                          // pure decoration (💠 ※ ﹌)
+  if (/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}$/.test(s)) return true;    // a bare date
+  if (/^(day|night)\s*shift\b/i.test(s)) return true;
+  if (/\bactivit(?:y|ies)\b\s*:?\s*$/i.test(s)) return true;          // "…ACTIVITIES" / "Activity"
+  if (/^(activities|activity|machinery|equipments?|manpower)\b\s*[:\-]?\s*\d*\s*$/i.test(s)) return true;
+  if (/^(forwarded|daily\s+manpower)\b/i.test(s)) return true;
+  if (/\bcontractor\b\s*$/i.test(s)) return true;                     // "Huationg Contractor"
+  if (/\bmanpower\b\s*[:\-]?\s*\d*\s*$/i.test(s)) return true;        // "Day shift Manpower", "Manpower : 19"
+  if (/^area[\s.\-]*[1-4]\b/i.test(s)) return true;                   // an "AREA-4 …" banner
+  if (/^samsung\b/i.test(s)) return true;                            // "SAMSUNG C&T N106" banner
+  if (/^[A-Za-z][A-Za-z .()\/&\-]*=\s*\d{1,3}\b/.test(s)) return true;  // roster "Site Supervisor (RES) = 01" (=, not :, to spare "level: 2.3m")
+  return false;
+}
+
+/**
  * Split a message's activity lines into distinct work-items. Site reports pack
  * several activities into one message as a bulleted / numbered list, which must
  * not collapse into a single row. When there are >= 2 marker lines, each item =
@@ -530,10 +553,10 @@ function splitActivityItems_(actLines) {
       if (cur) items.push(cur);
       cur = stripListMarker_(line);
     } else if (cur === null) {
-      lead.push(norm(line));               // context before the first marker
-    } else {
+      if (!isHeaderNoise_(line)) lead.push(norm(line));  // context before first marker (skip banners)
+    } else if (!isHeaderNoise_(line)) {
       cur += ' ' + norm(line);             // detail/parameter line for the current item
-    }
+    }                                      // else: a banner between items — don't glue it on
   }
   if (cur) items.push(cur);
   if (lead.length && items.length) items[0] = (lead.join(' ') + ' ' + items[0]).trim();

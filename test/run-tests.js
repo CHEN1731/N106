@@ -16,7 +16,7 @@ vm.createContext(sandbox);
 });
 const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
-        normalizeProductivity_, productivityFromRecords_, buildProductivityResult_,
+        normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
@@ -244,6 +244,29 @@ assert(multiRec.length === 1 && multiRec[0].activityItems.length === 3,
 const multiFb = productivityFromRecords_(multiMsg, '', '2026-09-25');
 assert(multiFb.mergedActivities.length === 3, 'offline path emits 3 activities from the 3-bullet message (got ' + multiFb.mergedActivities.length + ')');
 assert(multiFb.productivityData.totalManpower === 9, 'manpower counted once (9), not multiplied per item (got ' + multiFb.productivityData.totalManpower + ')');
+
+console.log('\nXR14 glued AREA-tag header + roster filter (build-50):');
+// "AREA-4.XR14 -FB" must expose the XR14 segment (period now splits) -> Area 4.
+assert(resolveLocator_('AREA-4.XR14 -FB\n- Noise mitigation').areaGroup === 'Area 4',
+  'glued "AREA-4.XR14" header resolves to Area 4 (was dropped)');
+// A forwarded daily-manpower block: real activities kept, roster/machinery counts dropped.
+const fwdMsg =
+  '[9/25/26, 09:20:51 AM] ~ Eng: [Forwarded] DAILY MANPOWER AND ACTIVITIES\n' +
+  'AREA-4.XR14 -FB\n25/09/2026\nDAY SHIFT\nSAMSUNG ACTIVITIES\n' +
+  '- Noise mitigation installation and monitoring\n- Hard Barricade Install\n- Traffic control\n' +
+  'Manpower SCT - 13\n- SUPERVISOR-1\n- General worker -5\n- Crane - 1 SCT\n- Excavators -0\n';
+const fwd = productivityFromRecords_(fwdMsg, '', '2026-09-25');
+const fwdActs = fwd.mergedActivities.map(a => a.activity);
+assert(fwd.mergedActivities.every(a => a.area === 'Area 4'), 'forwarded XR14 block grouped under Area 4');
+assert(fwdActs.some(a => /noise mitigation/i.test(a)) && fwdActs.some(a => /hard barricade/i.test(a)) && fwdActs.some(a => /traffic control/i.test(a)),
+  'real activities (noise mitigation, hard barricade, traffic control) are kept');
+assert(!fwdActs.some(a => /^supervisor-1|^general worker -5|^crane - 1|^excavators -0/i.test(a)),
+  'roster/machinery counts (SUPERVISOR-1, General worker -5, Crane -1, Excavators -0) are dropped');
+// isRosterLine_ precision: real activities are never flagged
+assert(!isRosterLine_('Traffic control') && !isRosterLine_('Lifting work') && !isRosterLine_('Crane lifting rebar cage') && !isRosterLine_('Excavator shift to QC island'),
+  'isRosterLine_ keeps real activities');
+assert(isRosterLine_('SUPERVISOR-1') && isRosterLine_('General worker -5') && isRosterLine_('Excavators -0') && isRosterLine_('Foreman :'),
+  'isRosterLine_ flags roster counts');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

@@ -369,7 +369,12 @@ your exports, no logic changes needed:
   activity** row (`splitActivityItems_` in `gas/Parser.gs`) instead of collapsing into one; a
   message with fewer than two markers stays a single activity. Manpower stated once for the list
   is credited to the first item so area totals aren't multiplied. The AI path is likewise told
-  to emit every list item.
+  to emit every list item. Manpower / machinery **roster** bullets in forwarded daily-summaries
+  (e.g. `SUPERVISOR-1`, `General worker -5`, `Crane - 1`, `Excavators -0`) are recognised as
+  counts (`isRosterLine_`) and are **not** turned into activity rows.
+- **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
+  header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
+  being dropped.
 - **Date order** — both **D/M/Y** (e.g. `25/9/26`) and **M/D/Y** US exports (e.g.
   `9/25/26`) are handled automatically: `detectDateOrder_` reads the export's timestamps
   and any value whose 2nd field can only be a day fixes the file as M/D/Y (or the 1st field
