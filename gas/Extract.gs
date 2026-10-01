@@ -295,17 +295,38 @@ function activityCovered_(fbAct, aiActs) {
 }
 
 /**
- * Merge the AI result with the offline parse so NO activity the parser found is lost
- * (the AI sometimes drops sub-contractor / non-bulleted sub-activities). Keeps the
- * AI's grouping and resource nodes; appends only offline activities the AI didn't
- * cover; rebuilds area/KPI/concrete from the union so everything reconciles.
+ * True when an offline activity is substantive enough to BACKFILL into the AI result.
+ * The offline parse is granular-but-noisy (forwarded manpower/QC summaries, staff-roster
+ * planning messages), so a blanket union floods areas like Area 2. Only add an offline
+ * activity that is a real site work item the AI genuinely missed — not a roster count,
+ * a QC/planning banner, or a tiny fragment.
+ */
+function backfillWorthy_(act) {
+  var s = String((act && act.activity) || '').replace(/[​-‏⁠﻿]/g, '').trim();
+  if (!s) return false;
+  if (isRosterLine_(s)) return false;                                  // "SUPERVISOR-1", "Crane -1"
+  var words = s.split(/\s+/).length;
+  if (words <= 5 && /^[A-Za-z][A-Za-z .()\/&\-]*[:=]\s*\d{1,3}\b/.test(s)) return false;  // short "Engrg : 01" roster
+  if (/\b(north south corridor|taehwa|taehawa|geo eng|daily progress status|rto area arrangement)\b/i.test(s)) return false;  // QC / roster-planning banners
+  if (act.elementId) return true;                                      // has a structural element -> keep
+  if (words < 4) return false;                                         // tiny fragment
+  // require a real site-activity signal (prefix match, so excavation/drilling/installation match)
+  return /\b(?:excavat|drill|bor|bite|depth|rebar|cage|grout|hack|trim|backfill|pil|deck|divers|divert|hoarding|traffic|lane|install|lower|kicker|guide|wall|waterproof|membrane|soil|disposal|dewater|break|chisel|expos|support|monitor|curing|formwork|casing|concret|cast|pour|duct|cable|pipe|sewer|manhole|shaft|tunnel|slab|screed|weld|lifting)/i.test(s);
+}
+
+/**
+ * Merge the AI result with the offline parse so NO substantive activity the parser found
+ * is lost (the AI sometimes drops sub-contractor / non-bulleted sub-activities). Keeps the
+ * AI's grouping and resource nodes; appends only offline activities the AI didn't cover AND
+ * that pass backfillWorthy_ (so roster/banner/planning fragments don't flood the areas);
+ * rebuilds area/KPI/concrete from the union so everything reconciles.
  */
 function mergeProductivity_(ai, fb) {
   var aiActs = (ai && ai.mergedActivities) ? ai.mergedActivities : [];
   var fbActs = (fb && fb.mergedActivities) ? fb.mergedActivities : [];
   var union = aiActs.slice();
   fbActs.forEach(function (f) {
-    if (!activityCovered_(f, aiActs)) {
+    if (!activityCovered_(f, aiActs) && backfillWorthy_(f)) {
       // manpower already accounted for by the AI's area totals -> 0 to avoid inflating
       union.push({ area: f.area, section: f.section || '', elementId: f.elementId || '',
         activity: f.activity || '', stage: f.stage || '', manpower: 0 });
@@ -1341,6 +1362,7 @@ if (typeof module !== 'undefined' && module.exports) {
     productivityFromRecords_: productivityFromRecords_,
     mergeProductivity_: mergeProductivity_,
     activityCovered_: activityCovered_,
+    backfillWorthy_: backfillWorthy_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
     normAreaName_: normAreaName_,

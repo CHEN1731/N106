@@ -17,7 +17,7 @@ vm.createContext(sandbox);
 const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
-        mergeProductivity_, activityCovered_,
+        mergeProductivity_, activityCovered_, backfillWorthy_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
@@ -347,6 +347,34 @@ assert(activityCovered_({ activity: 'soil disposal works ongoing', elementId: ''
 assert(activityCovered_({ activity: 'Exposing 150mm dia WP for support installation', elementId: '' },
   [{ activity: 'Roof slab deck soffit mining excavation', elementId: '' }]) === false,
   'activityCovered_ does NOT treat a genuinely different activity as covered');
+
+console.log('\nConservative backfill gate (build-55): no Area-2 flood:');
+// Worthy: real site work the AI may have dropped.
+assert(backfillWorthy_({ activity: 'SCT Exposing 150mm dia WP for support installation', elementId: '' }), 'SCT WP line is backfill-worthy');
+assert(backfillWorthy_({ activity: 'drilling works continues Current depth :37.0m/38.50m', elementId: '' }), 'a drilling line with a trailing depth is worthy (word-count guard spares it)');
+assert(backfillWorthy_({ activity: 'BTC receiving shaft 5.2mSHD excavation below BTC Canal', elementId: '' }), 'an excavation line is worthy');
+assert(backfillWorthy_({ activity: 'rebar cage lowering', elementId: 'DW1547' }), 'an element-ID activity is worthy');
+// Not worthy: roster / banners / planning / fragments.
+assert(!backfillWorthy_({ activity: 'Engrg : 01', elementId: '' }), 'roster "Engrg : 01" is NOT worthy');
+assert(!backfillWorthy_({ activity: 'TC : 1', elementId: '' }), 'roster "TC : 1" is NOT worthy');
+assert(!backfillWorthy_({ activity: 'SUPERVISOR-1', elementId: '' }), 'roster "SUPERVISOR-1" is NOT worthy');
+assert(!backfillWorthy_({ activity: 'NORTH SOUTH CORRIDOR(N106) TAEHWA GEO ENG LOCATION:', elementId: '' }), 'QC banner is NOT worthy');
+assert(!backfillWorthy_({ activity: 'RTO area arrangement (2026- Sep- 26- Sat) Kyaw Aung', elementId: '' }), 'RTO area-arrangement roster is NOT worthy');
+assert(!backfillWorthy_({ activity: 'No activity.', elementId: '' }), '"No activity." is NOT worthy');
+assert(!backfillWorthy_({ activity: 'Plumbing work', elementId: '' }), 'a 2-word finishing fragment is NOT worthy');
+// The gate applies in the merge: a roster line in the offline fb is NOT injected.
+const aiR3 = buildProductivityResult_('2026-09-25', [
+  { area: 'Area 2', section: 'Sec-B/PIE', elementId: '', activity: 'Excavation access layer under Bukit Timah canal', stage: 'Excavation', manpower: 5 }
+], 'ai');
+const fbR3 = buildProductivityResult_('2026-09-25', [
+  { area: 'Area 2', section: 'Sec-B/PIE', elementId: '', activity: 'Excavation access layer under Bukit Timah canal', stage: 'Excavation', manpower: 5 },
+  { area: 'Area 2', section: 'Sec-B/PIE', elementId: '', activity: 'SCT Exposing 150mm dia WP for support installation', stage: 'Other', manpower: 0 },
+  { area: 'Area 2', section: 'N', elementId: '', activity: 'Engrg : 01', stage: 'Other', manpower: 0 },
+  { area: 'Area 2', section: 'N', elementId: '', activity: 'RTO area arrangement (2026- Sep- 26- Sat) Kyaw Aung', stage: 'Other', manpower: 0 }
+], 'fallback');
+const mg3 = mergeProductivity_(aiR3, fbR3);
+assert(mg3.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)), 'merge still backfills the substantive SCT line');
+assert(!mg3.mergedActivities.some(a => /^Engrg|RTO area arrangement/i.test(a.activity)), 'merge does NOT inject roster/planning noise');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');
