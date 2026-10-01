@@ -66,9 +66,9 @@ var PARSER_CONFIG = {
     // Map each segment to its Area group (1-4) for the dashboard's higher-level
     // filter. From the N106 site plan; unmapped segments -> areaGroup ''.
     segmentArea: {
-      // Area 1
+      // Area 1  ('SPC'/CM is always Sec-A /SPC/CM (Ja/Jb) in the data -> Area 1)
       'Ja': 'Area 1', 'Jb': 'Area 1', 'Ka': 'Area 1', 'Kb': 'Area 1',
-      'Qa': 'Area 1', 'Qb': 'Area 1',
+      'Qa': 'Area 1', 'Qb': 'Area 1', 'SPC': 'Area 1',
       // Area 2  ('N'/Sec-N = the BTC canal / L&R-shaft / main-tunnel works;
       // 'PIE' = the "Under PIE CM / NB / Slip Rd" works — all Area 2 per site decision)
       'N': 'Area 2', 'Sec-N': 'Area 2', 'PIE': 'Area 2',
@@ -526,6 +526,7 @@ function isHeaderNoise_(line) {
   if (/\bmanpower\b\s*[:\-]?\s*\d*\s*$/i.test(s)) return true;        // "Day shift Manpower", "Manpower : 19"
   if (/^area[\s.\-]*[1-4]\b/i.test(s)) return true;                   // an "AREA-4 …" banner
   if (/^samsung\b/i.test(s)) return true;                            // "SAMSUNG C&T N106" banner
+  if (/^(contractor|time|weather|shift|date)\s*[:\-]/i.test(s)) return true;  // report-metadata headers
   if (/^[A-Za-z][A-Za-z .()\/&\-]*=\s*\d{1,3}\b/.test(s)) return true;  // roster "Site Supervisor (RES) = 01" (=, not :, to spare "level: 2.3m")
   return false;
 }

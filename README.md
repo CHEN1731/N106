@@ -376,6 +376,9 @@ your exports, no logic changes needed:
   **following** activity, so two activities under one location keep their own sub-contractor. A
   sub-contractor header also **splits** the activities even when the work has **no bullet** (the
   header on one line, the work on the next), so a `SCT` / `Huationg` sub-section is its own row.
+  Blank lines between a header and its work are ignored. Report-metadata lines (`Contractor:`,
+  `Time:`, `Weather:`, `Shift:`, `Date:`) are not counted as activities, and `SPC`/CM maps to
+  Area 1.
 - **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
   header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
   being dropped.

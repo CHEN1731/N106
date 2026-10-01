@@ -532,7 +532,13 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'GROUPING, MERGING, and TRACEABILITY rules from your instructions strictly.\n\n' +
     'A single message often lists SEVERAL activities as a bulleted / numbered list (lines ' +
     'starting with "-", "*", "•", or "1.", "2)"). Emit EVERY such line as its own activity — ' +
-    'do not collapse a multi-item message into one activity or drop trailing items.\n\n' +
+    'do not collapse a multi-item message into one activity or drop trailing items.\n' +
+    'Activities are also grouped under SUB-CONTRACTOR / crew sub-headers (SCT, MSK, Huationg, ' +
+    'HTC, Kori, Kian Hup, …): the header line names the crew and the WORK is on the following ' +
+    'line(s). Associate each sub-header with its following work and emit each sub-section as its ' +
+    'OWN activity — BLANK LINES between them are NOT boundaries and must never cause a ' +
+    'sub-section to be dropped. Ignore report-metadata lines (Contractor:, Time:, Weather:, ' +
+    'Shift:, Date:) and pure manpower/machinery counts; they are not activities.\n\n' +
     'Group all kept, merged activities BY AREA. Output one entry in "areas" per area worked ' +
     'on, each with:\n' +
     '   - "areaName": exactly "Area 1".."Area 4" or "Others".\n' +

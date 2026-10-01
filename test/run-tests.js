@@ -299,6 +299,26 @@ assert(nb.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)),
 assert(nb.mergedActivities.some(a => /Soil disposal works on going to Gate #33/i.test(a.activity)), 'the Huationg soil-disposal activity is captured');
 assert(nb.mergedActivities.every(a => a.area === 'Area 1'), 'all three classified to Area 1');
 
+console.log('\nMetadata header + blank lines + SPC area (build-53):');
+assert(areaFromSection_('SPC') === 'Area 1', 'SPC -> Area 1');
+// Full message: metadata header block, blank lines around the sub-sections, trailing manpower.
+const spcFull =
+  '[9/25/26, 10:00:00 AM] ~ Eng: SPC / CM / Huationg / SCT\n' +
+  'Contractor: Huationg / SCT\nTime: 0830 to 1700 (25/09)\n\n' +
+  '-\tRoof Slab (NB-CH4220 to CH4305)\n' +
+  'Deck soffit lvl 4.050mSHD Mining Excavation from S02 to S01\nCurrent Excavation depth:4.50m/4.50m\n\n\n' +
+  'SCT\n\n\nExposing 150mm dia WP for support installation\n\n\n' +
+  'Huationg\n\n\nSoil disposal works on going to Gate #33 (3 loads)\n\n\nManpower - 14\n';
+const full = productivityFromRecords_(spcFull, '', '2026-09-25');
+assert(full.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)),
+  'SCT activity captured despite the metadata header + many blank lines');
+assert(full.mergedActivities.some(a => /Soil disposal works on going to Gate #33/i.test(a.activity)),
+  'Huationg activity captured');
+assert(!full.mergedActivities.some(a => /^contractor\b|^time\s*:/i.test(a.activity)),
+  'Contractor: / Time: metadata lines are NOT activity rows');
+assert(full.mergedActivities.every(a => a.area === 'Area 1'),
+  'the SPC message classifies to Area 1 even without a Sec-A prefix (got ' + full.mergedActivities.map(a => a.area).join(',') + ')');
+
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');
 assert(rc.reportDate === '2026-08-05', 'runComparison reports the date');
