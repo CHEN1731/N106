@@ -213,6 +213,13 @@ falls back to the regex parser otherwise. To enable it:
    clean, structured records. Cost is a few cents/day; a failed call or missing key
    just uses the parser, so the app always works.
 
+The AI output is backed by an **offline completeness safety net** (`mergeProductivity_`
+in `gas/Extract.gs`): the regex parser runs alongside the AI, and any activity the
+parser found that the AI dropped (e.g. a sub-contractor / non-bulleted sub-activity) is
+added back, while the AI's grouping, RTO+AIS merge and machine/concrete detection are
+kept. If the AI returns an empty result, the parser's result is used instead — so a
+report with real content never shows 0 activities.
+
 The logic lives in [`gas/Extract.gs`](gas/Extract.gs) (`extractRecords` → Claude via
 `UrlFetchApp`, structured tool-call output). Have the **RTO team post in the
 [WhatsApp reporting template](docs/report-template.md)** — it teaches the exact trigger

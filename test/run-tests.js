@@ -17,6 +17,7 @@ vm.createContext(sandbox);
 const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
+        mergeProductivity_, activityCovered_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
@@ -318,6 +319,34 @@ assert(!full.mergedActivities.some(a => /^contractor\b|^time\s*:/i.test(a.activi
   'Contractor: / Time: metadata lines are NOT activity rows');
 assert(full.mergedActivities.every(a => a.area === 'Area 1'),
   'the SPC message classifies to Area 1 even without a Sec-A prefix (got ' + full.mergedActivities.map(a => a.area).join(',') + ')');
+
+console.log('\nAI output + offline completeness safety net (build-54):');
+// The AI dropped the SCT water-pipe activity; the offline parse has it -> merge must keep it.
+const aiRes = buildProductivityResult_('2026-09-25', [
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Roof Slab deck soffit mining excavation from S02 to S01', stage: 'Excavation', manpower: 14 }
+], 'ai');
+aiRes.machineStatus = { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 1', location: 'SPC', machineState: 'Active', workingOnElements: [], evidence: 'x' }], boringRigs: [] };
+const fbRes2 = buildProductivityResult_('2026-09-25', [
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Roof Slab deck soffit mining excavation from S02 to S01', stage: 'Excavation', manpower: 14 },
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'SCT Exposing 150mm dia WP for support installation', stage: 'Other', manpower: 0 },
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Huationg Soil disposal works on going to Gate #33', stage: 'Other', manpower: 0 }
+], 'fallback');
+const mg = mergeProductivity_(aiRes, fbRes2);
+assert(mg.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)),
+  'merge backfills the AI-dropped SCT activity from the offline parse');
+assert(mg.mergedActivities.filter(a => /mining excavation from s02/i.test(a.activity)).length === 1,
+  'the activity the AI already had is NOT duplicated by the merge');
+assert(mg.machineStatus && mg.machineStatus.bcCutters.length === 1,
+  'merge preserves the AI machineStatus');
+assert(mg.grandTotals.totalManpower === 14,
+  'merge keeps the AI manpower total (backfilled rows add 0) (got ' + mg.grandTotals.totalManpower + ')');
+// activityCovered_ precision
+assert(activityCovered_({ activity: 'soil disposal works ongoing', elementId: '' },
+  [{ activity: 'Soil disposal works on going to Gate 33', elementId: '' }]) === true,
+  'activityCovered_ treats a reworded/contained activity as covered');
+assert(activityCovered_({ activity: 'Exposing 150mm dia WP for support installation', elementId: '' },
+  [{ activity: 'Roof slab deck soffit mining excavation', elementId: '' }]) === false,
+  'activityCovered_ does NOT treat a genuinely different activity as covered');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

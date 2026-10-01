@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-53 · metadata-header noise + SPC area + blank-line sub-sections';
+var APP_VERSION = 'build-54 · AI output + offline completeness safety net';
 
 /**
  * Route:

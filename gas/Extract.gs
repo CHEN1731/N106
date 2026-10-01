@@ -247,16 +247,79 @@ function sectionListText_() {
  * @return {Object} { date, mergedActivities[], productivityData{}, source }
  */
 function generateProductivity(rtoText, aisText, dateHint) {
+  // Offline parse is the COMPLETENESS backbone — compute it up front, guarded so it
+  // can never hard-fail the turn (a 0-activity dashboard).
+  var fb = null;
+  try { fb = productivityFromRecords_(rtoText, aisText, dateHint); }
+  catch (e) { try { console.error('offline parse failed: ' + e); } catch (e2) {} }
+
   var key = getApiKey_();
   if (key) {
     try {
       var p = callClaudeProductivity_(rtoText, aisText, key, dateHint);
+      // AI with activities -> use it but backfill anything it dropped from the parser.
+      if (p && p.mergedActivities && p.mergedActivities.length) {
+        return fb ? mergeProductivity_(p, fb) : p;
+      }
+      // AI returned empty (the "0 activities" case) -> use the parser instead.
+      if (fb) return fb;
       if (p) return p;
     } catch (err) {
       try { console.error('AI productivity failed, using fallback: ' + err); } catch (e) {}
     }
   }
-  return productivityFromRecords_(rtoText, aisText, dateHint);
+  return fb || productivityFromRecords_(rtoText, aisText, dateHint);
+}
+
+/**
+ * True when an offline activity is already represented in the AI's activities, so it
+ * should NOT be added again. Covered when an AI activity shares the same non-empty
+ * elementId, or has high token overlap with the offline activity (containment:
+ * >=60% of the offline activity's tokens appear in an AI activity). Reuses the
+ * tokeniser / jaccard sets from Compare.gs.
+ */
+function activityCovered_(fbAct, aiActs) {
+  var fid = String(fbAct.elementId || '').toUpperCase().replace(/\s+/g, '');
+  var ft = tokens_(fbAct.activity || '');
+  for (var i = 0; i < aiActs.length; i++) {
+    var a = aiActs[i];
+    var aid = String(a.elementId || '').toUpperCase().replace(/\s+/g, '');
+    if (fid && aid && fid === aid) return true;
+    var at = tokens_(a.activity || '');
+    if (!ft.length) { if (!at.length) return true; continue; }
+    var setA = {}; at.forEach(function (t) { setA[t] = true; });
+    var inter = 0; ft.forEach(function (t) { if (setA[t]) inter++; });
+    if (inter / ft.length >= 0.6) return true;   // the offline activity is contained in an AI one
+  }
+  return false;
+}
+
+/**
+ * Merge the AI result with the offline parse so NO activity the parser found is lost
+ * (the AI sometimes drops sub-contractor / non-bulleted sub-activities). Keeps the
+ * AI's grouping and resource nodes; appends only offline activities the AI didn't
+ * cover; rebuilds area/KPI/concrete from the union so everything reconciles.
+ */
+function mergeProductivity_(ai, fb) {
+  var aiActs = (ai && ai.mergedActivities) ? ai.mergedActivities : [];
+  var fbActs = (fb && fb.mergedActivities) ? fb.mergedActivities : [];
+  var union = aiActs.slice();
+  fbActs.forEach(function (f) {
+    if (!activityCovered_(f, aiActs)) {
+      // manpower already accounted for by the AI's area totals -> 0 to avoid inflating
+      union.push({ area: f.area, section: f.section || '', elementId: f.elementId || '',
+        activity: f.activity || '', stage: f.stage || '', manpower: 0 });
+    }
+  });
+  if (union.length === aiActs.length) return ai;   // nothing to add
+  var out = buildProductivityResult_(ai.date || fb.date, union, 'ai+fallback');
+  // Preserve the AI's richer resource nodes (machine / excavation / RC).
+  if (ai.machineStatus) out.machineStatus = ai.machineStatus;
+  if (ai.excavation) out.excavation = ai.excavation;
+  if (ai.reinforcedConcrete) out.reinforcedConcrete = ai.reinforcedConcrete;
+  // Keep the AI's manpower total (buildProductivityResult_ recomputed it from acts
+  // where appended rows carry 0, so it already equals the AI's total).
+  return out;
 }
 
 // System prompt (persona + strict filtering / grouping / merging / traceability
@@ -1276,6 +1339,8 @@ if (typeof module !== 'undefined' && module.exports) {
     generateProductivity: generateProductivity,
     normalizeProductivity_: normalizeProductivity_,
     productivityFromRecords_: productivityFromRecords_,
+    mergeProductivity_: mergeProductivity_,
+    activityCovered_: activityCovered_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
     normAreaName_: normAreaName_,
