@@ -407,6 +407,10 @@ your exports, no logic changes needed:
   `Date:` is auto-detected per value on its own, so a forwarded `25/9` never becomes month 25
   inside an M/D/Y file. This prevents whole days (e.g. a 25 Sept upload) being dropped by
   date-scoping when the phone exported US-order dates.
+  For a **single-day export** where every date is ambiguous (both fields ≤ 12, e.g. Oct 2 =
+  `10/2/26`), `resolveDateOrder_` uses the **Report date you pick** (unambiguous ISO) to break
+  the tie — if reading the file as M/D/Y matches the picked day, the file is M/D/Y — so the day
+  is scoped and saved correctly instead of collapsing to a handful of activities.
 
 The **AI extraction** prompt (`gas/Extract.gs`) keeps **traffic & diversion** works —
 traffic decks (e.g. `TD 3A-7`), steel decking, road/drain/utility diversions, lane closures,

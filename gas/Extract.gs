@@ -1198,9 +1198,21 @@ function isRosterLine_(text) {
  * regex-extract DW/BP/BT/CW codes, concrete m3 and manpower.
  */
 function productivityFromRecords_(rtoText, aisText, dateHint) {
-  var rto = parseWhatsApp(rtoText, 'RTO');
-  var ais = parseWhatsApp(aisText, 'AIS');
-  if (dateHint) { rto = filterByDates_(rto, [dateHint]); ais = filterByDates_(ais, [dateHint]); }
+  // Resolve the file's date-field order using the (unambiguous ISO) report date, so an
+  // ambiguous single-day export like "10/2/26" dates to the intended day instead of
+  // defaulting to D/M/Y. Without this, filterByDates_ below would drop the whole day.
+  var order = resolveDateOrder_(chatLines_(rtoText || '').concat(chatLines_(aisText || '')), dateHint);
+  var rto = parseWhatsApp(rtoText, 'RTO', order);
+  var ais = parseWhatsApp(aisText, 'AIS', order);
+  if (dateHint) {
+    var rtoF = filterByDates_(rto, [dateHint]), aisF = filterByDates_(ais, [dateHint]);
+    // Safety net: if the order is still undeterminable and the date filter would empty an
+    // otherwise non-empty parse, keep the unfiltered records so a day never silently vanishes
+    // (mirrors sliceChatByDate_'s "no match -> don't lose the data").
+    if (!(order === '' && !rtoF.length && !aisF.length && (rto.length || ais.length))) {
+      rto = rtoF; ais = aisF;
+    }
+  }
   var all = rto.concat(ais);
   var date = dateHint || mostCommonDate_(all);
 

@@ -14,7 +14,7 @@ vm.createContext(sandbox);
 ['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
+const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
         mergeProductivity_, activityCovered_, backfillWorthy_,
@@ -41,6 +41,22 @@ assert(normalizeDate_('2026-09-25') === '2026-09-25', 'already-ISO date returned
 assert(detectDateOrder_(['[9/25/26, 10:00:00] ~ Eng: hi']) === 'mdy', 'detectDateOrder_ -> mdy for 9/25 export');
 assert(detectDateOrder_(['[25/9/26, 10:00:00] ~ Eng: hi']) === 'dmy', 'detectDateOrder_ -> dmy for 25/9 export');
 assert(detectDateOrder_(['[5/8/26, 10:00:00] ~ Eng: hi']) === '', 'detectDateOrder_ -> "" when ambiguous');
+// build-59: the ISO report date breaks the tie for an ambiguous single-day file (e.g. Oct 2 = "10/2/26")
+const ambigOct2 = ['[10/2/26, 8:00:00 AM] ~ Eng: Sec-A/Ja', 'DW01 rebar', 'Manpower: 5'];
+assert(resolveDateOrder_(ambigOct2, '2026-10-02') === 'mdy', 'resolveDateOrder_ -> mdy when target 2026-10-02 matches M/D/Y');
+assert(resolveDateOrder_(ambigOct2, '2026-02-10') === 'dmy', 'resolveDateOrder_ -> dmy when target 2026-02-10 matches D/M/Y');
+assert(resolveDateOrder_(ambigOct2, '') === '', 'resolveDateOrder_ -> "" with no target (D/M/Y default preserved)');
+assert(resolveDateOrder_(['[9/25/26, 10:00:00] ~ Eng: hi'], '2026-01-01') === 'mdy', 'resolveDateOrder_ trusts an unambiguous file over the target');
+assert(parseWhatsApp('[10/2/26, 8:00:00 AM] ~ Eng: Sec-A/Ja\nDW01 rebar\nManpower: 5\n', 'RTO', 'mdy')[0].date === '2026-10-02', 'parseWhatsApp honours an explicit mdy order (Oct 2)');
+// Regression (the live bug): a single-day Oct-2 M/D/Y file + picker target 2026-10-02 keeps the day,
+// instead of filterByDates_ dropping everything to ~0.
+(function () {
+  var oct2 = '';
+  for (var i = 0; i < 8; i++) oct2 += '[10/2/26, ' + (8 + i) + ':00:00 AM] ~ Eng: Sec-A/Ja\nDW' + i + ' rebar works\nManpower: 3\n';
+  var kept = productivityFromRecords_(oct2, '', '2026-10-02');
+  assert(kept.mergedActivities.length === 8, 'single-day Oct-2 file keeps all 8 activities (got ' + kept.mergedActivities.length + ')');
+  assert(kept.mergedActivities.every(function (a) { return a; }) && kept.date === '2026-10-02', 'the kept day is dated 2026-10-02');
+})();
 assert(resolveLocator_('Sec-C/ER15(Mb)\nDwall works').area === 'Sec-C/Mb', '"Sec-C/ER15(Mb)" -> Sec-C/Mb');
 assert(resolveLocator_('Sec-D/EI12/ CHCI').area === 'Sec-D/EI12', 'structure code EI12 -> Sec-D/EI12');
 const dt = docxXmlToText_('<w:p><w:r><w:t>Date: 28 Aug</w:t></w:r></w:p><w:p><w:r><w:t>Manpower &amp; 6</w:t></w:r></w:p>');

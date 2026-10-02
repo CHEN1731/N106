@@ -185,7 +185,7 @@ function sliceChatByDate_(text, dates) {
   dates.forEach(function (d) { want[String(d)] = true; });
   var lines = chatLines_(text);
   var format = detectFormat_(lines);
-  var order = detectDateOrder_(lines);
+  var order = resolveDateOrder_(lines, dates[0]);   // use the ISO target to disambiguate M/D vs D/M
   var out = [], keep = false, any = false;
   for (var i = 0; i < lines.length; i++) {
     var m = format.re.exec(lines[i]);
@@ -209,11 +209,11 @@ function filterByDates_(records, dates) {
  * @param {string} source  'RTO' or 'Samsung'
  * @return {Array<Object>} records
  */
-function parseWhatsApp(text, source) {
+function parseWhatsApp(text, source, order) {
   if (!text) return [];
   var lines = chatLines_(text);
   var format = detectFormat_(lines);
-  var order = detectDateOrder_(lines);
+  if (!order) order = detectDateOrder_(lines);   // caller may pass a resolved order (target-aware)
   var messages = groupIntoMessages_(lines, format);
   var records = [];
   for (var i = 0; i < messages.length; i++) {
@@ -711,6 +711,30 @@ function detectDateOrder_(lines) {
   return '';
 }
 
+/**
+ * Resolve the date-field order for a file, using a known ISO target date to break ties.
+ * An unambiguous file (a day > 12 somewhere) wins via detectDateOrder_. When the file is
+ * ambiguous (every slash-date has both fields <= 12, e.g. a single day like "10/2/26"), the
+ * caller's `targetIso` (the picker's report date, unambiguous yyyy-mm-dd) tells us the intended
+ * day: if reading the file's dates as M/D/Y matches the target, the file is M/D/Y; if D/M/Y
+ * matches, it's D/M/Y. Falls back to '' (caller keeps the D/M/Y default) when nothing resolves.
+ */
+function resolveDateOrder_(lines, targetIso) {
+  var order = detectDateOrder_(lines);
+  if (order) return order;                                   // unambiguous file -> trust it
+  if (!targetIso || !/^\d{4}-\d{2}-\d{2}$/.test(String(targetIso))) return '';
+  if (!lines || !lines.length) return '';
+  var fmt = detectFormat_(lines);
+  for (var i = 0; i < lines.length; i++) {
+    var m = fmt.re.exec(lines[i]);
+    if (!m) continue;
+    if (!/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.test(m[1])) continue;   // only slash dates are ambiguous
+    if (normalizeDate_(m[1], 'mdy') === targetIso) return 'mdy';
+    if (normalizeDate_(m[1], 'dmy') === targetIso) return 'dmy';
+  }
+  return '';
+}
+
 function pad2_(s) { s = String(s); return s.length < 2 ? '0' + s : s; }
 function escapeRe_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -723,6 +747,7 @@ if (typeof module !== 'undefined' && module.exports) {
     hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,
     detectDateOrder_: detectDateOrder_,
+    resolveDateOrder_: resolveDateOrder_,
     splitActivityItems_: splitActivityItems_,
     isSubcontractorHeader_: isSubcontractorHeader_,
     sliceChatByDate_: sliceChatByDate_,
