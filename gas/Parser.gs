@@ -90,7 +90,15 @@ var PARSER_CONFIG = {
       'B': 'Area 2', 'C': 'Area 2',
       'D': 'Area 3',
       'E': 'Area 4'
-    }
+    },
+    // Sub-contractor / crew names. A short line that is one of these is treated as a
+    // SUB-SECTION header: the work under it is one activity, and different sub-contractors
+    // in the same message become separate activities. Bullets / measurements under one
+    // heading are NOT separate activities. Extend to your crews.
+    subcontractors: [
+      'SCT', 'MSK', 'HTC', 'CGW', 'CHCI', 'Huationg', 'Hua Tiong', 'Kori', 'Sambo',
+      'Taehwa', 'Geosmart', 'Samsung', 'Kian Hup', 'Karh Lee'
+    ]
   },
 
   // Optional generic area aliases, used only if no Section/segment is found
@@ -545,75 +553,63 @@ function isHeaderLabel_(line) {
 }
 
 /**
- * Split a message's activity lines into distinct work-items. Site reports pack
- * several activities into one message either as a bulleted / numbered list OR as
- * sub-contractor sub-sections ("SCT" / "Huationg" headers with the work on the
- * next line, no bullet). Both must split so no activity is lost.
- *
- * A new item is started by a DELIMITER:
- *  - a list marker (its content is the item), or
- *  - a short header/label line (sub-contractor tag / cell header) whose next
- *    content line is plain body text (not a marker, not another label) — a
- *    "section header" that begins a new item with the header as prefix.
- * A header/label whose next line IS a marker stays a prefix prepended to that
- * marker's item. A header/label with no body (next is a label or the end) is
- * treated as content. Banner/date/roster-heading noise is dropped up front.
- * Fewer than 2 delimiters => one item (the whole joined text), the prior
- * behaviour. Returns an array of trimmed item strings.
+ * True when a line is a SUB-CONTRACTOR / crew header (SCT, MSK, Huationg, HTC …).
+ * Such a line names the crew; the work under it is one activity, and different
+ * sub-contractors in the same message become separate activities. A header is a
+ * SHORT line (<= 4 words) whose first token (before a space or "/") is a known
+ * sub-contractor name. Bullet markers and zero-width chars are stripped first.
+ */
+function isSubcontractorHeader_(line) {
+  var s = stripListMarker_(String(line)).replace(/[​-‏⁠﻿]/g, '').trim();
+  if (!s) return false;
+  if (s.split(/\s+/).length > 4) return false;           // a header is short; inline work is not
+  var low = s.toLowerCase();
+  var subs = (PARSER_CONFIG.locator && PARSER_CONFIG.locator.subcontractors) || [];
+  for (var i = 0; i < subs.length; i++) {
+    var sub = String(subs[i]).toLowerCase();
+    if (low === sub || low.indexOf(sub + ' ') === 0 || low.indexOf(sub + '/') === 0 || low.indexOf(sub + ' /') === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Split a message's activity lines into work-items. A message is usually ONE
+ * activity: a heading, its bullet lines, measurements and metrics all describe
+ * the same work and are joined together. The ONLY thing that starts a new
+ * activity is a SUB-CONTRACTOR header line (SCT / Huationg / HTC …) — different
+ * crews in one message are separate activities. Bullets are NOT delimiters.
+ * Banner / date / roster-heading noise is dropped up front. Returns an array of
+ * trimmed item strings (one when there are no sub-contractor sections).
  */
 function splitActivityItems_(actLines) {
   var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); };
+  var strip = function (s) { return stripListMarker_(String(s)); };
   if (!actLines || !actLines.length) return [];
-  // Drop banner / date / roster-heading noise so peeking at the "next" line is clean.
+  // Drop banner / date / roster-heading noise first.
   var lines = [];
   for (var i = 0; i < actLines.length; i++) {
     if (!isHeaderNoise_(actLines[i]) && norm(actLines[i])) lines.push(actLines[i]);
   }
   if (!lines.length) return [];
 
-  var isMarker = function (l) { return isListMarker_(l); };
-  var isLabel = function (l) { return isHeaderLabel_(l); };
-  // A header/label is a section delimiter only when it introduces a plain body line.
-  var startsSection = function (idx) {
-    if (!isLabel(lines[idx])) return false;
-    var next = idx + 1 < lines.length ? lines[idx + 1] : null;
-    return !!next && !isMarker(next) && !isLabel(next);
-  };
-
-  var delims = 0;
-  for (var d = 0; d < lines.length; d++) {
-    if (isMarker(lines[d]) || startsSection(d)) delims++;
+  var hasHeader = false;
+  for (var h = 0; h < lines.length; h++) { if (isSubcontractorHeader_(lines[h])) { hasHeader = true; break; } }
+  if (!hasHeader) {
+    // No sub-contractor sections -> the whole message is ONE activity (bullets merged).
+    return [norm(lines.map(strip).join(' '))].filter(Boolean);
   }
-  if (delims < 2) return [norm(lines.join(' '))].filter(Boolean);
 
-  var items = [], pending = [], lead = [], cur = -1;
+  // Split at each sub-contractor header; the lead (before the first header) is its own activity.
+  var items = [], cur = [];
   for (var j = 0; j < lines.length; j++) {
-    var line = lines[j];
-    if (isMarker(line)) {
-      var t = stripListMarker_(line);
-      if (pending.length) { t = pending.join(' ') + ' ' + t; pending = []; }
-      items.push(norm(t)); cur = items.length - 1;
-    } else if (isLabel(line)) {
-      var next = j + 1 < lines.length ? lines[j + 1] : null;
-      if (next && isMarker(next)) {
-        pending.push(norm(line));                          // prefix for the coming marker item
-      } else if (next && !isLabel(next)) {
-        var h = norm(line);                                // section header -> start a new item
-        if (pending.length) { h = pending.join(' ') + ' ' + h; pending = []; }
-        items.push(h); cur = items.length - 1;
-      } else if (cur >= 0) {
-        items[cur] = norm(items[cur] + ' ' + norm(line));  // label with no body -> content
-      } else {
-        lead.push(norm(line));
-      }
-    } else if (cur >= 0) {
-      items[cur] = norm(items[cur] + ' ' + norm(line));    // detail/parameter of the current item
+    if (isSubcontractorHeader_(lines[j])) {
+      if (cur.length) items.push(norm(cur.map(strip).join(' ')));
+      cur = [lines[j]];
     } else {
-      lead.push(norm(line));                               // context before the first item
+      cur.push(lines[j]);
     }
   }
-  if (lead.length && items.length) items[0] = norm(lead.join(' ') + ' ' + items[0]);
-  if (pending.length && items.length) items[items.length - 1] = norm(items[items.length - 1] + ' ' + pending.join(' '));
+  if (cur.length) items.push(norm(cur.map(strip).join(' ')));
   return items.map(norm).filter(Boolean);
 }
 
@@ -728,6 +724,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeDate_: normalizeDate_,
     detectDateOrder_: detectDateOrder_,
     splitActivityItems_: splitActivityItems_,
+    isSubcontractorHeader_: isSubcontractorHeader_,
     sliceChatByDate_: sliceChatByDate_,
     filterByDates_: filterByDates_,
     PARSER_CONFIG: PARSER_CONFIG

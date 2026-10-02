@@ -373,21 +373,16 @@ your exports, no logic changes needed:
 - **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
   message uses those over the heuristics (hybrid).
 - **`lineFormats`** — WhatsApp export headers (iOS / Android), auto-detected.
-- **Multi-activity messages** — when one message lists several works as a bulleted / numbered
-  list (lines starting with `-`, `*`, `•`, or `1.` / `2)`), each item becomes its **own
-  activity** row (`splitActivityItems_` in `gas/Parser.gs`) instead of collapsing into one; a
-  message with fewer than two markers stays a single activity. Manpower stated once for the list
-  is credited to the first item so area totals aren't multiplied. The AI path is likewise told
-  to emit every list item. Manpower / machinery **roster** bullets in forwarded daily-summaries
-  (e.g. `SUPERVISOR-1`, `General worker -5`, `Crane - 1`, `Excavators -0`) are recognised as
-  counts (`isRosterLine_`) and are **not** turned into activity rows. A short sub-header between
-  bullets (a sub-contractor tag or cell header like `HTC`, `SCT`, `North Cell`) attaches to the
-  **following** activity, so two activities under one location keep their own sub-contractor. A
-  sub-contractor header also **splits** the activities even when the work has **no bullet** (the
-  header on one line, the work on the next), so a `SCT` / `Huationg` sub-section is its own row.
-  Blank lines between a header and its work are ignored. Report-metadata lines (`Contractor:`,
-  `Time:`, `Weather:`, `Shift:`, `Date:`) are not counted as activities, and `SPC`/CM maps to
-  Area 1.
+- **One message = one activity** — a message's heading, bullet lines, measurements and metrics
+  (e.g. `Running volume 57/80 m3`, `Current depth 23.5m`) all describe the same work and are
+  **merged into a single activity** (`splitActivityItems_` in `gas/Parser.gs`); bullets are NOT
+  separate activities. The only thing that starts a **new** activity is a **sub-contractor /
+  crew header** — a short line naming a crew from `PARSER_CONFIG.locator.subcontractors` (`SCT`,
+  `MSK`, `Huationg`, `HTC`, `Kori`, `Kian Hup`, `CGW`, `CHCI`, `Samsung`, `Taehwa`, `Geosmart`,
+  `Karh Lee`; extend as needed). So two different sub-contractors in one message are two
+  activities, while cell labels (`North Cell`) and bulleted sub-steps stay merged. The AI path is
+  told the same rule. Report-metadata lines (`Contractor:`, `Time:`, `Weather:`, `Shift:`,
+  `Date:`) and manpower/machinery roster counts are not activities, and `SPC`/CM maps to Area 1.
 - **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
   header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
   being dropped.

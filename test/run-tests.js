@@ -14,7 +14,7 @@ vm.createContext(sandbox);
 ['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, docxXmlToText_,
+const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
         mergeProductivity_, activityCovered_, backfillWorthy_,
@@ -229,22 +229,29 @@ const mdyFb = productivityFromRecords_(mdyExport, '', '2026-09-25');
 assert(mdyFb.mergedActivities.some(a => /3A-7|decking|diversion/i.test((a.activity || a.activityDescription || ''))),
   'offline path keeps the TD 3A-7 traffic-diversion activity');
 
-console.log('\nMulti-activity messages (build-49): bullet lists split into rows:');
-// A message packing 3 bullet items must become 3 activities, not 1.
-assert(splitActivityItems_(['- Traffic control at Gate-8', '- BTC receiving shaft excavation', '* SBP drilling work']).length === 3,
-  'splitActivityItems_ -> 3 items for a 3-bullet list');
+console.log('\nMerge one paragraph into one activity (build-56):');
+// One heading's bullets / measurements are ONE activity (no sub-contractor sections).
+assert(splitActivityItems_(['- Cleaning work.', '- T1 & T2 tying work.', '- W5 starter bar installation work.']).length === 1,
+  'a one-heading 3-bullet list -> 1 activity (merged)');
+assert(splitActivityItems_(['BT27-1(1.0 x 2.8m)', '- LSS Type 3 backfilling in progress', '- Running volume:57/80m3']).length === 1,
+  'activity + its measurement bullet -> 1 activity');
 assert(splitActivityItems_(['DW1547 rebar fixing']).length === 1, 'single line -> 1 item');
-assert(splitActivityItems_(['-Preparing Excavation', 'GL:+4.36mSHD', 'Current Level +2.35mSHD']).length === 1,
-  'one marker + detail lines -> 1 item (no false split)');
+// Different sub-contractors DO split.
+assert(splitActivityItems_(['SCT', 'Exposing 150mm dia WP', 'Huationg', 'Soil disposal works']).length === 2,
+  'two sub-contractor sections -> 2 activities');
+assert(isSubcontractorHeader_('SCT') && isSubcontractorHeader_('Huationg') && isSubcontractorHeader_('SCT /MSK'),
+  'sub-contractor names are headers');
+assert(!isSubcontractorHeader_('North Cell') && !isSubcontractorHeader_('Roof Slab') && !isSubcontractorHeader_('Manpower SCT - 13'),
+  'cell labels / headings / inline-SCT are NOT sub-contractor headers');
 const multiMsg =
   '[9/25/26, 09:00:00] ~ Eng: Sec-C/Mb\n' +
   '- DW1547 rebar cage lowering\n- DW04 concrete casting 42 m3\n* BT20-2 excavation ongoing\nManpower: 9\n';
 const multiRec = parseWhatsApp(multiMsg, 'RTO');
-assert(multiRec.length === 1 && multiRec[0].activityItems.length === 3,
-  'a 3-bullet message parses to 1 record carrying 3 activityItems (got ' + (multiRec[0] && multiRec[0].activityItems.length) + ')');
+assert(multiRec.length === 1 && multiRec[0].activityItems.length === 1,
+  'a one-heading 3-bullet message -> 1 merged activityItem (got ' + (multiRec[0] && multiRec[0].activityItems.length) + ')');
 const multiFb = productivityFromRecords_(multiMsg, '', '2026-09-25');
-assert(multiFb.mergedActivities.length === 3, 'offline path emits 3 activities from the 3-bullet message (got ' + multiFb.mergedActivities.length + ')');
-assert(multiFb.productivityData.totalManpower === 9, 'manpower counted once (9), not multiplied per item (got ' + multiFb.productivityData.totalManpower + ')');
+assert(multiFb.mergedActivities.length === 1, 'offline path emits 1 merged activity from the 3-bullet message (got ' + multiFb.mergedActivities.length + ')');
+assert(multiFb.productivityData.totalManpower === 9, 'manpower counted once (9) (got ' + multiFb.productivityData.totalManpower + ')');
 
 console.log('\nXR14 glued AREA-tag header + roster filter (build-50):');
 // "AREA-4.XR14 -FB" must expose the XR14 segment (period now splits) -> Area 4.
@@ -269,21 +276,20 @@ assert(!isRosterLine_('Traffic control') && !isRosterLine_('Lifting work') && !i
 assert(isRosterLine_('SUPERVISOR-1') && isRosterLine_('General worker -5') && isRosterLine_('Excavators -0') && isRosterLine_('Foreman :'),
   'isRosterLine_ flags roster counts');
 
-console.log('\nSub-contractor sub-headers attach to the right activity (build-51):');
-// One location with two activities under HTC / SCT sub-headers -> two rows, both Area 1,
-// and the SCT tag belongs to activity 2 (not glued onto activity 1).
+console.log('\nSub-contractor sub-headers keep their own activity (build-51/56):');
+// One location, two sub-contractors (HTC / SCT): the lead + each sub-contractor = separate
+// activities, and the SCT work belongs to the SCT activity (not glued onto HTC's).
 const spcMsg =
   '[9/25/26, 10:00:00 AM] ~ Eng: Sec A/SPC/CM(Ja)/Huationg & SCT/\n' +
   'Roof Slab (NB-CH4220 to CH4305)\nCurrent Excavation depth:4.50m/4.50m\n' +
   ' HTC \n- Excavation and soil disposal work ongoing to gate #33 \n' +
   ' SCT \n- 300mm water pipe support installation.\n';
 const spc = productivityFromRecords_(spcMsg, '', '2026-09-25');
-assert(spc.mergedActivities.length === 2, 'SPC message -> 2 activities (got ' + spc.mergedActivities.length + ')');
-assert(spc.mergedActivities.every(a => a.area === 'Area 1'), 'both SPC activities classified to Area 1');
+assert(spc.mergedActivities.every(a => a.area === 'Area 1'), 'all SPC activities classified to Area 1');
 const spcWater = spc.mergedActivities.find(a => /water pipe/i.test(a.activity));
 const spcExcav = spc.mergedActivities.find(a => /soil disposal/i.test(a.activity));
 assert(spcWater && /\bSCT\b/.test(spcWater.activity), 'the water-pipe activity carries its SCT sub-header');
-assert(spcExcav && !/water pipe/i.test(spcExcav.activity), 'the SCT water-pipe work is NOT glued onto activity 1');
+assert(spcExcav && !/water pipe/i.test(spcExcav.activity), 'the SCT water-pipe work is NOT glued onto the HTC activity');
 
 console.log('\nSub-contractor sub-activities WITHOUT bullets (build-52):');
 // The activities have NO bullet — only the sub-contractor header (SCT / Huationg) delimits them.
