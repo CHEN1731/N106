@@ -208,9 +208,9 @@ assert(fb.date === '2026-08-05', 'fallback uses the report date');
 assert(fb.mergedActivities.length === 3, 'merged 3 activities (Mb, Ub, Ja)');
 assert(fb.areas.map(a => a.areaName).join(',') === 'Area 1,Area 2,Area 3', 'areas grouped + ordered (1,2,3)');
 assert(areaOf(fb,'Area 2').kpiBreakdown.dWallCount === 2, 'Area 2 (Mb) DW count = 2 (DW1547, DW04)');
-assert(areaOf(fb,'Area 1').kpiBreakdown.bPileCount === 2, 'Area 1 (Ja) BP count = 2 (BP-T9-3, T9-3)');
+assert(areaOf(fb,'Area 1').kpiBreakdown.bPileCount === 1, 'Area 1 (Ja) BP count = 1 (BP-T9-3 == T9-3, deduped)');
 assert(fb.productivityData.dWallCount === 2, 'grand DW count = 2');
-assert(fb.productivityData.bPileCount === 2, 'grand BP count = 2');
+assert(fb.productivityData.bPileCount === 1, 'grand BP count = 1 (BP-T9-3 == T9-3)');
 assert(fb.productivityData.totalConcreteVolumeM3 === 42, 'grand concrete m3 = 42');
 assert(fb.productivityData.totalManpower === 23, 'grand manpower = 10+8+5 = 23 (got ' + fb.productivityData.totalManpower + ')');
 assert(fb.mergedActivities[0].elementId === 'DW1547' && !('sourceEvidence' in fb.mergedActivities[0]),
@@ -326,61 +326,28 @@ assert(!full.mergedActivities.some(a => /^contractor\b|^time\s*:/i.test(a.activi
 assert(full.mergedActivities.every(a => a.area === 'Area 1'),
   'the SPC message classifies to Area 1 even without a Sec-A prefix (got ' + full.mergedActivities.map(a => a.area).join(',') + ')');
 
-console.log('\nAI output + offline completeness safety net (build-54):');
-// The AI dropped the SCT water-pipe activity; the offline parse has it -> merge must keep it.
-const aiRes = buildProductivityResult_('2026-09-25', [
-  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Roof Slab deck soffit mining excavation from S02 to S01', stage: 'Excavation', manpower: 14 }
-], 'ai');
-aiRes.machineStatus = { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 1', location: 'SPC', machineState: 'Active', workingOnElements: [], evidence: 'x' }], boringRigs: [] };
-const fbRes2 = buildProductivityResult_('2026-09-25', [
-  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Roof Slab deck soffit mining excavation from S02 to S01', stage: 'Excavation', manpower: 14 },
-  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'SCT Exposing 150mm dia WP for support installation', stage: 'Other', manpower: 0 },
-  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Huationg Soil disposal works on going to Gate #33', stage: 'Other', manpower: 0 }
+console.log('\nDeterministic activities; AI only enriches resource nodes (build-58):');
+// Offline parse is authoritative for the activity rows; the AI result only overlays the
+// machine / excavation / RC nodes. The AI's activity granularity is ignored entirely.
+const fbAuth = buildProductivityResult_('2026-09-25', [
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'Roof Slab deck soffit mining excavation', stage: 'Excavation', manpower: 14 },
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'SCT Exposing 150mm dia WP for support installation', stage: 'Other', manpower: 0 }
 ], 'fallback');
-const mg = mergeProductivity_(aiRes, fbRes2);
-assert(mg.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)),
-  'merge backfills the AI-dropped SCT activity from the offline parse');
-assert(mg.mergedActivities.filter(a => /mining excavation from s02/i.test(a.activity)).length === 1,
-  'the activity the AI already had is NOT duplicated by the merge');
-assert(mg.machineStatus && mg.machineStatus.bcCutters.length === 1,
-  'merge preserves the AI machineStatus');
-assert(mg.grandTotals.totalManpower === 14,
-  'merge keeps the AI manpower total (backfilled rows add 0) (got ' + mg.grandTotals.totalManpower + ')');
-// activityCovered_ precision
-assert(activityCovered_({ activity: 'soil disposal works ongoing', elementId: '' },
-  [{ activity: 'Soil disposal works on going to Gate 33', elementId: '' }]) === true,
-  'activityCovered_ treats a reworded/contained activity as covered');
-assert(activityCovered_({ activity: 'Exposing 150mm dia WP for support installation', elementId: '' },
-  [{ activity: 'Roof slab deck soffit mining excavation', elementId: '' }]) === false,
-  'activityCovered_ does NOT treat a genuinely different activity as covered');
-
-console.log('\nConservative backfill gate (build-55): no Area-2 flood:');
-// Worthy: real site work the AI may have dropped.
-assert(backfillWorthy_({ activity: 'SCT Exposing 150mm dia WP for support installation', elementId: '' }), 'SCT WP line is backfill-worthy');
-assert(backfillWorthy_({ activity: 'drilling works continues Current depth :37.0m/38.50m', elementId: '' }), 'a drilling line with a trailing depth is worthy (word-count guard spares it)');
-assert(backfillWorthy_({ activity: 'BTC receiving shaft 5.2mSHD excavation below BTC Canal', elementId: '' }), 'an excavation line is worthy');
-assert(backfillWorthy_({ activity: 'rebar cage lowering', elementId: 'DW1547' }), 'an element-ID activity is worthy');
-// Not worthy: roster / banners / planning / fragments.
-assert(!backfillWorthy_({ activity: 'Engrg : 01', elementId: '' }), 'roster "Engrg : 01" is NOT worthy');
-assert(!backfillWorthy_({ activity: 'TC : 1', elementId: '' }), 'roster "TC : 1" is NOT worthy');
-assert(!backfillWorthy_({ activity: 'SUPERVISOR-1', elementId: '' }), 'roster "SUPERVISOR-1" is NOT worthy');
-assert(!backfillWorthy_({ activity: 'NORTH SOUTH CORRIDOR(N106) TAEHWA GEO ENG LOCATION:', elementId: '' }), 'QC banner is NOT worthy');
-assert(!backfillWorthy_({ activity: 'RTO area arrangement (2026- Sep- 26- Sat) Kyaw Aung', elementId: '' }), 'RTO area-arrangement roster is NOT worthy');
-assert(!backfillWorthy_({ activity: 'No activity.', elementId: '' }), '"No activity." is NOT worthy');
-assert(!backfillWorthy_({ activity: 'Plumbing work', elementId: '' }), 'a 2-word finishing fragment is NOT worthy');
-// The gate applies in the merge: a roster line in the offline fb is NOT injected.
-const aiR3 = buildProductivityResult_('2026-09-25', [
-  { area: 'Area 2', section: 'Sec-B/PIE', elementId: '', activity: 'Excavation access layer under Bukit Timah canal', stage: 'Excavation', manpower: 5 }
+const aiEnrich = buildProductivityResult_('2026-09-25', [
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'ROOF SLAB', stage: 'Excavation', manpower: 0 },
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'DECK SOFFIT', stage: 'Excavation', manpower: 0 },
+  { area: 'Area 1', section: 'Sec-A/SPC', elementId: '', activity: 'MINING EXCAVATION', stage: 'Excavation', manpower: 0 }
 ], 'ai');
-const fbR3 = buildProductivityResult_('2026-09-25', [
-  { area: 'Area 2', section: 'Sec-B/PIE', elementId: '', activity: 'Excavation access layer under Bukit Timah canal', stage: 'Excavation', manpower: 5 },
-  { area: 'Area 2', section: 'Sec-B/PIE', elementId: '', activity: 'SCT Exposing 150mm dia WP for support installation', stage: 'Other', manpower: 0 },
-  { area: 'Area 2', section: 'N', elementId: '', activity: 'Engrg : 01', stage: 'Other', manpower: 0 },
-  { area: 'Area 2', section: 'N', elementId: '', activity: 'RTO area arrangement (2026- Sep- 26- Sat) Kyaw Aung', stage: 'Other', manpower: 0 }
-], 'fallback');
-const mg3 = mergeProductivity_(aiR3, fbR3);
-assert(mg3.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)), 'merge still backfills the substantive SCT line');
-assert(!mg3.mergedActivities.some(a => /^Engrg|RTO area arrangement/i.test(a.activity)), 'merge does NOT inject roster/planning noise');
+aiEnrich.machineStatus = { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 1', location: 'SPC', machineState: 'Active', workingOnElements: [], evidence: 'x' }], boringRigs: [] };
+const mg = mergeProductivity_(fbAuth, aiEnrich);
+assert(mg.mergedActivities.length === 2, 'activities come from the offline parse (2), NOT the AI split (3) (got ' + mg.mergedActivities.length + ')');
+assert(mg.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)), 'the deterministic SCT activity is present');
+assert(!mg.mergedActivities.some(a => a.activity === 'ROOF SLAB'), 'the AI split pieces are NOT used');
+assert(mg.machineStatus && mg.machineStatus.bcCutters.length === 1, 'the AI machineStatus IS overlaid');
+assert(mg.grandTotals.totalManpower === 14, 'manpower from the offline activities (14)');
+// If offline found nothing, fall back to the AI result.
+assert(mergeProductivity_(buildProductivityResult_('2026-09-25', [], 'fallback'), aiEnrich) === aiEnrich,
+  'empty offline -> use the AI result');
 
 console.log('\nrunComparison end-to-end (offline productivity):');
 const rc = runComparison(rto, ais, '2026-08-05');

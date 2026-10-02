@@ -108,8 +108,11 @@ with them (the Area KPIs, charts, and activity table stay below):
   triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
   counted; they only refine the stage of an element already logged via bite/depth.
   Element ids are **canonicalised** (`normElId_` / the Viewer's `normId`): a separated `BP`
-  prefix and dash variants are normalised (`BP U7-3` = `BP-U7-3` = `U7–3` = `U7-3`), and an
-  element is deduped **globally across both fleets**, so the same pile never appears twice.
+  prefix, dash variants, and **leading zeros** are normalised
+  (`BP U7-3` = `BP-U7-3` = `U7–3` = `U7-3`; `DW06` = `DW6`), and an element is deduped
+  **globally across both fleets**, so the same pile never appears twice. When an element is
+  reported several times in a day the card keeps the **latest/deepest depth**
+  (`Math.max`), not the last-processed reading.
   On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
   **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
@@ -130,6 +133,14 @@ with them (the Area KPIs, charts, and activity table stay below):
 These are stored per date in the `DailySummaries` tab (three JSON columns + flat totals);
 they are **read-only** in the Viewer for now. When no API key is set, the offline fallback
 derives them deterministically from the parsed activities.
+
+**Activities are deterministic.** The activity list / areas / KPIs always come from the
+offline parser (`productivityFromRecords_`: one paragraph = one activity, split only by
+sub-contractor, nothing dropped). When an API key is set the AI is still called, but only
+to **enrich the resource nodes** (machine status, excavation, reinforced concrete) via
+`mergeProductivity_(fb, ai)` — it no longer decides how activities are split, so the list
+stops oscillating. The Excavation tracker likewise keeps the **latest/deepest** depth per
+zone.
 
 ### Concrete volume rule (`castVolumeOf_` in `gas/Extract.gs`, mirrored in the Viewer)
 

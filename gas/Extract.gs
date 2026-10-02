@@ -257,12 +257,11 @@ function generateProductivity(rtoText, aisText, dateHint) {
   if (key) {
     try {
       var p = callClaudeProductivity_(rtoText, aisText, key, dateHint);
-      // AI with activities -> use it but backfill anything it dropped from the parser.
-      if (p && p.mergedActivities && p.mergedActivities.length) {
-        return fb ? mergeProductivity_(p, fb) : p;
-      }
-      // AI returned empty (the "0 activities" case) -> use the parser instead.
-      if (fb) return fb;
+      // Activities are DETERMINISTIC (offline parser): one paragraph = one activity, split only
+      // by sub-contractor, nothing dropped, areas by the site map. The AI is used ONLY to enrich
+      // the resource nodes (machine / excavation / RC), which read the raw bite/depth evidence.
+      if (fb && fb.mergedActivities && fb.mergedActivities.length) return mergeProductivity_(fb, p);
+      // Offline found nothing -> fall back to whatever the AI produced.
       if (p) return p;
     } catch (err) {
       try { console.error('AI productivity failed, using fallback: ' + err); } catch (e) {}
@@ -315,32 +314,20 @@ function backfillWorthy_(act) {
 }
 
 /**
- * Merge the AI result with the offline parse so NO substantive activity the parser found
- * is lost (the AI sometimes drops sub-contractor / non-bulleted sub-activities). Keeps the
- * AI's grouping and resource nodes; appends only offline activities the AI didn't cover AND
- * that pass backfillWorthy_ (so roster/banner/planning fragments don't flood the areas);
- * rebuilds area/KPI/concrete from the union so everything reconciles.
+ * The offline parse `fb` is AUTHORITATIVE for activities / areas / KPIs (deterministic: one
+ * paragraph = one activity, sub-contractor split, nothing dropped). This overlays the AI's
+ * richer resource nodes (machine / excavation / RC — the AI reads the raw bite/depth evidence)
+ * onto that offline result. Returns `fb` enriched. (`activityCovered_` / `backfillWorthy_` are
+ * retained but no longer used for activities.)
  */
-function mergeProductivity_(ai, fb) {
-  var aiActs = (ai && ai.mergedActivities) ? ai.mergedActivities : [];
-  var fbActs = (fb && fb.mergedActivities) ? fb.mergedActivities : [];
-  var union = aiActs.slice();
-  fbActs.forEach(function (f) {
-    if (!activityCovered_(f, aiActs) && backfillWorthy_(f)) {
-      // manpower already accounted for by the AI's area totals -> 0 to avoid inflating
-      union.push({ area: f.area, section: f.section || '', elementId: f.elementId || '',
-        activity: f.activity || '', stage: f.stage || '', manpower: 0 });
-    }
-  });
-  if (union.length === aiActs.length) return ai;   // nothing to add
-  var out = buildProductivityResult_(ai.date || fb.date, union, 'ai+fallback');
-  // Preserve the AI's richer resource nodes (machine / excavation / RC).
-  if (ai.machineStatus) out.machineStatus = ai.machineStatus;
-  if (ai.excavation) out.excavation = ai.excavation;
-  if (ai.reinforcedConcrete) out.reinforcedConcrete = ai.reinforcedConcrete;
-  // Keep the AI's manpower total (buildProductivityResult_ recomputed it from acts
-  // where appended rows carry 0, so it already equals the AI's total).
-  return out;
+function mergeProductivity_(fb, ai) {
+  if (!fb || !fb.mergedActivities || !fb.mergedActivities.length) return ai || fb;
+  if (ai) {
+    if (ai.machineStatus) fb.machineStatus = ai.machineStatus;
+    if (ai.excavation) fb.excavation = ai.excavation;
+    if (ai.reinforcedConcrete) fb.reinforcedConcrete = ai.reinforcedConcrete;
+  }
+  return fb;
 }
 
 // System prompt (persona + strict filtering / grouping / merging / traceability
@@ -972,7 +959,9 @@ function normalizeMachineStatus_(raw, mergedActivities) {
         var ow = owner.workingOnElements[j];
         if (normElId_(ow.elementId) === n) {
           ow.lifecycleStage = elementStageForward_(ow.lifecycleStage, stage);
-          if (depth !== null) ow.depth = depth;   // keep the latest reported depth
+          // keep the LATEST/deepest depth (drilling & excavation only get deeper), regardless of
+          // the order the day's readings arrive in.
+          if (depth !== null) ow.depth = (ow.depth === null || ow.depth === undefined) ? depth : Math.max(ow.depth, depth);
           if (eloc0 && !ow.location) ow.location = eloc0;  // fill a missing per-element location
           break;
         }
@@ -1117,6 +1106,20 @@ function normalizeExcavation_(raw, mergedActivities) {
       }
     });
   }
+
+  // Dedup zones by location and keep the LATEST (deepest) reading — excavation only gets deeper,
+  // so the max depth is the latest, whatever order the day's reports arrive in.
+  var byLoc = {}, zorder = [];
+  zones.forEach(function (z) {
+    var k = normElId_(z.location) || locKey_(z.location);
+    if (!k) { zorder.push(z); return; }           // unkeyed zone -> keep as-is
+    var cur = byLoc[k];
+    if (!cur) { byLoc[k] = z; zorder.push(k); return; }
+    var cd = (z.currentDepth === null || z.currentDepth === undefined) ? null : toNum_(z.currentDepth);
+    var od = (cur.currentDepth === null || cur.currentDepth === undefined) ? null : toNum_(cur.currentDepth);
+    if (cd !== null && (od === null || cd > od)) { cur.currentDepth = cd; cur.activity = z.activity || cur.activity; }
+  });
+  zones = zorder.map(function (k) { return (typeof k === 'string' && byLoc[k]) ? byLoc[k] : k; });
   var total = toNum_(raw.totalVolumeOrLoads);
   if (!total) {
     (mergedActivities || []).forEach(function (a) { total += parseLoads_(a.activity || ''); });
@@ -1253,17 +1256,18 @@ function normElId_(s) {
   s = s.replace(/[‐-―−]/g, '-');               // unicode dashes -> "-"
   s = s.toUpperCase().trim();
   s = s.replace(/^BP[\s\-]+/, '');                            // strip separated BP prefix
-  return s.replace(/\s+/g, '');
+  s = s.replace(/\s+/g, '');
+  return s.replace(/([A-Z])0+(\d)/g, '$1$2');                 // DW06 -> DW6, U07-3 -> U7-3
 }
 
-/** Normalise a structural code and dedupe case-insensitively (keep first form). */
+/** Canonicalise a structural code and dedupe (DW6 == DW06, BP-T9-3 == T9-3). */
 function uniqCodes_(list) {
   var seen = {}, out = [];
   list.forEach(function (c) {
-    var norm = String(c).toUpperCase().replace(/\s+/g, '');
+    var norm = normElId_(c);
     if (!norm || seen[norm]) return;
     seen[norm] = true;
-    out.push(norm);
+    out.push(String(c == null ? '' : c).trim());   // keep the first-seen on-site label (DW04 stays DW04)
   });
   return out;
 }

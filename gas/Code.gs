@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-57 · dedup machine elements (U7-3 / BP U7-3)';
+var APP_VERSION = 'build-58 · deterministic activities + latest depth + DW6=DW06';
 
 /**
  * Route:

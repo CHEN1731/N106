@@ -319,7 +319,8 @@
   // "BP U7-3" = "BP-U7-3" = "U7–3", and the same pile is never shown twice.
   function normId(id){
     var s=String(id==null?'':id).replace(/\(.*$/,'').replace(/[‐-―−]/g,'-').toUpperCase().trim();
-    return s.replace(/^BP[\s\-]+/,'').replace(/\s+/g,'');
+    s=s.replace(/^BP[\s\-]+/,'').replace(/\s+/g,'');
+    return s.replace(/([A-Z])0+(\d)/g,'$1$2');   // DW06 -> DW6
   }
   // Deterministic Area from a section/locator string, mirroring gas/Extract.gs areaFromSection_:
   // scan tokens against the site-plan segment map (Le2 -> Le fallback), else the Sec-A..E letter.
