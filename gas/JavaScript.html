@@ -78,7 +78,7 @@
             })
             .then(function (xml) {
               var text = docxXmlToTextClient(xml);
-              $('samsungText').value = text;
+              $('samsungText').value = text || '';
               if (note) note.textContent = 'Loaded ' + f.name + ' (' + text.length + ' chars) — edit if needed';
             })
             .catch(function (err) {

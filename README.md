@@ -345,7 +345,12 @@ so the fastest cleanup is:
 
 1. The parser now runs with **`requireLocator: true`** — only messages carrying a real
    `Sec-/segment` locator are kept, so greetings, RFI questions, emoji and coordination
-   chatter are dropped *before* they reach the Sheet.
+   chatter are dropped *before* they reach the Sheet. A **short update with no location
+   header** (even one naming an element, e.g. `DW05 concrete casting 42m3`, or
+   `Soil disposal 3 loads`) is **carried forward to the most recent location above it** — the
+   way the AI used to attribute it from context — so real work is no longer lost just because
+   a line omitted its `Sec-x`. Only a real site location (one that maps to an Area) updates the
+   carry; a bare element line never does. Chatter with no work signal is still dropped.
 2. Re-open the app, **Compare** the same exports again, and **Save to Sheet**. The old
    junk rows are overwritten and gone. In Looker Studio, click **Refresh data**.
 

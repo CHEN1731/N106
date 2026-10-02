@@ -232,6 +232,32 @@ assert(fb.productivityData.totalManpower === 23, 'grand manpower = 10+8+5 = 23 (
 assert(fb.mergedActivities[0].elementId === 'DW1547' && !('sourceEvidence' in fb.mergedActivities[0]),
   'fallback activity carries elementId, no sourceEvidence');
 
+console.log('\nCarry-forward locator (build-60): short location-less updates attach to the last location:');
+// A short update with no Sec-x header (even one naming an element, e.g. "DW05 concrete casting")
+// must attach to the most recent real location, not be dropped. Pure chatter is still dropped,
+// and a location-less line BEFORE any located report is still dropped.
+const cf = productivityFromRecords_([
+  '[9/25/26, 8:00:00 AM] ~ Eng: Good morning, please share updates',  // leading chatter (no prior loc)
+  '[9/25/26, 8:10:00 AM] ~ Eng: Sec-A/Ja',
+  'Roof slab rebar fixing ongoing',
+  'Manpower: 10',
+  '[9/25/26, 8:30:00 AM] ~ Eng: Backfilling works ongoing',           // carried -> Area 1
+  '[9/25/26, 9:00:00 AM] ~ Eng: DW05 concrete casting 42m3',          // carried -> Area 1 (element kept)
+  '[9/25/26, 9:30:00 AM] ~ Eng: Soil disposal 3 loads',               // carried -> Area 1
+  '[9/25/26, 9:45:00 AM] ~ Eng: Thanks all, good job today',          // chatter -> dropped
+  '[9/25/26, 10:00:00 AM] ~ Eng: Sec-C/Mb',
+  'BP U7-3 boring works depth 23m',
+  'Manpower: 8'
+].join('\n'), '', '2026-09-25');
+function areaCF(res, name){ for (var i=0;i<res.areas.length;i++) if (res.areas[i].areaName===name) return res.areas[i]; return null; }
+assert(cf.mergedActivities.length === 5, 'carry-forward keeps all 5 activities (2 located + 3 carried), chatter dropped (got ' + cf.mergedActivities.length + ')');
+assert(cf.mergedActivities.some(a => /DW05 concrete casting/.test(a.activity) && a.area === 'Area 1'),
+  'the element line "DW05 concrete casting" is kept under Area 1 (carried), not dropped');
+assert(cf.mergedActivities.some(a => /Soil disposal 3 loads/.test(a.activity) && a.area === 'Area 1'),
+  '"Soil disposal 3 loads" carried to Area 1 (not Others)');
+assert(!cf.mergedActivities.some(a => /Good morning|Thanks all/.test(a.activity)), 'chatter lines are not activities');
+assert(areaCF(cf, 'Area 2') && areaCF(cf, 'Area 2').activities.length === 1, 'Sec-C paragraph stays its own Area 2 activity');
+
 console.log('\nM/D/Y export (build-47): dates + traffic/diversion kept:');
 // A US-order export (2nd field 25 can only be a day) must resolve to 2026-09-25,
 // and a new traffic-diversion (TD 3A-7) line must survive to the merged activities.

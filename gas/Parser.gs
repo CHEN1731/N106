@@ -216,8 +216,11 @@ function parseWhatsApp(text, source, order) {
   if (!order) order = detectDateOrder_(lines);   // caller may pass a resolved order (target-aware)
   var messages = groupIntoMessages_(lines, format);
   var records = [];
+  // Carry-forward locator: a short update with no Sec-x header inherits the most recent
+  // stated location (reset implicitly as each located message updates it).
+  var carry = { area: '', areaGroup: '', section: '', segment: '' };
   for (var i = 0; i < messages.length; i++) {
-    var rec = messageToRecord_(messages[i], source, order);
+    var rec = messageToRecord_(messages[i], source, order, carry);
     if (!rec) continue;
     if (rec._photoOnly) {
       // A standalone media message: credit its photos to the most recent
@@ -273,7 +276,7 @@ function groupIntoMessages_(lines, format) {
 }
 
 /** Convert one message into a site record, or null if it is not one. */
-function messageToRecord_(msg, source, order) {
+function messageToRecord_(msg, source, order, carry) {
   var body = msg.body;
 
   if (isSystem_(body)) return null;
@@ -309,7 +312,34 @@ function messageToRecord_(msg, source, order) {
 
   // Locator-only mode: keep just real site reports (Section/segment or a
   // labelled Area:); drop greetings, questions and coordination chatter.
-  var hasLocator = !!loc.area || fields.area !== undefined;
+  // A REAL location maps to a known Area (non-empty areaGroup) or is a labelled Area:.
+  // A bare element line like "DW05 concrete casting" resolves to area="DW05" with an
+  // empty areaGroup — that's NOT a location, so it must not corrupt the carry nor strip
+  // its own line; it is carried forward to the most recent real location instead.
+  var hasRealLocator = fields.area !== undefined || !!loc.areaGroup;
+  var hasLocator;
+  if (hasRealLocator) {
+    // This message states its own location -> remember it so later location-less
+    // activity lines can inherit it (carry-forward).
+    if (carry) {
+      carry.area = (area || loc.area || '').trim();
+      carry.areaGroup = (loc.areaGroup || '').trim();
+      carry.section = (loc.section || '').trim();
+      carry.segment = (loc.segment || '').trim();
+    }
+    hasLocator = true;
+  } else if (carry && carry.area && hasActivitySignal_(contentBody) && !isChatter_(contentBody)) {
+    // A short update with no real location header but genuine work -> attach it to the most
+    // recent location (what the AI used to do via context). locatorLine '' keeps every body line.
+    loc = { area: carry.area, areaGroup: carry.areaGroup, section: carry.section,
+            segment: carry.segment, locatorLine: '' };
+    area = carry.area;
+    hasLocator = true;
+  } else {
+    // No carry context: fall back to the original rule (a weak/element-only token still
+    // keeps the record under Others; pure chatter is dropped by requireLocator below).
+    hasLocator = !!loc.area;
+  }
   if (PARSER_CONFIG.requireLocator && !hasLocator) {
     if (photos > 0) return { _photoOnly: true, photos: photos, date: date };
     return null;
