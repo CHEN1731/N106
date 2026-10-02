@@ -141,9 +141,13 @@ var PARSER_CONFIG = {
 
   // Attachment / media markers -> counted as a photo on the current record.
   mediaPatterns: [
-    /<Media omitted>/i,
-    /image omitted/i,
-    /photo omitted/i,
+    // Bracket-aware so the WHOLE "<… omitted>" / "<album message>" marker is removed — no
+    // stray "<>" left to leak into the activity text or break locator resolution.
+    /<?\s*media omitted\s*>?/i,
+    /<album message>/i,
+    /<?\s*image omitted\s*>?/i,
+    /<?\s*photo omitted\s*>?/i,
+    /<?\s*video omitted\s*>?/i,
     /\.(jpg|jpeg|png|heic|webp)\b/i
   ],
 
@@ -316,7 +320,7 @@ function messageToRecord_(msg, source, order, carry) {
   // A bare element line like "DW05 concrete casting" resolves to area="DW05" with an
   // empty areaGroup — that's NOT a location, so it must not corrupt the carry nor strip
   // its own line; it is carried forward to the most recent real location instead.
-  var hasRealLocator = fields.area !== undefined || !!loc.areaGroup;
+  var hasRealLocator = fields.area !== undefined || !!loc.section || !!loc.areaGroup;
   var hasLocator;
   if (hasRealLocator) {
     // This message states its own location -> remember it so later location-less
@@ -415,6 +419,7 @@ function stripMedia_(body) {
   for (var i = 0; i < PARSER_CONFIG.mediaPatterns.length; i++) {
     out = out.replace(new RegExp(PARSER_CONFIG.mediaPatterns[i].source, 'gi'), '');
   }
+  out = out.replace(/<\s*>/g, ' ');   // clean any residual empty brackets from a media marker
   return out.trim();
 }
 
@@ -773,6 +778,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseWhatsApp: parseWhatsApp,
     resolveLocator_: resolveLocator_,
+    stripMedia_: stripMedia_,
     canonicalArea_: canonicalArea_,
     hasActivitySignal_: hasActivitySignal_,
     normalizeDate_: normalizeDate_,

@@ -349,8 +349,15 @@ so the fastest cleanup is:
    header** (even one naming an element, e.g. `DW05 concrete casting 42m3`, or
    `Soil disposal 3 loads`) is **carried forward to the most recent location above it** — the
    way the AI used to attribute it from context — so real work is no longer lost just because
-   a line omitted its `Sec-x`. Only a real site location (one that maps to an Area) updates the
-   carry; a bare element line never does. Chatter with no work signal is still dropped.
+   a line omitted its `Sec-x`. A message with its **own `Sec-x` section** always uses that
+   section (never carried) — this holds even when the section maps to an Area only by its letter
+   (e.g. `Sec-A/Singtel` → Area 1) and no finer segment is recognised. A bare element line never
+   updates the carry. Chatter with no work signal is still dropped.
+   Exports that put the **location on the `<image omitted>` line** (e.g.
+   `<image omitted> Sec C/ER15…`) are handled: media markers (`<image/photo/video/Media omitted>`,
+   `<album message>`) are stripped **whole** (no stray `<>`), so the location resolves cleanly and
+   nothing leaks into the activity text. The forwarded **"RTO area arrangement …"** staff-planning
+   banner is treated as noise, not an activity.
 2. Re-open the app, **Compare** the same exports again, and **Save to Sheet**. The old
    junk rows are overwritten and gone. In Looker Studio, click **Refresh data**.
 

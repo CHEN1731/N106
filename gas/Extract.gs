@@ -1193,6 +1193,12 @@ function isRosterLine_(text) {
   return false;
 }
 
+/** A QC / staff-planning banner (not site work), e.g. "RTO area arrangement (…) <names>". */
+function isPlanningNoise_(s) {
+  return /\b(north south corridor|taehwa|taehawa|geo eng|daily progress status|rto area arrangement)\b/i
+    .test(String(s == null ? '' : s));
+}
+
 /**
  * Deterministic fallback (no AI): parse both texts, merge/dedupe activities, and
  * regex-extract DW/BP/BT/CW codes, concrete m3 and manpower.
@@ -1227,6 +1233,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       act = act || '';
       if (!act) return;
       if (isRosterLine_(act)) return;      // a manpower/machinery count, not an activity
+      if (isPlanningNoise_(act)) return;   // "RTO area arrangement (…) <names>" staff-planning banner
       var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
       if (seen[k]) return;
       seen[k] = true;
@@ -1396,6 +1403,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mergeProductivity_: mergeProductivity_,
     activityCovered_: activityCovered_,
     backfillWorthy_: backfillWorthy_,
+    isPlanningNoise_: isPlanningNoise_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
     normAreaName_: normAreaName_,

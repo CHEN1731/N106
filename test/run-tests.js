@@ -14,7 +14,7 @@ vm.createContext(sandbox);
 ['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
+const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
         mergeProductivity_, activityCovered_, backfillWorthy_,
@@ -257,6 +257,33 @@ assert(cf.mergedActivities.some(a => /Soil disposal 3 loads/.test(a.activity) &&
   '"Soil disposal 3 loads" carried to Area 1 (not Others)');
 assert(!cf.mergedActivities.some(a => /Good morning|Thanks all/.test(a.activity)), 'chatter lines are not activities');
 assert(areaCF(cf, 'Area 2') && areaCF(cf, 'Area 2').activities.length === 1, 'Sec-C paragraph stays its own Area 2 activity');
+
+console.log('\nImage-header locator + own-section (build-61): no carry-forward smear, clean media strip:');
+// This export carries the location on the "<image omitted>" line and sections resolve with an
+// EMPTY areaGroup (segment unmapped). A message with its OWN section must use it, NOT inherit the
+// previous message's area (the build-60 regression). Media markers strip cleanly (no "<>").
+assert(stripMedia_('<image omitted> Sec C/ER15(Le2)/LT Sambo').indexOf('<>') === -1,
+  'stripMedia_ leaves no "<>" from "<image omitted>"');
+assert(/^Sec C\/ER15/.test(stripMedia_('<image omitted> Sec C/ER15(Le2)/LT Sambo')),
+  'stripMedia_ yields the clean location line');
+assert(resolveLocator_(stripMedia_('<image omitted> Sec C/ER15(Le2)')).section === 'Sec-C',
+  'locator resolves Sec-C from an image-prefixed header');
+const imgFile = [
+  '[10/2/26, 1:00:00 AM] +65 9000 0001: <image omitted> Sec-D/CCL/Ub/NB/Base Slab/Kian Hup:',
+  '- Mass concrete casting completed',
+  '[10/2/26, 1:05:00 AM] +65 9000 0002: <image omitted> Sec A/Singtel ex-bldg (Kb1)/Lt Sambo',
+  'DW592 2nd bite excavation in progress',
+  '[10/2/26, 1:10:00 AM] +65 9000 0003: <image omitted> Sec E/Whitley Rd /Dyson Island/ LT Sambo',
+  '- Preparation work for Silos dismantling',
+  '[10/2/26, 1:15:00 AM] +65 9000 0004: <image omitted> RTO area arrangement (2026-Oct-03) Aravind, Kyaw, Karthik'
+].join('\n');
+const imgRes = productivityFromRecords_(imgFile, '', '2026-10-02');
+function areaOfAct(res, kw){ var a = res.mergedActivities.find(x => new RegExp(kw, 'i').test(x.activity)); return a ? a.area : null; }
+assert(areaOfAct(imgRes, 'DW592') === 'Area 1', 'Sec-A/Singtel (empty areaGroup) uses its OWN section -> Area 1, not carried to Area 3 (got ' + areaOfAct(imgRes, 'DW592') + ')');
+assert(areaOfAct(imgRes, 'Silos') === 'Area 4', 'Sec-E/Whitley uses its own section -> Area 4 (got ' + areaOfAct(imgRes, 'Silos') + ')');
+assert(areaOfAct(imgRes, 'Mass concrete') === 'Area 3', 'Sec-D -> Area 3');
+assert(!imgRes.mergedActivities.some(a => /<>/.test(a.activity)), 'no "<>" leaks into any activity');
+assert(!imgRes.mergedActivities.some(a => /rto area arrangement/i.test(a.activity)), 'the RTO area-arrangement planning banner is not an activity');
 
 console.log('\nM/D/Y export (build-47): dates + traffic/diversion kept:');
 // A US-order export (2nd field 25 can only be a day) must resolve to 2026-09-25,
