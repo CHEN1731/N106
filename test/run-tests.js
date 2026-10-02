@@ -18,7 +18,7 @@ const { parseWhatsApp, resolveLocator_, normalizeDate_, detectDateOrder_, splitA
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
         mergeProductivity_, activityCovered_, backfillWorthy_,
-        areaFromSection_, normAreaName_, classifyElement_, firstElementId_,
+        areaFromSection_, normAreaName_, classifyElement_, firstElementId_, normElId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
@@ -498,6 +498,27 @@ assert(msCast.bcCutters.length === 0, 'casting-only (no bite) -> no BC Cutter lo
 // a bitten element that also mentions casting still attaches, at the furthest stage
 var msBiteCast = normalizeMachineStatus_(null, [{ elementId: 'DW06', section: 'ER10', area: 'Area 1', activity: 'DW06 3rd bite; concrete casting done' }]);
 assert(msBiteCast.bcCutters.length === 1 && msBiteCast.bcCutters[0].workingOnElements[0].lifecycleStage === 'Completed', 'bite + casting done -> logged, stage Completed');
+
+console.log('\nMachine element dedup (build-57): U7-3 / BP U7-3 are one pile:');
+assert(normElId_('BP U7-3') === normElId_('U7-3') && normElId_('U7-3') === normElId_('U7–3') && normElId_('BP-U7-3') === normElId_('U7-3'),
+  'normElId_ canonicalises BP-prefix and dash variants');
+assert(normElId_('DW1547') === 'DW1547' && normElId_('BP270') === 'BP270', 'DW ids and bare BP270 (no separator) are kept');
+// AI emitted the same pile two ways on two rigs -> must appear ONCE across all rigs.
+var msDup = normalizeMachineStatus_({ bcCutters: [], boringRigs: [
+  { machineId: 'Boring Rig 1', area: 'Area 3', location: 'SOD', machineState: 'Active',
+    workingOnElements: [{ elementId: 'BP U7-3', lifecycleStage: 'Excavation', depth: 27 }], evidence: 'current depth 27m' },
+  { machineId: 'Boring Rig 2', area: 'Area 3', location: 'SOD', machineState: 'Active',
+    workingOnElements: [{ elementId: 'U7-3', lifecycleStage: 'Excavation', depth: 28 }], evidence: 'current depth 28m' }
+] }, []);
+var rigEls = msDup.boringRigs.reduce(function (n, r) { return n + r.workingOnElements.length; }, 0);
+assert(rigEls === 1, 'the same pile (BP U7-3 / U7-3) appears once across all rigs (got ' + rigEls + ')');
+// Same id offered to both a cutter and a rig -> lands on exactly one machine (global dedup).
+var msCross = normalizeMachineStatus_({
+  bcCutters: [{ machineId: 'BC 1', area: 'Area 3', location: 'SOD', machineState: 'Active', workingOnElements: [{ elementId: 'U7-3', lifecycleStage: 'Excavation' }], evidence: '1st bite 10m' }],
+  boringRigs: [{ machineId: 'Rig 1', area: 'Area 3', location: 'SOD', machineState: 'Active', workingOnElements: [{ elementId: 'U7-3', lifecycleStage: 'Excavation' }], evidence: 'current depth 27m' }]
+}, []);
+var crossEls = msCross.bcCutters.concat(msCross.boringRigs).reduce(function (n, m) { return n + m.workingOnElements.length; }, 0);
+assert(crossEls === 1, 'an element offered to a cutter AND a rig lands on exactly one machine (got ' + crossEls + ')');
 
 // GLOBAL dedup: the same element listed on two AI machines lands on ONE machine only
 var msDup = normalizeMachineStatus_({ bcCutters: [

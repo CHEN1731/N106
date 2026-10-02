@@ -107,6 +107,9 @@ with them (the Area KPIs, charts, and activity table stay below):
   BC Cutter (DW/BT/CW) or **depth** for a Boring Rig (BP). **Rebar cage / casting are NOT
   triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
   counted; they only refine the stage of an element already logged via bite/depth.
+  Element ids are **canonicalised** (`normElId_` / the Viewer's `normId`): a separated `BP`
+  prefix and dash variants are normalised (`BP U7-3` = `BP-U7-3` = `U7–3` = `U7-3`), and an
+  element is deduped **globally across both fleets**, so the same pile never appears twice.
   On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
   **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each

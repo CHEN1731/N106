@@ -314,7 +314,13 @@
     if (v==='completed') return 'lc-done'; return 'lc-exc'; }
   var LC_ICON={'lc-exc':'🟤','lc-rebar':'🔵','lc-conc':'🟠','lc-done':'🟢'};
   var BC_FLEET=6, RIG_FLEET=4;   // physical fleet totals (for the deployed/total count)
-  function normId(id){ return String(id==null?'':id).toUpperCase().replace(/\s+/g,''); }
+  // Canonical element key (mirrors normElId_ in gas/Extract.gs): drop a trailing "(…)",
+  // normalise unicode dashes, strip a separated "BP" prefix, remove spaces. So "U7-3" =
+  // "BP U7-3" = "BP-U7-3" = "U7–3", and the same pile is never shown twice.
+  function normId(id){
+    var s=String(id==null?'':id).replace(/\(.*$/,'').replace(/[‐-―−]/g,'-').toUpperCase().trim();
+    return s.replace(/^BP[\s\-]+/,'').replace(/\s+/g,'');
+  }
   // Deterministic Area from a section/locator string, mirroring gas/Extract.gs areaFromSection_:
   // scan tokens against the site-plan segment map (Le2 -> Le fallback), else the Sec-A..E letter.
   function areaFromSectionJS_(section){
@@ -366,7 +372,7 @@
       });
       mc.workingOnElements = mc.workingOnElements.filter(function(e){
         if (!e.elementId) return true;
-        var k = mc.type + '|' + normId(e.elementId);
+        var k = normId(e.elementId);              // GLOBAL across families: one element, one machine
         if (seenEl[k]) return false; seenEl[k]=1; return true;
       });
     });

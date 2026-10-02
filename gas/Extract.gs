@@ -923,16 +923,16 @@ function machineEvidence_(text, family) {
 function normalizeMachineStatus_(raw, mergedActivities) {
   raw = raw || {};
   var cards = {}, order = [], counts = { bc: 0, rig: 0 };
-  // An element belongs to exactly ONE machine of its family (global dedup). Maps a
-  // normalised elementId -> the card that owns it.
-  var claimedBy = { bc: {}, rig: {} };
+  // An element belongs to exactly ONE machine, across BOTH families (global dedup). Maps a
+  // canonical elementId -> the card that owns it, so the same pile can't show on two machines.
+  var claimed = {};
   // Authoritative area per worked element, from the activity it appears in (a section like
   // "Sec-C/Mb" resolves to Area 2 even when the machine's location is a bare "ER15").
   var elArea = {};
   (mergedActivities || []).forEach(function (a) {
     var id = a.elementId || firstElementId_((a.section || '') + ' ' + (a.activity || ''));
     if (!id) return;
-    var n = id.toUpperCase().replace(/\s+/g, '');
+    var n = normElId_(id);
     var ar = areaFromSection_(a.section) || normAreaName_(a.area) || '';
     if (ar && !elArea[n]) elArea[n] = ar;   // first real "Area N" wins
   });
@@ -956,21 +956,21 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     if (!machineTrigger_(ev, family)) return;
     stage = clampLifecycle_(stage) || lifecycleStageFor_(ev) || 'Excavation';
     var eid = String(elementId == null ? '' : elementId).trim();
-    var n = eid ? eid.toUpperCase().replace(/\s+/g, '') : '';
+    var n = eid ? normElId_(eid) : '';
     // Depth (metres) belongs to the element: prefer an AI-supplied value, else parse the
     // evidence/activity ("1st bite 21.5m", "current depth 27.5m").
     var depth = toNum_(depthHint);
     if (!depth) depth = parseDepthM_(ev);
     depth = (depth === null || depth === undefined || !isFinite(depth) || depth <= 0) ? null : toNum_(depth);
 
-    // GLOBAL dedup: if this element is already on a machine, advance its stage there and
-    // stop — never place the same element on a second machine.
-    if (n && claimedBy[family][n]) {
-      var owner = claimedBy[family][n];
+    // GLOBAL dedup (across BOTH families): if this element is already on a machine, advance its
+    // stage there and stop — never place the same element on a second machine.
+    if (n && claimed[n]) {
+      var owner = claimed[n];
       var eloc0 = String(location == null ? '' : location).trim();
       for (var j = 0; j < owner.workingOnElements.length; j++) {
         var ow = owner.workingOnElements[j];
-        if (String(ow.elementId).toUpperCase().replace(/\s+/g, '') === n) {
+        if (normElId_(ow.elementId) === n) {
           ow.lifecycleStage = elementStageForward_(ow.lifecycleStage, stage);
           if (depth !== null) ow.depth = depth;   // keep the latest reported depth
           if (eloc0 && !ow.location) ow.location = eloc0;  // fill a missing per-element location
@@ -996,7 +996,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     }
     if (eid) {
       card.workingOnElements.push({ elementId: eid, lifecycleStage: stage, depth: depth, location: loc, area: area });
-      claimedBy[family][n] = card;
+      claimed[n] = card;
     }
     if (MAINT_RE.test(ev)) card.machineState = 'Maintenance';
     if (machineIdHint && !card.machineId) card.machineId = String(machineIdHint).trim();
@@ -1241,6 +1241,21 @@ function firstElementId_(t) {
   return m ? m[0].toUpperCase().replace(/\s+/g, '') : '';
 }
 
+/**
+ * Canonical key for a structural element id, so the same physical element is deduped
+ * however it was written: drops a trailing "(1000mm dia)" descriptor, normalises unicode
+ * dashes to "-", uppercases, strips a SEPARATED leading "BP" family prefix
+ * ("BP U7-3" / "BP-U7-3" -> "U7-3"; a bare "BP270" is kept), then removes spaces.
+ * So "U7-3" = "BP U7-3" = "BP-U7-3" = "U7–3", and "T9-3" = "BP-T9-3".
+ */
+function normElId_(s) {
+  s = String(s == null ? '' : s).replace(/\(.*$/, '');        // drop "(1000mm dia)" etc.
+  s = s.replace(/[‐-―−]/g, '-');               // unicode dashes -> "-"
+  s = s.toUpperCase().trim();
+  s = s.replace(/^BP[\s\-]+/, '');                            // strip separated BP prefix
+  return s.replace(/\s+/g, '');
+}
+
 /** Normalise a structural code and dedupe case-insensitively (keep first form). */
 function uniqCodes_(list) {
   var seen = {}, out = [];
@@ -1370,6 +1385,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normAreaName_: normAreaName_,
     classifyElement_: classifyElement_,
     firstElementId_: firstElementId_,
+    normElId_: normElId_,
     stageFromText_: stageFromText_,
     uniqCodes_: uniqCodes_,
     sumConcreteM3_: sumConcreteM3_,
