@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-61 · fix area detection (own-section locator + clean media strip)';
+var APP_VERSION = 'build-62 · idle machines + maintenance/idle triggers';
 
 /**
  * Route:

@@ -420,9 +420,13 @@ var PRODUCTIVITY_SYSTEM =
   'that machine\'s workingOnElements array (a machine can finish one and start the next).\n' +
   '- "machineId" = the machine name if stated, else a generic slot like "BC Cutter 1". ' +
   '"area" = "Area 1".."Area 4"/"Others" (site-plan map). "location" = the site location ' +
-  '(ER15, Opp SJII). "machineState" is exactly "Active", "Maintenance" (hose change / ' +
-  'breakdown / repair / servicing), or "Idle". There are 6 BC Cutters and 4 Boring Rigs: ' +
-  'machines with no element reported are Idle; never exceed 6 cutters / 4 rigs. "evidence" ' +
+  '(ER15, Opp SJII). "machineState" is exactly "Active" (doing bite/depth work), ' +
+  '"Maintenance" (maintenance / change / breakdown / repair / servicing), or "Idle" ' +
+  '(standby / shifting / relocating / moving, or not doing new bite/depth work). There are ' +
+  '6 BC Cutters and 4 Boring Rigs: ALSO return the machines that are idle or under maintenance ' +
+  '(e.g. "boring rig moving gate 15->16" = Idle, "BC cutter wheel maintenance" = Maintenance), ' +
+  'not only the working ones; machines with no element reported are Idle; never exceed 6 cutters ' +
+  '/ 4 rigs. "evidence" ' +
   '= the snippet containing the trigger ("DW1547 1st bite : 21.50m", "Current depth: 27.5m").\n' +
   '- excavation.activeExcavations: one entry per active excavation zone with { location, ' +
   'currentDepth (metres, number), activity }. excavation.totalVolumeOrLoads = the total ' +
@@ -836,7 +840,11 @@ function locKey_(s) { return String(s == null ? '' : s).toUpperCase().replace(/\
 // when its text hits one of the three work stages: bite (DW/BT/CW) / depth (BP) = Excavation,
 // rebar cage = Rebar, or concrete casting = Concreting/Completed.
 var CASTING_RE = /cast|concret|pour/i;
-var MAINT_RE = /maint|breakdown|repair|servic|hose\s*change/i;
+// Machine own-state keywords. Maintenance: a repair/servicing keyword or a whole-word "change"
+// (NOT "exchange"). Idle: explicitly idle / on standby / shifting / relocating / moving (a machine
+// that isn't doing new bite/depth work this period).
+var MAINT_RE = /maint|breakdown|repair|servic|\bchange\b/i;
+var IDLE_RE = /\bidle\b|\bstand[\s-]?by\b|shifting|shifted|relocat|\bmoving\b/i;
 var BITE_RE = /\bbite\b/i;
 var DEPTH_RE = /\bdepth\b/i;
 var REBAR_CAGE_RE = /rebar|reinforc|steel\s*fix/i;
@@ -883,6 +891,37 @@ function elementStageForward_(oldStage, newStage) {
 
 /** Machine's own state from evidence: Maintenance on a maintenance keyword, else Active. */
 function machineStateFor_(text) { return MAINT_RE.test(String(text == null ? '' : text)) ? 'Maintenance' : 'Active'; }
+
+/**
+ * Machine own-state from its evidence text. Precedence: Maintenance > Active > Idle.
+ * `hasWork` = the machine has a bite (BC) / depth (Rig) element this period.
+ *   - maintenance/change/breakdown/repair/servicing keyword -> 'Maintenance'
+ *   - else doing new bite/depth work                          -> 'Active'
+ *   - else (idle/standby/shifting/relocating/moving, or nothing new) -> 'Idle'
+ */
+function machineStateFromEvidence_(text, hasWork) {
+  var t = String(text == null ? '' : text);
+  if (MAINT_RE.test(t)) return 'Maintenance';
+  if (hasWork) return 'Active';
+  return 'Idle';
+}
+
+/** Canonicalise a machine-state string to 'Active' | 'Maintenance' | 'Idle', or '' if not one. */
+function clampMachineState_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  if (s === 'active') return 'Active';
+  if (s === 'maintenance') return 'Maintenance';
+  if (s === 'idle') return 'Idle';
+  return '';
+}
+
+/** True when the text names a machine of `family` ('bc' | 'rig'). */
+function mentionsMachine_(text, family) {
+  var t = String(text == null ? '' : text);
+  if (family === 'rig') return /\bboring\s*rig\b/i.test(t);
+  if (family === 'bc') return /\bBC\s*cutter\b|\bcutter\s*wheel\b/i.test(t);
+  return false;
+}
 
 /** The clause of `text` that contains the trigger, so the UI can show why it was logged. */
 function machineEvidence_(text, family) {
@@ -994,6 +1033,28 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     if (!card.area && area) card.area = area;
   }
 
+  // A machine that is NAMED but not doing new bite/depth work (relocating / on standby / under
+  // maintenance) — create a no-element card so idle/maintenance machines still appear. Never
+  // duplicates a card that already exists at the same family+area+location (that machine is
+  // already represented, possibly deployed); it only upgrades that card to Maintenance.
+  function addMentionCard(family, area, location, ev, stateHint) {
+    var evS = String(ev == null ? '' : ev);
+    var state = clampMachineState_(stateHint) || machineStateFromEvidence_(evS, false);
+    area = areaFromSection_(location) || normAreaName_(area) || '';
+    var loc = String(location == null ? '' : location).trim();
+    var key = family + '|' + String(area).toUpperCase() + '|' + locKey_(loc);
+    var existing = cards[key];
+    if (existing) {
+      if (state === 'Maintenance') existing.machineState = 'Maintenance';
+      return;
+    }
+    var card = { family: family, machineId: '', area: area, location: loc,
+      machineState: state, workingOnElements: [], evidence: '' };
+    var snip = machineEvidence_(evS, family);
+    if (snip) card.evidence = snip;
+    cards[key] = card; order.push(key); counts[family]++;
+  }
+
   // 1) AI entries — nested workingOnElements; tolerate legacy assignedIds/assignedId/id.
   ['bc', 'rig'].forEach(function (fam) {
     var list = fam === 'bc' ? raw.bcCutters : raw.boringRigs;
@@ -1010,6 +1071,9 @@ function normalizeMachineStatus_(raw, mergedActivities) {
           : (m.assignedId != null ? [m.assignedId] : (m.id != null ? [m.id] : []));
         if (ids.length) ids.forEach(function (id) { addElement(fam, m.area, m.location, id, '', ev, m.machineId); });
         else if (machineTrigger_(ev, fam)) addElement(fam, m.area, m.location, '', lifecycleStageFor_(ev), ev, m.machineId);
+        // No element & no trigger: keep an idle/maintenance machine the AI declared or named.
+        else if (clampMachineState_(m.machineState) === 'Maintenance' || clampMachineState_(m.machineState) === 'Idle' || mentionsMachine_(ev, fam))
+          addMentionCard(fam, m.area, m.location, ev, m.machineState);
       }
     });
   });
@@ -1018,10 +1082,22 @@ function normalizeMachineStatus_(raw, mergedActivities) {
   (mergedActivities || []).forEach(function (a) {
     var id = a.elementId || firstElementId_((a.section || '') + ' ' + (a.activity || ''));
     var t = classifyElement_(id);
-    if (!t) return;
+    var txt = a.activity || '';
+    if (!t) {
+      // No element, but the line NAMES a machine not doing new work -> idle/maintenance card.
+      ['bc', 'rig'].forEach(function (fam) {
+        if (mentionsMachine_(txt, fam)) addMentionCard(fam, a.area, a.section || '', txt);
+      });
+      return;
+    }
     var fam = (t === 'BP') ? 'rig' : 'bc';
-    if (!machineTrigger_(a.activity || '', fam)) return;
-    addElement(fam, a.area, a.section || id || '', id, lifecycleStageFor_(a.activity || ''), a.activity || '', '');
+    if (!machineTrigger_(txt, fam)) {
+      // Element named but no bite/depth: if the line also names the machine as idle/maintenance,
+      // record that; otherwise drop (casting/rebar-only doesn't attach to a machine).
+      if (mentionsMachine_(txt, fam)) addMentionCard(fam, a.area, a.section || id || '', txt);
+      return;
+    }
+    addElement(fam, a.area, a.section || id || '', id, lifecycleStageFor_(txt), txt, '');
   });
 
   // Hard fleet cap: while a family has more cards than its fleet size, merge the two
@@ -1417,6 +1493,9 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeMachineStatus_: normalizeMachineStatus_,
     machineTrigger_: machineTrigger_,
     machineStateFor_: machineStateFor_,
+    machineStateFromEvidence_: machineStateFromEvidence_,
+    clampMachineState_: clampMachineState_,
+    mentionsMachine_: mentionsMachine_,
     lifecycleStageFor_: lifecycleStageFor_,
     elementStageForward_: elementStageForward_,
     clampLifecycle_: clampLifecycle_,

@@ -107,6 +107,12 @@ with them (the Area KPIs, charts, and activity table stay below):
   BC Cutter (DW/BT/CW) or **depth** for a Boring Rig (BP). **Rebar cage / casting are NOT
   triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
   counted; they only refine the stage of an element already logged via bite/depth.
+  The panel shows the **whole fleet — 6 BC Cutters + 4 Boring Rigs**: machines doing bite/depth
+  work are **Active**; a machine reported under **maintenance / change / breakdown / repair /
+  servicing** is **Maintenance** (red); a machine reported **moving / shifting / relocating / on
+  standby / idle**, or any un-deployed slot, is **Idle** (grey, grouped in a trailing *Idle /
+  Standby* section). A machine named without a bite/depth element (e.g. "boring rig moving gate
+  15→16", "BC cutter wheel maintenance") is kept as an Idle/Maintenance card rather than dropped.
   Element ids are **canonicalised** (`normElId_` / the Viewer's `normId`): a separated `BP`
   prefix, dash variants, and **leading zeros** are normalised
   (`BP U7-3` = `BP-U7-3` = `U7–3` = `U7-3`; `DW06` = `DW6`), and an element is deduped

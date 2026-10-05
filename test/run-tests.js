@@ -22,7 +22,7 @@ const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateO
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
-        normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineEvidence_,
+        normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
         lifecycleStageFor_, elementStageForward_, clampLifecycle_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_ } = sandbox;
 
@@ -496,6 +496,28 @@ assert(elementStageForward_('Excavation', 'Rebar') === 'Rebar', 'forward-only: a
 assert(elementStageForward_('', 'Excavation') === 'Excavation', 'forward-only: empty -> new');
 assert(machineStateFor_('BC cutter breakdown') === 'Maintenance' && machineStateFor_('1st bite') === 'Active',
   'machineStateFor_: breakdown -> Maintenance, else Active');
+
+// build-62: Maintenance/Idle trigger words + keeping idle/maintenance machines
+assert(machineStateFromEvidence_('hose change', false) === 'Maintenance', 'state: "change" -> Maintenance');
+assert(machineStateFromEvidence_('BC cutter wheel maintenance', false) === 'Maintenance', 'state: "maintenance" -> Maintenance');
+assert(machineStateFromEvidence_('boring rig moving gate 16', false) === 'Idle', 'state: "moving" + no work -> Idle');
+assert(machineStateFromEvidence_('rig on standby', false) === 'Idle', 'state: "standby" -> Idle');
+assert(machineStateFromEvidence_('1st bite 12m', true) === 'Active', 'state: has bite work -> Active');
+assert(machineStateFromEvidence_('Singtel exchange building', false) === 'Idle', 'state: "exchange" does NOT trigger Maintenance (whole-word change)');
+assert(mentionsMachine_('boring rig is shifting from gate 15 to 16', 'rig') === true && mentionsMachine_('x', 'rig') === false, 'mentionsMachine_ rig');
+assert(mentionsMachine_('BC cutter wheel maintenance welding', 'bc') === true, 'mentionsMachine_ bc');
+// a NAMED machine with no bite/depth -> an idle / maintenance card (not dropped)
+var msIdle = normalizeMachineStatus_(null, [
+  { area: 'Area 2', section: 'Sec R/OPP LAMH', elementId: '', activity: 'boring rig is shifting from gate 15 to gate 16' },
+  { area: 'Area 1', section: 'Sec A/Singtel', elementId: '', activity: 'BC cutter wheel maintenance welding work ongoing' }
+]);
+var idleRig = msIdle.boringRigs.filter(function (r) { return r.machineState === 'Idle'; });
+assert(idleRig.length === 1 && !idleRig[0].workingOnElements.length, 'a "boring rig shifting" line -> one Idle rig card, no element');
+var maintBc = msIdle.bcCutters.filter(function (c) { return c.machineState === 'Maintenance'; });
+assert(maintBc.length === 1 && !maintBc[0].workingOnElements.length, 'a "BC cutter wheel maintenance" line -> one Maintenance cutter card, no element');
+// server still does NOT pad idle slots (padding is Viewer-side): only real machines are returned
+var msNone = normalizeMachineStatus_(null, [{ area: 'Area 1', section: 'Sec-A/Ja', elementId: 'DW01', activity: 'DW01 rebar cage' }]);
+assert(msNone.bcCutters.length === 0 && msNone.boringRigs.length === 0, 'server returns no machines when nothing drills/idles (no padding server-side)');
 
 // normalizeMachineStatus_ — nested workingOnElements, grouping, fleet padding to 6/4
 var mActs = [

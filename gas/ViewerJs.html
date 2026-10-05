@@ -377,11 +377,15 @@
         if (seenEl[k]) return false; seenEl[k]=1; return true;
       });
     });
-    // Split each card so every card holds exactly ONE area (per-element area). Only-deployed:
-    // cards with no elements are dropped (no Idle padding).
-    var split = [];
+    // Split each element-bearing card so every card holds exactly ONE area (per-element area).
+    // Element-less cards are idle / maintenance machines — keep them aside to place after folding.
+    var split = [], idleMentions = [];
     machines.forEach(function(mc){
-      if (!mc.workingOnElements.length) return;
+      if (!mc.workingOnElements.length){
+        idleMentions.push({ type:mc.type, machineId:mc.machineId||'', area:String(mc.area||'').trim(),
+          machineState:(mc.machineState==='Maintenance'?'Maintenance':'Idle'), workingOnElements:[], evidence:mc.evidence });
+        return;
+      }
       var byArea = {}, orderA = [];
       mc.workingOnElements.forEach(function(e){
         var ar = e.area || 'Others';
@@ -393,20 +397,29 @@
           machineState:mc.machineState, workingOnElements:byArea[ar], evidence:mc.evidence });
       });
     });
-    // Hard cap on display: fold same-area cards so a family never shows more than its fleet
-    // size (fixes already-saved >6 data too). Never merges across areas.
-    machines = foldDisplay_(split,'BC Cutter',BC_FLEET).concat(foldDisplay_(split,'Boring Rig',RIG_FLEET));
+    // Hard cap deployed cards to the fleet size (never merges across areas), THEN fill each fleet
+    // up to 6 BC / 4 Rig: first the real idle/maintenance machines, then generic Idle slots.
+    function fillFleet(deployed, type, cap){
+      var out = deployed.slice();
+      idleMentions.filter(function(m){ return m.type===type; }).forEach(function(m){ if (out.length<cap) out.push(m); });
+      while (out.length<cap) out.push({ type:type, machineId:type+' '+(out.length+1), area:'', machineState:'Idle', workingOnElements:[], evidence:'' });
+      return out;
+    }
+    var bcCards = fillFleet(foldDisplay_(split,'BC Cutter',BC_FLEET),'BC Cutter',BC_FLEET);
+    var rigCards = fillFleet(foldDisplay_(split,'Boring Rig',RIG_FLEET),'Boring Rig',RIG_FLEET);
+    machines = bcCards.concat(rigCards);
 
-    var bcN = machines.filter(function(x){ return x.type==='BC Cutter'; }).length;
-    var rigN = machines.filter(function(x){ return x.type==='Boring Rig'; }).length;
+    function nWork(list){ return list.filter(function(x){ return x.machineState!=='Idle'; }).length; }
+    var bcW=nWork(bcCards), rigW=nWork(rigCards);
     if ($('siteSub')) $('siteSub').textContent =
-      bcN+' BC Cutter'+(bcN===1?'':'s')+' · '+rigN+' Boring Rig'+(rigN===1?'':'s')+' working (max '+BC_FLEET+' / '+RIG_FLEET+')';
-    if (!machines.length){ host.innerHTML='<div class="resempty">No machines detected for this range.</div>'; return; }
+      bcW+'/'+BC_FLEET+' BC Cutters · '+rigW+'/'+RIG_FLEET+' Boring Rigs working (rest idle)';
+    if (!machines.length){ host.innerHTML='<div class="resempty">No machines for this range.</div>'; return; }
 
     function cleanLoc(s){ return String(s||'').replace(/^Sec-[A-E]\s*\/\s*/i,'').trim(); }
     function cardHtml(mc){
       var cls=stateClass(mc.machineState);
-      var body = '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
+      var body = mc.workingOnElements.length
+        ? '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
         var stage = ELEMENT_STAGES[normId(e.elementId)] || e.lifecycleStage || 'Excavation';
         var lc = lcClass(stage);
         var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : parseDepth(mc.evidence);
@@ -414,23 +427,29 @@
         var locTag = e.location ? '<span class="elloc">'+esc(cleanLoc(e.location))+'</span>' : '';
         return '<div class="elrow"><span class="elid">📌 '+esc(e.elementId||'—')+'</span>'+locTag+depthTag+
           '<span class="elarrow">➔</span><span class="lcbadge '+lc+'">'+(LC_ICON[lc]||'')+' '+esc(stage)+'</span></div>';
-      }).join('');
+      }).join('')
+        : '<div class="midlabel idlenote">'+(mc.machineState==='Maintenance'?'Under maintenance':'Idle — no active element')+
+          (mc.evidence?' · '+esc(cleanLoc(mc.evidence)):'')+'</div>';
       return '<div class="machcard '+cls+'">'+
         '<div class="mtop"><span class="statusdot"></span><span class="mtitle">🚜 '+esc(mc.machineId)+'</span>'+
         '<span class="mstat">'+esc(mc.machineState)+'</span></div>'+
         '<div class="elbody">'+body+'</div></div>';
     }
 
-    // Group cards under Area headings: Area 1..4, then any other named area.
+    // Group cards under Area headings: Area 1..4, then any other named area, then an Idle/Standby
+    // bucket for element-less (idle / maintenance) machines so the Area sections stay clean.
     var ORDER = ['Area 1','Area 2','Area 3','Area 4'];
+    var IDLE_BUCKET = '🅿️ Idle / Standby';
     var groups = {}, groupOrder = [];
     function bucket(name){ if(!groups[name]){ groups[name]=[]; groupOrder.push(name); } return groups[name]; }
     machines.forEach(function(mc){
+      if (!mc.workingOnElements.length){ bucket(IDLE_BUCKET).push(mc); return; }
       var ar = String(mc.area||'').trim();
       bucket(/^Area [1-4]$/.test(ar) ? ar : (ar || 'Others')).push(mc);
     });
     var ordered = ORDER.filter(function(a){ return groups[a]; })
-      .concat(groupOrder.filter(function(a){ return ORDER.indexOf(a)===-1; }));
+      .concat(groupOrder.filter(function(a){ return ORDER.indexOf(a)===-1 && a!==IDLE_BUCKET; }))
+      .concat(groups[IDLE_BUCKET] ? [IDLE_BUCKET] : []);
     host.innerHTML = ordered.map(function(name){
       return '<div class="marea">'+
         '<div class="mareahead">'+esc(name)+' <span class="mareacount">'+groups[name].length+'</span></div>'+
