@@ -397,22 +397,58 @@
           machineState:mc.machineState, workingOnElements:byArea[ar], evidence:mc.evidence });
       });
     });
-    // Hard cap deployed cards to the fleet size (never merges across areas), THEN fill each fleet
-    // up to 6 BC / 4 Rig: first the real idle/maintenance machines, then generic Idle slots.
-    function fillFleet(deployed, type, cap){
-      var out = deployed.slice();
-      idleMentions.filter(function(m){ return m.type===type; }).forEach(function(m){ if (out.length<cap) out.push(m); });
-      while (out.length<cap) out.push({ type:type, machineId:type+' '+(out.length+1), area:'', machineState:'Idle', workingOnElements:[], evidence:'' });
-      return out;
+    // ---- Fixed fleet roster: each slot is pinned to a HOME area; spares (BC 5-6, Rig 4) show
+    // Idle until an area has more machines than its home slots, then a spare is "called up" into
+    // that area (indicated). Edit FLEET_ROSTER here if machines are permanently reassigned. ----
+    var FLEET_ROSTER = {
+      'BC Cutter':  { homes: { 'Area 1':[1], 'Area 2':[2,3], 'Area 3':[4] }, spares:[5,6] },
+      'Boring Rig': { homes: { 'Area 1':[1], 'Area 2':[2],   'Area 3':[3] }, spares:[4]   }
+    };
+    function rosterCards(type){
+      var R = FLEET_ROSTER[type];
+      // "occupying" machines = anything doing work (has elements) or under maintenance.
+      var occ = split.filter(function(c){ return c.type===type; })
+        .concat(idleMentions.filter(function(m){ return m.type===type && m.machineState==='Maintenance'; }));
+      var byArea = {};
+      occ.forEach(function(c){ var a=/^Area [1-4]$/.test(String(c.area))?c.area:'Others'; (byArea[a]=byArea[a]||[]).push(c); });
+      // fixed slot list: home slots (in area order) then spares — always exactly the fleet size.
+      var slots = [];
+      Object.keys(R.homes).forEach(function(area){ R.homes[area].forEach(function(num){ slots.push({num:num, home:area, area:area, src:null}); }); });
+      R.spares.forEach(function(num){ slots.push({num:num, home:'', area:'', src:null}); });
+      // 1) fill each area's home slots with that area's detected machines
+      var leftover = [];
+      Object.keys(R.homes).forEach(function(area){
+        var homeSlots = slots.filter(function(s){ return s.home===area; });
+        var list = (byArea[area]||[]).slice();
+        homeSlots.forEach(function(s){ if (list.length) s.src = list.shift(); });
+        leftover = leftover.concat(list);               // extras beyond this area's home slots
+      });
+      Object.keys(byArea).forEach(function(a){ if (!R.homes[a]) leftover = leftover.concat(byArea[a]); }); // Area 4 / Others
+      // 2) call up spares for the leftover (shown in the machine's own area); never exceed the fleet
+      var spareSlots = slots.filter(function(s){ return !s.home; });
+      leftover.forEach(function(c){
+        var s = spareSlots.filter(function(x){ return !x.src; })[0];
+        if (s){ s.src = c; s.area = c.area; }
+        else { // more machines than the whole fleet: merge extra elements into a filled slot (same area first)
+          var t = slots.filter(function(x){ return x.src && x.area===c.area; })[0] || slots.filter(function(x){ return x.src; })[0];
+          if (t) t.src = { area:t.area, machineState:t.src.machineState,
+            workingOnElements:(t.src.workingOnElements||[]).concat(c.workingOnElements||[]), evidence:t.src.evidence };
+        }
+      });
+      // 3) materialise one card per slot (unfilled home slot -> Idle in its area; unused spare -> Idle)
+      return slots.map(function(s){
+        var src = s.src;
+        return { type:type, machineId:type+' '+s.num, area:(src ? (s.area||src.area) : s.home)||'',
+          machineState: src ? (src.machineState==='Maintenance' ? 'Maintenance' : (src.workingOnElements&&src.workingOnElements.length ? 'Active':'Idle')) : 'Idle',
+          workingOnElements: src ? (src.workingOnElements||[]) : [], evidence: src ? (src.evidence||'') : '',
+          spare: !s.home, calledUp: (!s.home && !!src) };
+      });
     }
-    var bcCards = fillFleet(foldDisplay_(split,'BC Cutter',BC_FLEET),'BC Cutter',BC_FLEET);
-    var rigCards = fillFleet(foldDisplay_(split,'Boring Rig',RIG_FLEET),'Boring Rig',RIG_FLEET);
+    var bcCards = rosterCards('BC Cutter'), rigCards = rosterCards('Boring Rig');
     machines = bcCards.concat(rigCards);
-
     function nWork(list){ return list.filter(function(x){ return x.machineState!=='Idle'; }).length; }
-    var bcW=nWork(bcCards), rigW=nWork(rigCards);
     if ($('siteSub')) $('siteSub').textContent =
-      bcW+'/'+BC_FLEET+' BC Cutters · '+rigW+'/'+RIG_FLEET+' Boring Rigs working (rest idle)';
+      nWork(bcCards)+'/'+BC_FLEET+' BC Cutters · '+nWork(rigCards)+'/'+RIG_FLEET+' Boring Rigs working (fixed roster · spares shown when used)';
     if (!machines.length){ host.innerHTML='<div class="resempty">No machines for this range.</div>'; return; }
 
     function cleanLoc(s){ return String(s||'').replace(/^Sec-[A-E]\s*\/\s*/i,'').trim(); }
@@ -432,20 +468,21 @@
           (mc.evidence?' · '+esc(cleanLoc(mc.evidence)):'')+'</div>';
       return '<div class="machcard '+cls+'">'+
         '<div class="mtop"><span class="statusdot"></span><span class="mtitle">🚜 '+esc(mc.machineId)+'</span>'+
+        (mc.calledUp ? '<span class="sparetag">spare · called up</span>' : '')+
         '<span class="mstat">'+esc(mc.machineState)+'</span></div>'+
         '<div class="elbody">'+body+'</div></div>';
     }
 
     // Group cards under Area headings: Area 1..4, then any other named area, then an Idle/Standby
-    // bucket for element-less (idle / maintenance) machines so the Area sections stay clean.
+    // bucket. Home slots (active OR idle) show in their home area; only an UNUSED spare (no area)
+    // goes to Idle/Standby, so the fixed per-area layout is always visible.
     var ORDER = ['Area 1','Area 2','Area 3','Area 4'];
     var IDLE_BUCKET = '🅿️ Idle / Standby';
     var groups = {}, groupOrder = [];
     function bucket(name){ if(!groups[name]){ groups[name]=[]; groupOrder.push(name); } return groups[name]; }
     machines.forEach(function(mc){
-      if (!mc.workingOnElements.length){ bucket(IDLE_BUCKET).push(mc); return; }
       var ar = String(mc.area||'').trim();
-      bucket(/^Area [1-4]$/.test(ar) ? ar : (ar || 'Others')).push(mc);
+      bucket(ar ? (/^Area [1-4]$/.test(ar) ? ar : ar) : IDLE_BUCKET).push(mc);
     });
     var ordered = ORDER.filter(function(a){ return groups[a]; })
       .concat(groupOrder.filter(function(a){ return ORDER.indexOf(a)===-1 && a!==IDLE_BUCKET; }))

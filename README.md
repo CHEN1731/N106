@@ -113,6 +113,12 @@ with them (the Area KPIs, charts, and activity table stay below):
   standby / idle**, or any un-deployed slot, is **Idle** (grey, grouped in a trailing *Idle /
   Standby* section). A machine named without a bite/depth element (e.g. "boring rig moving gate
   15→16", "BC cutter wheel maintenance") is kept as an Idle/Maintenance card rather than dropped.
+  The fleet uses a **fixed roster** (`FLEET_ROSTER` in `gas/ViewerJs.html`) — each machine is pinned
+  to a home Area and the daily update just flips each slot Active/Idle: **Area 1** = BC Cutter 1 +
+  Boring Rig 1; **Area 2** = BC Cutter 2 & 3 + Boring Rig 2; **Area 3** = BC Cutter 4 + Boring Rig 3;
+  **spares** = BC Cutter 5 & 6 + Boring Rig 4 (shown under *Idle / Standby* until an area has more
+  machines working than its home slots, then a spare is "called up" into that area with a
+  *spare · called up* tag). Edit `FLEET_ROSTER` if machines are permanently reassigned.
   Element ids are **canonicalised** (`normElId_` / the Viewer's `normId`): a separated `BP`
   prefix, dash variants, and **leading zeros** are normalised
   (`BP U7-3` = `BP-U7-3` = `U7–3` = `U7-3`; `DW06` = `DW6`), and an element is deduped
