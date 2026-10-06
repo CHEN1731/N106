@@ -32,6 +32,11 @@ function assert(cond, msg) {
   else { console.log('  FAIL- ' + msg); failures++; }
 }
 
+// Baseline the suite as an "auto" (no configured order) site so the existing ambiguous/sample
+// fixtures (which treat "5/8/26" as a D/M/Y day -> Aug 5) stay valid. The live deployment ships
+// PARSER_CONFIG.dateOrder='mdy'; a dedicated build-64 block below exercises that explicitly.
+sandbox.PARSER_CONFIG.dateOrder = '';
+
 console.log('\nLocator + date + docx:');
 assert(normalizeDate_('5/8/26') === '2026-08-05', '"5/8/26" (ambiguous) -> 2026-08-05 (D/M/Y default)');
 assert(normalizeDate_('9/25/26') === '2026-09-25', '"9/25/26" (2nd>12) -> 2026-09-25 (M/D/Y)');
@@ -48,6 +53,22 @@ assert(resolveDateOrder_(ambigOct2, '2026-02-10') === 'dmy', 'resolveDateOrder_ 
 assert(resolveDateOrder_(ambigOct2, '') === '', 'resolveDateOrder_ -> "" with no target (D/M/Y default preserved)');
 assert(resolveDateOrder_(['[9/25/26, 10:00:00] ~ Eng: hi'], '2026-01-01') === 'mdy', 'resolveDateOrder_ trusts an unambiguous file over the target');
 assert(parseWhatsApp('[10/2/26, 8:00:00 AM] ~ Eng: Sec-A/Ja\nDW01 rebar\nManpower: 5\n', 'RTO', 'mdy')[0].date === '2026-10-02', 'parseWhatsApp honours an explicit mdy order (Oct 2)');
+
+// build-64: a configured site dateOrder = 'mdy' resolves ambiguous headers (10/6 = Oct 6) with NO
+// picker date, while in-body hand-typed "Date:" (no order) stays D/M/Y, and a field>12 still wins.
+(function () {
+  sandbox.PARSER_CONFIG.dateOrder = 'mdy';
+  try {
+    assert(resolveDateOrder_(['[10/6/26, 1:00:00 AM] +65 9 1595: hi'], '') === 'mdy',
+      'mdy config: ambiguous header + no target -> mdy');
+    assert(parseWhatsApp('[10/6/26, 1:00:00 AM] +65 9 1595: Sec-A/Ja\nDW01 1st bite 5m\n', 'RTO')[0].date === '2026-10-06',
+      'mdy config: "10/6/26" header -> 2026-10-06 (no picker)');
+    assert(resolveDateOrder_(['[25/9/26, 10:00:00] ~ Eng: hi'], '') === 'dmy',
+      'mdy config: a field>12 (25/9) still auto-detects dmy (detect wins over config)');
+    assert(normalizeDate_('05/10/2026') === '2026-10-05',
+      'mdy config: in-body "Date:05/10/2026" (no order) stays Oct 5 (D/M/Y, unaffected by config)');
+  } finally { sandbox.PARSER_CONFIG.dateOrder = ''; }
+})();
 // Regression (the live bug): a single-day Oct-2 M/D/Y file + picker target 2026-10-02 keeps the day,
 // instead of filterByDates_ dropping everything to ~0.
 (function () {

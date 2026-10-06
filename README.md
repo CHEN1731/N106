@@ -411,6 +411,11 @@ your exports, no logic changes needed:
 - **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
   message uses those over the heuristics (hybrid).
 - **`lineFormats`** — WhatsApp export headers (iOS / Android), auto-detected.
+- **`dateOrder`** — the site's export locale for **ambiguous** header dates (both fields ≤ 12, e.g.
+  `10/6/26`). Default **`'mdy'`** (US month-first → `10/6` = Oct 6), so a day is never silently
+  mis-filed (e.g. under June) even if no Report date is picked. A header with a field > 12 (`9/25`)
+  is auto-detected and overrides this; the in-body hand-typed `Date:` field stays **D/M/Y** (e.g.
+  `Date:05/10/2026` = Oct 5). Set to `'dmy'` or `''` (auto-only) if the export locale changes.
 - **One message = one activity** — a message's heading, bullet lines, measurements and metrics
   (e.g. `Running volume 57/80 m3`, `Current depth 23.5m`) all describe the same work and are
   **merged into a single activity** (`splitActivityItems_` in `gas/Parser.gs`); bullets are NOT

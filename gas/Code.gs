@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-63 · fixed machine roster (pinned areas) + spares';
+var APP_VERSION = 'build-64 · default dates to M/D/Y (no more June mis-file)';
 
 /**
  * Route:

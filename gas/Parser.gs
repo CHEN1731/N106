@@ -26,6 +26,12 @@ var PARSER_CONFIG = {
     }
   ],
 
+  // The site's WhatsApp export locale, used to resolve AMBIGUOUS slash dates in the HEADER
+  // timestamps (both fields <=12, e.g. "10/6/26"). 'mdy' = US month-first (this site), 'dmy' =
+  // day-first, '' = auto-only (fall back to D/M/Y). A header with a field >12 (e.g. "9/25") is
+  // auto-detected and overrides this; in-body hand-typed "Date:" values are NOT governed by it.
+  dateOrder: 'mdy',
+
   // In-body field labels (case-insensitive). If present they win over
   // heuristics; label wording can be extended here.
   labels: {
@@ -217,7 +223,7 @@ function parseWhatsApp(text, source, order) {
   if (!text) return [];
   var lines = chatLines_(text);
   var format = detectFormat_(lines);
-  if (!order) order = detectDateOrder_(lines);   // caller may pass a resolved order (target-aware)
+  if (!order) order = resolveDateOrder_(lines);   // caller may pass a resolved order; else use the site default
   var messages = groupIntoMessages_(lines, format);
   var records = [];
   // Carry-forward locator: a short update with no Sec-x header inherits the most recent
@@ -755,10 +761,11 @@ function detectDateOrder_(lines) {
  * matches, it's D/M/Y. Falls back to '' (caller keeps the D/M/Y default) when nothing resolves.
  */
 function resolveDateOrder_(lines, targetIso) {
+  var cfg = (PARSER_CONFIG && PARSER_CONFIG.dateOrder) || '';
   var order = detectDateOrder_(lines);
   if (order) return order;                                   // unambiguous file -> trust it
-  if (!targetIso || !/^\d{4}-\d{2}-\d{2}$/.test(String(targetIso))) return '';
-  if (!lines || !lines.length) return '';
+  if (!targetIso || !/^\d{4}-\d{2}-\d{2}$/.test(String(targetIso))) return cfg;
+  if (!lines || !lines.length) return cfg;
   var fmt = detectFormat_(lines);
   for (var i = 0; i < lines.length; i++) {
     var m = fmt.re.exec(lines[i]);
@@ -767,7 +774,7 @@ function resolveDateOrder_(lines, targetIso) {
     if (normalizeDate_(m[1], 'mdy') === targetIso) return 'mdy';
     if (normalizeDate_(m[1], 'dmy') === targetIso) return 'dmy';
   }
-  return '';
+  return cfg;                                                // ambiguous + no target -> site default
 }
 
 function pad2_(s) { s = String(s); return s.length < 2 ? '0' + s : s; }
