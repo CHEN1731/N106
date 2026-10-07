@@ -422,7 +422,9 @@ var PRODUCTIVITY_SYSTEM =
   '"area" = "Area 1".."Area 4"/"Others" (site-plan map). "location" = the site location ' +
   '(ER15, Opp SJII). "machineState" is exactly "Active" (doing bite/depth work), ' +
   '"Maintenance" (maintenance / change / breakdown / repair / servicing), or "Idle" ' +
-  '(standby / shifting / relocating / moving, or not doing new bite/depth work). There are ' +
+  '(standby / shifting / relocating / moving, or not doing new bite/depth work). Use the machine\'s ' +
+  'LATEST state of the day: if it was under maintenance earlier but doing bite/depth work later, it is ' +
+  '"Active". There are ' +
   '6 BC Cutters and 4 Boring Rigs: ALSO return the machines that are idle or under maintenance ' +
   '(e.g. "boring rig moving gate 15->16" = Idle, "BC cutter wheel maintenance" = Maintenance), ' +
   'not only the working ones; machines with no element reported are Idle; never exceed 6 cutters ' +
@@ -974,12 +976,15 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     return fams[0];   // append to the least-loaded machine of this family in this area
   }
 
-  function addElement(family, area, location, elementId, stage, evidence, machineIdHint, depthHint) {
+  function addElement(family, area, location, elementId, stage, evidence, machineIdHint, depthHint, stateHint) {
     var ev = String(evidence == null ? '' : evidence).trim();
     // HARD GATE (always applied): an element attaches ONLY when its own evidence has the
     // family trigger — "bite" for a BC Cutter, "depth" for a Boring Rig. Casting / rebar cage
     // alone never attach (they only refine an already-attached element's stage).
     if (!machineTrigger_(ev, family)) return;
+    // This reading's machine state — the LATEST reading processed wins (no sticky maintenance):
+    // prefer an explicit (AI) state, else derive from the evidence. Element-bearing -> hasWork true.
+    var st = clampMachineState_(stateHint) || machineStateFromEvidence_(ev, true);
     stage = clampLifecycle_(stage) || lifecycleStageFor_(ev) || 'Excavation';
     var eid = String(elementId == null ? '' : elementId).trim();
     var n = eid ? normElId_(eid) : '';
@@ -1005,7 +1010,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
           break;
         }
       }
-      if (MAINT_RE.test(ev)) owner.machineState = 'Maintenance';
+      owner.machineState = st;   // latest reading wins (no sticky maintenance)
       return;
     }
 
@@ -1019,14 +1024,14 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       // Build uncapped here; foldToCap_ enforces the hard fleet cap (<=6/<=4) afterwards by
       // merging same-area cards. (No soft cap — the fleet total must never be exceeded.)
       card = { family: family, machineId: String(machineIdHint == null ? '' : machineIdHint).trim(),
-        area: area, location: loc, machineState: 'Active', workingOnElements: [], evidence: '' };
+        area: area, location: loc, machineState: st, workingOnElements: [], evidence: '' };
       cards[key] = card; order.push(key); counts[family]++;
     }
     if (eid) {
       card.workingOnElements.push({ elementId: eid, lifecycleStage: stage, depth: depth, location: loc, area: area });
       claimed[n] = card;
     }
-    if (MAINT_RE.test(ev)) card.machineState = 'Maintenance';
+    card.machineState = st;   // latest reading wins (no sticky maintenance)
     if (machineIdHint && !card.machineId) card.machineId = String(machineIdHint).trim();
     var snip = machineEvidence_(ev, family);
     if (snip && card.evidence.indexOf(snip) === -1) card.evidence = card.evidence ? (card.evidence + '; ' + snip) : snip;
@@ -1064,13 +1069,13 @@ function normalizeMachineStatus_(raw, mergedActivities) {
       if (Array.isArray(m.workingOnElements) && m.workingOnElements.length) {
         m.workingOnElements.forEach(function (e) {
           e = e || {};
-          addElement(fam, m.area, (e.location || m.location), e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId, e.depth);
+          addElement(fam, m.area, (e.location || m.location), e.elementId, clampLifecycle_(e.lifecycleStage), ev, m.machineId, e.depth, m.machineState);
         });
       } else {
         var ids = Array.isArray(m.assignedIds) ? m.assignedIds
           : (m.assignedId != null ? [m.assignedId] : (m.id != null ? [m.id] : []));
-        if (ids.length) ids.forEach(function (id) { addElement(fam, m.area, m.location, id, '', ev, m.machineId); });
-        else if (machineTrigger_(ev, fam)) addElement(fam, m.area, m.location, '', lifecycleStageFor_(ev), ev, m.machineId);
+        if (ids.length) ids.forEach(function (id) { addElement(fam, m.area, m.location, id, '', ev, m.machineId, null, m.machineState); });
+        else if (machineTrigger_(ev, fam)) addElement(fam, m.area, m.location, '', lifecycleStageFor_(ev), ev, m.machineId, null, m.machineState);
         // No element & no trigger: keep an idle/maintenance machine the AI declared or named.
         else if (clampMachineState_(m.machineState) === 'Maintenance' || clampMachineState_(m.machineState) === 'Idle' || mentionsMachine_(ev, fam))
           addMentionCard(fam, m.area, m.location, ev, m.machineState);
@@ -1138,7 +1143,8 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     var label = family === 'bc' ? 'BC Cutter ' : 'Boring Rig ';
     list.forEach(function (c, i) {
       if (!c.machineId) c.machineId = label + (i + 1);
-      if (c.machineState !== 'Maintenance') c.machineState = c.workingOnElements.length ? 'Active' : 'Idle';
+      // Keep each card's tracked LATEST state; only coerce an element-less, non-maintenance card to Idle.
+      if (c.machineState !== 'Maintenance' && !c.workingOnElements.length) c.machineState = 'Idle';
     });
     return list;
   }

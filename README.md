@@ -102,7 +102,9 @@ with them (the Area KPIs, charts, and activity table stay below):
   auto-assigned to whichever Area its work is in and **never mixes two Areas on one card**; when
   more location-groups appear in an Area than the fleet allows, same-Area cards **merge** (a
   machine finished one element and moved to the next). Each card's **header** shows `machineId`
-  and a **machineState** badge (green Active / red Maintenance / grey Idle). The card **body**
+  and a **machineState** badge (green Active / red Maintenance / grey Idle) — the machine's **latest
+  state of the day** (a machine under maintenance in the morning but doing bite/depth work later shows
+  Active; the last reading wins). The card **body**
   lists every element that machine worked today as **📌 `elementId` · `location` · `depth` m ➔
   [lifecycle badge]** (amber Excavation / blue Rebar / orange Concreting / green Completed) —
   each element carries **its own** location and depth, parsed from its report line; the depth shown

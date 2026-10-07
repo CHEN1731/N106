@@ -603,6 +603,22 @@ assert(msCast.bcCutters.length === 0, 'casting-only (no bite) -> no BC Cutter lo
 var msBiteCast = normalizeMachineStatus_(null, [{ elementId: 'DW06', section: 'ER10', area: 'Area 1', activity: 'DW06 3rd bite; concrete casting done' }]);
 assert(msBiteCast.bcCutters.length === 1 && msBiteCast.bcCutters[0].workingOnElements[0].lifecycleStage === 'Completed', 'bite + casting done -> logged, stage Completed');
 
+// build-67: machineState = the LATEST reading of the day (no sticky maintenance)
+var msLatest = normalizeMachineStatus_(null, [
+  { elementId: 'DW200', section: 'ER15', area: 'Area 2', activity: 'DW200 1st bite excavation in progress' },        // Active
+  { elementId: 'DW200', section: 'ER15', area: 'Area 2', activity: 'DW200 2nd bite; BC cutter wheel maintenance' },  // Maintenance (mid-day)
+  { elementId: 'DW200', section: 'ER15', area: 'Area 2', activity: 'DW200 2nd bite excavation work completed' }       // Active (latest)
+]);
+assert(msLatest.bcCutters[0].machineState === 'Active', 'latest reading wins: morning maintenance + afternoon active -> Active (got ' + msLatest.bcCutters[0].machineState + ')');
+var msLatestMaint = normalizeMachineStatus_(null, [
+  { elementId: 'DW201', section: 'ER15', area: 'Area 2', activity: 'DW201 1st bite excavation' },                    // Active
+  { elementId: 'DW201', section: 'ER15', area: 'Area 2', activity: 'DW201 1st bite; cutter wheel maintenance ongoing' } // Maintenance (latest)
+]);
+assert(msLatestMaint.bcCutters[0].machineState === 'Maintenance', 'latest reading wins: last reading maintenance -> Maintenance');
+// AI entry: its own machineState is respected even if the evidence mentions maintenance
+var msAiState = normalizeMachineStatus_({ bcCutters: [{ machineId: 'BC 1', area: 'Area 2', location: 'ER15', machineState: 'Active', workingOnElements: [{ elementId: 'DW202', lifecycleStage: 'Excavation' }], evidence: '1st bite; earlier wheel maintenance' }], boringRigs: [] }, []);
+assert(msAiState.bcCutters[0].machineState === 'Active', 'AI machineState Active respected over a maintenance mention in evidence');
+
 console.log('\nMachine element dedup (build-57): U7-3 / BP U7-3 are one pile:');
 assert(normElId_('BP U7-3') === normElId_('U7-3') && normElId_('U7-3') === normElId_('U7–3') && normElId_('BP-U7-3') === normElId_('U7-3'),
   'normElId_ canonicalises BP-prefix and dash variants');
