@@ -23,7 +23,7 @@ const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateO
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
         normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
-        lifecycleStageFor_, elementStageForward_, clampLifecycle_,
+        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_, firstManpower_, groutingArea_ } = sandbox;
 
 let failures = 0;
@@ -36,6 +36,11 @@ function assert(cond, msg) {
 // fixtures (which treat "5/8/26" as a D/M/Y day -> Aug 5) stay valid. The live deployment ships
 // PARSER_CONFIG.dateOrder='mdy'; a dedicated build-64 block below exercises that explicitly.
 sandbox.PARSER_CONFIG.dateOrder = '';
+
+// Baseline the suite at per-WORK granularity so the existing per-activity count assertions stay
+// valid. The live deployment ships PARSER_CONFIG.activityGranularity='location' (one row per
+// location); a dedicated build-70 block below exercises that collapse explicitly.
+sandbox.PARSER_CONFIG.activityGranularity = 'work';
 
 console.log('\nLocator + date + docx:');
 assert(normalizeDate_('5/8/26') === '2026-08-05', '"5/8/26" (ambiguous) -> 2026-08-05 (D/M/Y default)');
@@ -789,6 +794,37 @@ assert(groutingArea_('TTMT CM') === 'Area 1' && groutingArea_('TTMT CM Ma2a') ==
   assert(dw.length === 1, 'the 8 DW300 progress messages merge into ONE row (got ' + dw.length + ')');
   assert(dw[0].manpower === 6, 'merged manpower is the MAX across the cluster (6), not summed');
   assert(m.length === 2, 'a distinct element-less work at the same location stays separate (2 rows total)');
+})();
+
+console.log('\nOne row per location (build-70; collapseByLocation_):');
+(function () {
+  // Two distinct works at the SAME location (Sec-C/ER15) + one at a DIFFERENT location (Sec-C/Qd).
+  var acts = [
+    { area: 'Area 2', section: 'Sec-C/ER15', elementId: 'DW300', activity: 'DW300 2nd bite excavation 22m', stage: 'Excavation', manpower: 6 },
+    { area: 'Area 2', section: 'Sec-C/ER15', elementId: 'DW301', activity: 'DW301 rebar cage lowering', stage: 'Rebar', manpower: 4 },
+    { area: 'Area 2', section: 'Sec-C/Qd', elementId: '', activity: 'Kingpost drilling in progress', stage: 'Other', manpower: 3 }
+  ];
+  var c = collapseByLocation_(acts);
+  assert(c.length === 2, 'two works at one location + one elsewhere -> 2 location rows (got ' + c.length + ')');
+  var er = c.find(function (a) { return a.section === 'Sec-C/ER15'; });
+  assert(/DW300/.test(er.activity) && /DW301/.test(er.activity), 'the ER15 row keeps BOTH works\' text (nothing dropped)');
+  assert(er.manpower === 10, 'location manpower is the SUM of its works (6+4=10, not max)');
+  assert(er.stage === 'Rebar', 'location stage is the furthest reached (Rebar)');
+  // KPI element counts are preserved because they are scanned from the combined text.
+  var built = buildProductivityResult_('2026-10-06', collapseByLocation_(acts), 'fallback');
+  assert(built.productivityData.dWallCount === 2, 'both DW300 & DW301 still counted after collapse (got ' + built.productivityData.dWallCount + ')');
+})();
+(function () {
+  // Config toggle: 'work' granularity skips the collapse (per-work rows).
+  var msg =
+    '[10/6/26, 9:00:00 AM] ~ Eng: Sec-C/ER15\nDW300 excavation 22m\nManpower: 6\n' +
+    '[10/6/26, 9:05:00 AM] ~ Eng: Sec-C/ER15\nDW301 rebar cage lowering\nManpower: 4\n';
+  sandbox.PARSER_CONFIG.activityGranularity = 'location';
+  var loc = productivityFromRecords_(msg, '', '2026-10-06');
+  assert(loc.mergedActivities.length === 1, 'granularity=location -> the two ER15 messages collapse to 1 row (got ' + loc.mergedActivities.length + ')');
+  sandbox.PARSER_CONFIG.activityGranularity = 'work';
+  var wrk = productivityFromRecords_(msg, '', '2026-10-06');
+  assert(wrk.mergedActivities.length === 2, 'granularity=work -> the two ER15 messages stay 2 rows (got ' + wrk.mergedActivities.length + ')');
 })();
 
 // excavation normaliser

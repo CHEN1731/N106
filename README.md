@@ -168,6 +168,15 @@ to **enrich the resource nodes** (machine status, excavation, reinforced concret
 stops oscillating. The Excavation tracker likewise keeps the **latest/deepest** depth per
 zone.
 
+**One activity row per location** (`PARSER_CONFIG.activityGranularity`, default `'location'`;
+build-70). After the same-work photo/progress repeats are merged (`mergeSameWork_`), all works
+reported at the **same location** (area + `Sec-x`/segment) are combined into a **single
+activity row** (`collapseByLocation_`): their texts are joined, the furthest stage is kept, and
+manpower is summed. The **DW/BP/BT/CW counts, concrete and manpower are preserved** because
+`buildProductivityResult_` derives them by scanning each row's (now combined) text, not just the
+`elementId` field. Set `activityGranularity: 'work'` to go back to one row per distinct work
+(the build-68/69 behaviour).
+
 ### Concrete volume rule (`castVolumeOf_` in `gas/Extract.gs`, mirrored in the Viewer)
 
 Concrete counts **completed casting only**:
@@ -439,6 +448,10 @@ your exports, no logic changes needed:
   (`Contractor:`, `Time:`, `Weather:`, `Shift:`, `Date:`) and manpower/machinery roster counts are
   not activities, and `SPC`/CM maps to Area 1. (`PARSER_CONFIG.locator.subcontractors` is retained
   for documentation but no longer drives a split.)
+- **`activityGranularity`** — `'location'` (default) combines every work at the same location
+  (area + `Sec-x`/segment) into **one activity row** (`collapseByLocation_`), while keeping the
+  DW/BP/BT/CW counts, concrete and manpower intact (they are scanned from the combined text). Set
+  to `'work'` for one row per distinct work instead.
 - **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
   header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
   being dropped.

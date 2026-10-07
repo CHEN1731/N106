@@ -32,6 +32,16 @@ var PARSER_CONFIG = {
   // auto-detected and overrides this; in-body hand-typed "Date:" values are NOT governed by it.
   dateOrder: 'mdy',
 
+  // How finely the All-Activities list is broken up (build-70):
+  //   'location' = ONE row per location/section within an area (all works at
+  //                the same Sec-x/segment are combined into a single activity;
+  //                DW/BP/BT/CW counts and manpower are preserved because they
+  //                are derived from the combined text). This is the site default.
+  //   'work'     = one row per distinct work (the build-68/69 behaviour; same-work
+  //                photo/progress repeats are still merged, but different works at
+  //                one location stay on separate rows).
+  activityGranularity: 'location',
+
   // In-body field labels (case-insensitive). If present they win over
   // heuristics; label wording can be extended here.
   labels: {

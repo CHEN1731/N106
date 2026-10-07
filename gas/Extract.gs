@@ -1360,6 +1360,8 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
   });
   acts = acts.filter(function (a) { return a.activity; });
   acts = mergeSameWork_(acts);   // combine the same work reported across several photo/progress messages
+  // Optionally collapse to ONE row per location (site default; config-gated).
+  if (!(PARSER_CONFIG && PARSER_CONFIG.activityGranularity === 'work')) acts = collapseByLocation_(acts);
   // KPI id-lists/counts, concrete and manpower are derived from the activities.
   return buildProductivityResult_(date, acts, 'fallback');
 }
@@ -1413,6 +1415,42 @@ function mergeSameWork_(acts) {
     clusters.forEach(function (c) { out.push(c.act); });
   });
   return out;
+}
+
+/**
+ * Collapse all works reported at the SAME location into ONE activity row
+ * (PARSER_CONFIG.activityGranularity === 'location'; build-70). Groups by
+ * area + normalised section and joins every distinct work's text into a single
+ * row — the DW/BP/BT/CW KPI counts are preserved because buildProductivityResult_
+ * derives them by scanning the (now combined) activity text, and manpower is the
+ * SUM across the location's works (the photo/progress repeats were already deduped
+ * by mergeSameWork_, so summing does not double-count). Stage = the furthest stage
+ * reached at the location; depth/elementId = the first seen. Run AFTER mergeSameWork_.
+ */
+function collapseByLocation_(acts) {
+  var groups = {}, order = [];
+  acts.forEach(function (a) {
+    var g = String(a.area || '') + '||' + String(a.section || '').toLowerCase().replace(/\s+/g, '');
+    if (!groups[g]) { groups[g] = []; order.push(g); }
+    groups[g].push(a);
+  });
+  return order.map(function (g) {
+    var list = groups[g];
+    var rep = {}; for (var k in list[0]) rep[k] = list[0][k];
+    var texts = [], stage = '', manpower = 0, elementId = '';
+    list.forEach(function (a) {
+      var t = String(a.activity || '').trim();
+      if (t) texts.push(t);
+      stage = elementStageForward_(stage, a.stage) || stage || a.stage;
+      manpower += Number(a.manpower) || 0;
+      if (!elementId && a.elementId) elementId = a.elementId;
+    });
+    rep.activity = texts.join(' | ');
+    rep.stage = stage;
+    rep.manpower = manpower;
+    rep.elementId = elementId;
+    return rep;
+  });
 }
 
 function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
@@ -1568,6 +1606,7 @@ if (typeof module !== 'undefined' && module.exports) {
     backfillWorthy_: backfillWorthy_,
     isPlanningNoise_: isPlanningNoise_,
     mergeSameWork_: mergeSameWork_,
+    collapseByLocation_: collapseByLocation_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
     normAreaName_: normAreaName_,
