@@ -54,7 +54,11 @@ The two reports (RTO + AIS) are sent to Claude with a strict Lead-Site-Engineer
 **inclusion rules** (physical progress: drilling, excavation, concreting, casting,
 grouting…, plus volume/depth/load/manpower metrics) and **exclusion rules** (drops
 noise: "No activity", housekeeping/cleaning, generic prep, "waiting for…",
-maintenance — unless it blocks the critical path). It **merges and de-duplicates**
+maintenance — unless it blocks the critical path). **TAM / base grouting survey reports**
+(the `NORTH SOUTH CORRIDOR(N106)` / `TAEHWA GEO ENGR` / `LOCATION:/BH NO:/Depth:` template) are
+kept as **one activity each**, classified by their `LOCATION` (QC1/QC8 → Area 2, etc.); only the
+`RTO area arrangement` staff roster and `daily progress status` banners are dropped. It **merges
+and de-duplicates**
 the activities (one unified entry per element, e.g. `DW1547`), **groups them by Area
 (Area 1–4 / Others)**, and links each to its **elementId**. Output is a forced-JSON
 tool call with per-area **kpiBreakdown** (active DW/BP/BT/CW ID-lists + counts,

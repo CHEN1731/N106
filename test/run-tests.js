@@ -17,7 +17,7 @@ vm.createContext(sandbox);
 const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
-        mergeProductivity_, activityCovered_, backfillWorthy_,
+        mergeProductivity_, activityCovered_, backfillWorthy_, isPlanningNoise_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_, normElId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
@@ -305,6 +305,31 @@ assert(areaOfAct(imgRes, 'Silos') === 'Area 4', 'Sec-E/Whitley uses its own sect
 assert(areaOfAct(imgRes, 'Mass concrete') === 'Area 3', 'Sec-D -> Area 3');
 assert(!imgRes.mergedActivities.some(a => /<>/.test(a.activity)), 'no "<>" leaks into any activity');
 assert(!imgRes.mergedActivities.some(a => /rto area arrangement/i.test(a.activity)), 'the RTO area-arrangement planning banner is not an activity');
+
+console.log('\nTAM grouting report (build-65): kept as one clean activity, banner stripped:');
+// A TAEHWA GEO / TAM grouting survey must NOT be dropped as "noise" and must not shred into a bare
+// banner row — it is one grouting activity at its LOCATION (QC1 -> Area 2).
+var groutMsg = [
+  '[10/6/26, 12:48:32 AM] +65 9 1595: <image omitted> NORTH SOUTH CORRIDOR(N106)',
+  'TAEHWA GEO ENGR',
+  'LOCATION:QC1',
+  'TAM GROUTING WORK',
+  'Date:05/10/2026',
+  '(Night Shift)',
+  'BH NO:DW-428-T2',
+  'Dia:1.2m',
+  'Total Improvement Length:6.0m',
+  'Depth : 17.11M'
+].join('\n');
+var gRes = productivityFromRecords_(groutMsg, '', '');
+assert(gRes.mergedActivities.length === 1, 'grouting report -> exactly one activity (got ' + gRes.mergedActivities.length + ')');
+var gAct = gRes.mergedActivities[0] || {};
+assert(/TAM GROUTING WORK/i.test(gAct.activity || '') && /DW-?428/i.test(gAct.activity || ''), 'the grouting activity keeps the work (TAM GROUTING + DW-428)');
+assert(gAct.area === 'Area 2', 'grouting at LOCATION:QC1 classifies to Area 2 (got ' + gAct.area + ')');
+assert(!/^(north south corridor|taehwa geo engr location\s*[:\-]?)\s*$/i.test((gAct.activity || '').trim()), 'the activity is not a bare banner');
+// the filter now only drops the genuine roster/status banners, not grouting companies
+assert(isPlanningNoise_('RTO area arrangement (2026-Oct) Aravind, Kyaw') === true, 'isPlanningNoise_ still drops the RTO roster');
+assert(isPlanningNoise_('TAEHWA GEO ENGR LOCATION:QC1 TAM GROUTING WORK DW-428 depth 17m') === false, 'isPlanningNoise_ no longer drops a grouting report');
 
 console.log('\nM/D/Y export (build-47): dates + traffic/diversion kept:');
 // A US-order export (2nd field 25 can only be a day) must resolve to 2026-09-25,

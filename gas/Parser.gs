@@ -286,6 +286,48 @@ function groupIntoMessages_(lines, format) {
 }
 
 /** Convert one message into a site record, or null if it is not one. */
+/** Resolve the Area for a grouting report's LOCATION token (QC1/QD4/Section-R -> Area 2,
+ * Ka1b -> Area 1, "… Area-2 …" -> Area 2). Reuses areaFromSection_; falls back to the alpha
+ * base of a "Ka1b"/"Ma2a"-style code. Returns '' if unknown. */
+function groutingArea_(loc) {
+  var s = String(loc == null ? '' : loc).trim();
+  if (!s) return '';
+  var am = /\barea[\s\-]*([1-4])\b/i.exec(s);
+  if (am) return 'Area ' + am[1];
+  var a = typeof areaFromSection_ === 'function' ? areaFromSection_(s) : '';
+  if (a) return a;
+  // "Ka1b" / "Ma2a" -> try the leading-letters base (Ka / Ma)
+  var base = /([A-Za-z]{1,3})\d/.exec(s);
+  if (base && typeof areaFromSection_ === 'function') return areaFromSection_(base[1]) || '';
+  return '';
+}
+
+/** Build ONE clean record from a TAM/base grouting survey report: strip the project/company
+ * banner, keep the work (location + BH/DW id + grouting + depth), classify by LOCATION. */
+function groutingRecord_(body, source, date, photos) {
+  var lines = String(body).split(/\n/).map(function (l) { return l.replace(/[​-‏⁠﻿]/g, '').trim(); }).filter(Boolean);
+  var locM = /location\s*[:\-]?\s*(.+)/i.exec(body);
+  var loc = locM ? String(locM[1]).split(/\n/)[0].replace(/[()]/g, ' ').trim() : '';
+  var areaGroup = groutingArea_(loc);
+  // Keep the real work lines; drop the project banner, the bare company header and the forward meta.
+  var work = lines.filter(function (l) {
+    if (/^north\s+south\s+corridor\b/i.test(l)) return false;
+    if (/^taehwa\b.*\bgeo\b/i.test(l) || /\bgeo\s*engr?\s*$/i.test(l)) return false;
+    if (/^\((?:night|day)\s*shift\)/i.test(l) || /^date\s*[:\-]/i.test(l)) return false;
+    return true;
+  });
+  var activity = work.join(' · ').replace(/\s{2,}/g, ' ').trim();
+  if (!activity) return null;
+  return {
+    source: source, date: date,
+    area: (loc || 'Grouting').replace(/\s+/g, ' ').trim(),
+    areaGroup: (areaGroup || '').trim(),
+    section: (loc || '').trim(), segment: '',
+    activity: activity, activityItems: [activity], remark: '',
+    photos: photos || 0, sender: '', rawTs: ''
+  };
+}
+
 function messageToRecord_(msg, source, order, carry) {
   var body = msg.body;
 
@@ -312,6 +354,16 @@ function messageToRecord_(msg, source, order, carry) {
   // reporter's own convention, so auto-detect that per value instead of forcing
   // the file order (a forwarded "25/9" must not become month 25 in an mdy file).
   var date = fields.date ? normalizeDate_(fields.date) : normalizeDate_(msg.rawDate, order);
+
+  // Special-case: TAM / base grouting survey reports (TAEHWA GEO / Geosmart template). These use a
+  // rigid "LOCATION:/BH NO:/Dia:/GL:/Depth:" layout that the generic locator/label logic shreds
+  // (the work vanishes). Keep the whole report as ONE activity, classified by its LOCATION.
+  if (/\bgrouting\s+work\b/i.test(contentBody) &&
+      /\b(geo\s*engr?|taehwa|geosmart|bh\s*no|tam\b|improvement\s+length)\b/i.test(contentBody)) {
+    var gr = groutingRecord_(contentBody, source, date, photos);
+    if (gr) return gr;
+  }
+
 
   // Resolve the site locator (Section + segment) from the first line. A labelled
   // Area: still wins if present; the generic alias list is a last resort.
@@ -575,6 +627,8 @@ function isHeaderNoise_(line) {
   if (/\bmanpower\b\s*[:\-]?\s*\d*\s*$/i.test(s)) return true;        // "Day shift Manpower", "Manpower : 19"
   if (/^area[\s.\-]*[1-4]\b/i.test(s)) return true;                   // an "AREA-4 …" banner
   if (/^samsung\b/i.test(s)) return true;                            // "SAMSUNG C&T N106" banner
+  if (/^north\s+south\s+corridor\b/i.test(s)) return true;           // "NORTH SOUTH CORRIDOR(N106)" project banner
+  if (/^taehwa\b.*\bgeo\b.*\blocation\s*[:\-]?\s*$/i.test(s)) return true;  // bare "TAEHWA GEO ENGR LOCATION:" (no work after)
   if (/^(contractor|time|weather|shift|date)\s*[:\-]/i.test(s)) return true;  // report-metadata headers
   if (/^[A-Za-z][A-Za-z .()\/&\-]*=\s*\d{1,3}\b/.test(s)) return true;  // roster "Site Supervisor (RES) = 01" (=, not :, to spare "level: 2.3m")
   return false;

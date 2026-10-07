@@ -1269,10 +1269,26 @@ function isRosterLine_(text) {
   return false;
 }
 
-/** A QC / staff-planning banner (not site work), e.g. "RTO area arrangement (…) <names>". */
+/** A staff-planning / progress banner (not site work), e.g. "RTO area arrangement (…) <names>".
+ * NOTE: deliberately does NOT match "TAEHWA GEO" / "NORTH SOUTH CORRIDOR" — those head real TAM
+ * grouting activity reports, which must be kept. Their bare banner lines are stripped as header
+ * noise (isHeaderNoise_) instead. */
 function isPlanningNoise_(s) {
-  return /\b(north south corridor|taehwa|taehawa|geo eng|daily progress status|rto area arrangement)\b/i
+  return /\b(daily progress status|rto area arrangement)\b/i
     .test(String(s == null ? '' : s));
+}
+
+/** A bare project/company banner with no actual work (so it must not become an activity row):
+ * "NORTH SOUTH CORRIDOR(N106)", "TAEHWA GEO ENGR LOCATION:", "LOCATION:QC1". A banner line that
+ * also carries real work (has an activity signal or an element id) is NOT a banner and is kept. */
+function isBannerLine_(s) {
+  var t = String(s == null ? '' : s).trim();
+  if (!t) return true;
+  if (typeof hasActivitySignal_ === 'function' && hasActivitySignal_(t)) return false;  // real work -> keep
+  if (firstElementId_(t)) return false;                                                 // names an element -> keep
+  return /^north\s+south\s+corridor\b/i.test(t) ||
+         /^taehwa\b.*\bgeo\b/i.test(t) ||
+         /^location\s*[:\-]/i.test(t);
 }
 
 /**
@@ -1310,6 +1326,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       if (!act) return;
       if (isRosterLine_(act)) return;      // a manpower/machinery count, not an activity
       if (isPlanningNoise_(act)) return;   // "RTO area arrangement (…) <names>" staff-planning banner
+      if (isBannerLine_(act)) return;      // a bare project/company banner with no work (e.g. "NORTH SOUTH CORRIDOR(N106)")
       var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
       if (seen[k]) return;
       seen[k] = true;
