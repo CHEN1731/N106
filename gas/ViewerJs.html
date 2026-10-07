@@ -334,8 +334,14 @@
     var sec=/\bsec(?:tion)?[.\-\s]*([A-E])\b/i.exec(s); if(sec){ return SEC_AREA[sec[1].toUpperCase()]||''; }
     return '';
   }
-  // Parse a depth in metres from text ("1st bite 21.5m" -> 21.5); never matches m3/m³.
-  function parseDepth(t){ var m=/(\d+(?:\.\d+)?)\s*m(?![0-9³a-z])/i.exec(String(t==null?'':t)); return m?parseFloat(m[1]):null; }
+  // Parse the DEPTH in metres (deepest figure); ignores panel size "(3.3 x 1.0m)" and "Dia:1.2m",
+  // never matches m3/m³/mSHD; a bite "26.5/29.547m" reads the current value (26.5). Mirrors parseDepthM_.
+  function parseDepth(t){
+    var s=String(t==null?'':t).replace(/\(?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*m\b\)?/gi,' ').replace(/\bdia\.?\s*[:=]?\s*\d+(?:\.\d+)?\s*m\b/gi,' ');
+    var re=/(\d+(?:\.\d+)?)(?:\s*\/\s*\d+(?:\.\d+)?)?\s*m(?![0-9³a-z])/gi, m, best=null;
+    while((m=re.exec(s))){ var v=parseFloat(m[1]); if(isFinite(v)) best=(best===null)?v:Math.max(best,v); }
+    return best;
+  }
 
   // Integrated Machine + Element-lifecycle KPI cards. Header = machineId + Area·Location +
   // machineState badge; body = each element it worked -> its tracked lifecycle stage badge.

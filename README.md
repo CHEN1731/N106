@@ -105,7 +105,10 @@ with them (the Area KPIs, charts, and activity table stay below):
   and a **machineState** badge (green Active / red Maintenance / grey Idle). The card **body**
   lists every element that machine worked today as **📌 `elementId` · `location` · `depth` m ➔
   [lifecycle badge]** (amber Excavation / blue Rebar / orange Concreting / green Completed) —
-  each element carries **its own** location and depth, parsed from its report line; within one
+  each element carries **its own** location and depth, parsed from its report line; the depth shown
+  is the **latest/deepest** bite/excavation reading of the day (`parseDepthM_` reads the current value
+  of a `26.5/29.547m` bite and takes the max; it ignores the panel size `(3.3 x 1.0m)`, `Dia:…m`,
+  `m³` volumes and `mSHD` levels). Within one
   card an element at *Completed* and one at *Excavation* can appear together. An element is
   logged (and counted) only when its own text has its machine trigger — **bite** for a
   BC Cutter (DW/BT/CW) or **depth** for a Boring Rig (BP). **Rebar cage / casting are NOT

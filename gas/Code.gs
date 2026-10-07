@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-65 · keep TAM/TAEHWA grouting activities (All Activities complete)';
+var APP_VERSION = 'build-66 · fix machine depth (ignore panel size / read bite depth)';
 
 /**
  * Route:

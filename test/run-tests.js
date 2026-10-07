@@ -739,6 +739,12 @@ assert(totalEls === 10, 'all 10 elements retained across the 6 machines (got ' +
 // depth / loads parsing
 assert(parseDepthM_('1st bite excavation reaching 24.2 m') === 24.2, 'parseDepthM 24.2 m');
 assert(parseDepthM_('BP casting 84 m3') === null, 'parseDepthM ignores m3');
+// build-66: never read the panel SIZE "(3.3 x 1.0m)" or "Dia:" as depth; read the current bite depth; take the deepest
+assert(parseDepthM_('DW107 (3.3 x 1.0m) / SP GWT +3.587mSHD 1st bite 26.5/29.547m 2nd bite 27.7/29.547m') === 27.7,
+  'parseDepthM reads the deepest current bite (27.7), not the panel size 1.0m');
+assert(parseDepthM_('(3.3 x 1.0m) / SP') === null, 'parseDepthM: a panel size alone is not a depth');
+assert(parseDepthM_('Exposing 150mm dia WP for support') === null, 'parseDepthM ignores "150mm dia"');
+assert(parseDepthM_('GIII confirmed at depth 27.5m') === 27.5, 'parseDepthM reads "depth 27.5m"');
 assert(parseLoads_('soil disposal 14 loads today') === 14, 'parseLoads 14 loads');
 
 // excavation normaliser

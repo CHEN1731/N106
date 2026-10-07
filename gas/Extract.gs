@@ -1145,10 +1145,22 @@ function normalizeMachineStatus_(raw, mergedActivities) {
   return { bcCutters: foldToCap_('bc'), boringRigs: foldToCap_('rig') };
 }
 
-/** Parse a depth in metres from text ("24.2 m" -> 24.2), never matching "m3"/"m³". */
+/**
+ * Parse the DEPTH in metres from machine/activity text. Returns the deepest/latest figure (deepest =
+ * latest for monotonic drilling/excavation), or null. Never reads a panel SIZE "(3.3 x 1.0m)" or a
+ * "Dia:1.2m" as depth, never matches "m3"/"m³" or a "…mSHD" level. A bite reading "26.5/29.547m" is
+ * read as the CURRENT value (26.5), not the target.
+ */
 function parseDepthM_(t) {
-  var m = /(\d+(?:\.\d+)?)\s*m(?![0-9³a-z])/i.exec(String(t == null ? '' : t));
-  return m ? parseFloat(m[1]) : null;
+  var s = String(t == null ? '' : t)
+    .replace(/\(?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*m\b\)?/gi, ' ')   // panel size "(3.3 x 1.0m)"
+    .replace(/\bdia\.?\s*[:=]?\s*\d+(?:\.\d+)?\s*m\b/gi, ' ');               // "Dia:1.2m"
+  var re = /(\d+(?:\.\d+)?)(?:\s*\/\s*\d+(?:\.\d+)?)?\s*m(?![0-9³a-z])/gi, m, best = null;
+  while ((m = re.exec(s))) {
+    var v = parseFloat(m[1]);                       // current value (before "/"), or the bare value
+    if (isFinite(v)) best = (best === null) ? v : Math.max(best, v);
+  }
+  return best;
 }
 
 /** Parse a soil-disposal load count ("14 loads" -> 14). */
