@@ -368,14 +368,13 @@ var PRODUCTIVITY_SYSTEM =
   'every DISTINCT work item as its own activity (a different element, panel, structure type, ' +
   'or operation is a separate entry), and never drop an activity that passed the inclusion ' +
   'rules. Listing fewer activities than there are distinct work items is an error.\n' +
-  'CRITICAL — ONE MESSAGE IS USUALLY ONE ACTIVITY: a heading plus its bullet lines, ' +
-  'measurements and metrics (e.g. "Running volume 57/80 m3", "Current depth 23.5m", bullets ' +
-  'listing the sub-steps of the same work) all describe the SAME work item — MERGE them into a ' +
-  'SINGLE activity, do NOT make each bullet, measurement or sub-step its own activity. Start a ' +
-  'NEW activity ONLY for a different SUB-CONTRACTOR / crew section (SCT, MSK, Huationg, HTC, ' +
-  'Kori, Kian Hup, CGW, CHCI, Samsung, Taehwa, Geosmart …) or a clearly different ' +
-  'location/element. Still never drop a different sub-contractor\'s work, and merge across ' +
-  'RTO/AIS only when the SAME element+operation is reported twice.\n\n' +
+  'CRITICAL — ONE MESSAGE IS ONE ACTIVITY: a heading plus its bullet lines, measurements, ' +
+  'metrics (e.g. "Running volume 57/80 m3", "Current depth 23.5m", bullets listing sub-steps) ' +
+  'AND any sub-contractor / crew sub-headers (SCT, MSK, Huationg, HTC, Kori, Kian Hup, CGW, ' +
+  'CHCI, Samsung, Taehwa, Geosmart …) within the same WhatsApp message all describe the SAME ' +
+  'report — MERGE them into a SINGLE activity. Do NOT split one message into several activities ' +
+  'by bullet, measurement, sub-step OR sub-contractor. Merge across RTO/AIS only when the SAME ' +
+  'element+operation is reported twice.\n\n' +
   '5. TRACEABILITY (back-check):\n' +
   'For each activity, set "elementId" to the specific structural ID it concerns (DW1547, ' +
   'BP-T9-3, BT20-2, CW323 …) or "". Each area\'s kpiBreakdown lists ' +
@@ -610,12 +609,11 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'Build a daily productivity dashboard for construction project N106 from two inputs: ' +
     '(A) RTO field notes and (B) the AIS Daily Report. Apply the INCLUSION, EXCLUSION, ' +
     'GROUPING, MERGING, and TRACEABILITY rules from your instructions strictly.\n\n' +
-    'A message is usually ONE activity: MERGE its heading, bullet lines, measurements and metrics ' +
-    '(e.g. "Running volume 57/80 m3", "Current depth 23.5m") into a SINGLE activity description — ' +
-    'do NOT make each bullet, measurement or sub-step its own activity. Start a NEW activity ONLY ' +
-    'for a different SUB-CONTRACTOR / crew section (SCT, MSK, Huationg, HTC, Kori, Kian Hup, …) — ' +
-    'the header line names the crew and its work is on the following line(s); blank lines between ' +
-    'them are not boundaries and must not drop a section. Ignore report-metadata lines ' +
+    'A message is ONE activity: MERGE its heading, bullet lines, measurements, metrics ' +
+    '(e.g. "Running volume 57/80 m3", "Current depth 23.5m") AND any sub-contractor / crew ' +
+    'sub-headers (SCT, MSK, Huationg, HTC, Kori, Kian Hup, …) within the same message into a ' +
+    'SINGLE activity description. Do NOT split one message into several activities by bullet, ' +
+    'measurement, sub-step OR sub-contractor. Ignore report-metadata lines ' +
     '(Contractor:, Time:, Weather:, Shift:, Date:) and pure manpower/machinery counts; they are ' +
     'not activities.\n\n' +
     'Group all kept, merged activities BY AREA. Output one entry in "areas" per area worked ' +

@@ -161,8 +161,8 @@ they are **read-only** in the Viewer for now. When no API key is set, the offlin
 derives them deterministically from the parsed activities.
 
 **Activities are deterministic.** The activity list / areas / KPIs always come from the
-offline parser (`productivityFromRecords_`: one paragraph = one activity, split only by
-sub-contractor, nothing dropped). When an API key is set the AI is still called, but only
+offline parser (`productivityFromRecords_`: one WhatsApp message = one activity, no
+sub-contractor split, nothing dropped). When an API key is set the AI is still called, but only
 to **enrich the resource nodes** (machine status, excavation, reinforced concrete) via
 `mergeProductivity_(fb, ai)` — it no longer decides how activities are split, so the list
 stops oscillating. The Excavation tracker likewise keeps the **latest/deepest** depth per
@@ -401,7 +401,7 @@ your exports, no logic changes needed:
   `XR14`, `TLQ`, `OPA`, …). Add/trim to match your plan labels.
 - **`locator.segmentPatterns`** — regexes that recognise structure/pile/shaft codes
   as segments without listing thousands (`P323`, `DW1072`, `EI12`, `BT29-1`, `MH02`,
-  `T9-3`, `CW319`). Extend to your numbering.
+  `T9-3`, `CW319`, `XR14`, `ER15`). Extend to your numbering.
 - **`locator.sectionRe`** — how the Section is written (default matches `Sec-C`,
   `Sec C`, `Section C`).
 - **`locator.segmentArea`** — the map from each segment/named location to its **Area 1–4**
@@ -430,16 +430,15 @@ your exports, no logic changes needed:
   mis-filed (e.g. under June) even if no Report date is picked. A header with a field > 12 (`9/25`)
   is auto-detected and overrides this; the in-body hand-typed `Date:` field stays **D/M/Y** (e.g.
   `Date:05/10/2026` = Oct 5). Set to `'dmy'` or `''` (auto-only) if the export locale changes.
-- **One message = one activity** — a message's heading, bullet lines, measurements and metrics
-  (e.g. `Running volume 57/80 m3`, `Current depth 23.5m`) all describe the same work and are
-  **merged into a single activity** (`splitActivityItems_` in `gas/Parser.gs`); bullets are NOT
-  separate activities. The only thing that starts a **new** activity is a **sub-contractor /
-  crew header** — a short line naming a crew from `PARSER_CONFIG.locator.subcontractors` (`SCT`,
-  `MSK`, `Huationg`, `HTC`, `Kori`, `Kian Hup`, `CGW`, `CHCI`, `Samsung`, `Taehwa`, `Geosmart`,
-  `Karh Lee`; extend as needed). So two different sub-contractors in one message are two
-  activities, while cell labels (`North Cell`) and bulleted sub-steps stay merged. The AI path is
-  told the same rule. Report-metadata lines (`Contractor:`, `Time:`, `Weather:`, `Shift:`,
-  `Date:`) and manpower/machinery roster counts are not activities, and `SPC`/CM maps to Area 1.
+- **One message = one activity** — a whole WhatsApp message is a **single activity**
+  (`splitActivityItems_` in `gas/Parser.gs`): its heading, bullet lines, measurements, metrics
+  (e.g. `Running volume 57/80 m3`, `Current depth 23.5m`) **and any sub-contractor / crew
+  sub-headers** (`SCT`, `Huationg`, `HTC`, …) all describe the same report and are merged into one
+  row. Neither bullets nor sub-contractor headers split a message (build-69 — superseding the
+  earlier per-sub-contractor split). The AI path is told the same rule. Report-metadata lines
+  (`Contractor:`, `Time:`, `Weather:`, `Shift:`, `Date:`) and manpower/machinery roster counts are
+  not activities, and `SPC`/CM maps to Area 1. (`PARSER_CONFIG.locator.subcontractors` is retained
+  for documentation but no longer drives a split.)
 - **Glued area headers** — `matchSegment_` splits the locator line on `.` too, so a forwarded
   header like `AREA-4.XR14 -FB` exposes its `XR14` segment and resolves to Area 4 instead of
   being dropped.

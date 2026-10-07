@@ -67,7 +67,7 @@ var PARSER_CONFIG = {
     segmentPatterns: [
       /^P\d{2,4}$/i, /^DW\d{2,4}$/i, /^EI\d{1,3}$/i, /^BT\d{1,2}(?:-\d)?$/i,
       /^N?MH\d{1,3}$/i, /^T\d{1,2}-\d$/i, /^CW\d{2,4}$/i, /^BP-T\d/i,
-      /^XR\d{1,3}$/i, /^Cube\s?\d+$/i
+      /^XR\d{1,3}$/i, /^ER\d{1,3}$/i, /^Cube\s?\d+$/i
     ],
     // Map each segment to its Area group (1-4) for the dashboard's higher-level
     // filter. From the N106 site plan; unmapped segments -> areaGroup ''.
@@ -669,13 +669,14 @@ function isSubcontractorHeader_(line) {
 }
 
 /**
- * Split a message's activity lines into work-items. A message is usually ONE
- * activity: a heading, its bullet lines, measurements and metrics all describe
- * the same work and are joined together. The ONLY thing that starts a new
- * activity is a SUB-CONTRACTOR header line (SCT / Huationg / HTC …) — different
- * crews in one message are separate activities. Bullets are NOT delimiters.
- * Banner / date / roster-heading noise is dropped up front. Returns an array of
- * trimmed item strings (one when there are no sub-contractor sections).
+ * Collapse a message's activity lines into ONE work-item. A WhatsApp message is
+ * a single activity: its heading, bullet lines, measurements, metrics AND any
+ * sub-contractor sub-headers (SCT / Huationg / HTC …) all describe the one report
+ * and are joined together — sub-contractor headers do NOT split the message
+ * (user decision, build-69). Banner / date / roster-heading noise is dropped up
+ * front. Returns a single-element array (empty only when nothing substantive
+ * remains). `isSubcontractorHeader_` / PARSER_CONFIG.locator.subcontractors are
+ * retained for config documentation but no longer drive any split.
  */
 function splitActivityItems_(actLines) {
   var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); };
@@ -687,26 +688,8 @@ function splitActivityItems_(actLines) {
     if (!isHeaderNoise_(actLines[i]) && norm(actLines[i])) lines.push(actLines[i]);
   }
   if (!lines.length) return [];
-
-  var hasHeader = false;
-  for (var h = 0; h < lines.length; h++) { if (isSubcontractorHeader_(lines[h])) { hasHeader = true; break; } }
-  if (!hasHeader) {
-    // No sub-contractor sections -> the whole message is ONE activity (bullets merged).
-    return [norm(lines.map(strip).join(' '))].filter(Boolean);
-  }
-
-  // Split at each sub-contractor header; the lead (before the first header) is its own activity.
-  var items = [], cur = [];
-  for (var j = 0; j < lines.length; j++) {
-    if (isSubcontractorHeader_(lines[j])) {
-      if (cur.length) items.push(norm(cur.map(strip).join(' ')));
-      cur = [lines[j]];
-    } else {
-      cur.push(lines[j]);
-    }
-  }
-  if (cur.length) items.push(norm(cur.map(strip).join(' ')));
-  return items.map(norm).filter(Boolean);
+  // The whole message is ONE activity (bullets + sub-contractor headers merged).
+  return [norm(lines.map(strip).join(' '))].filter(Boolean);
 }
 
 /**
