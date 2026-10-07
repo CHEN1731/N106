@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-67 · machine state = latest of the day (no sticky maintenance)';
+var APP_VERSION = 'build-68 · combine same-work photo/progress repeats + manpower fix';
 
 /**
  * Route:

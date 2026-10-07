@@ -57,7 +57,12 @@ noise: "No activity", housekeeping/cleaning, generic prep, "waiting for…",
 maintenance — unless it blocks the critical path). **TAM / base grouting survey reports**
 (the `NORTH SOUTH CORRIDOR(N106)` / `TAEHWA GEO ENGR` / `LOCATION:/BH NO:/Depth:` template) are
 kept as **one activity each**, classified by their `LOCATION` (QC1/QC8 → Area 2, etc.); only the
-`RTO area arrangement` staff roster and `daily progress status` banners are dropped. It **merges
+`RTO area arrangement` staff roster and `daily progress status` banners are dropped. Because
+photo-report exports post **one message per photo**, the same work/element is often reported many
+times; `mergeSameWork_` (`gas/Extract.gs`) **combines those repeats / progress updates into one row**
+per work (same area+location, same element or near-identical caption) — keeping the most-complete
+text, furthest stage and max depth, and counting **manpower once** (the max, never summed across
+repeats). Distinct works at a location stay separate. It **merges
 and de-duplicates**
 the activities (one unified entry per element, e.g. `DW1547`), **groups them by Area
 (Area 1–4 / Others)**, and links each to its **elementId**. Output is a forced-JSON

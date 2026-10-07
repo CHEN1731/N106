@@ -294,6 +294,7 @@ function groutingArea_(loc) {
   if (!s) return '';
   var am = /\barea[\s\-]*([1-4])\b/i.exec(s);
   if (am) return 'Area ' + am[1];
+  if (/\bTTMT\b/i.test(s)) return 'Area 1';   // Cube8-TTMT CM is the Sec-A (Area 1) works
   var a = typeof areaFromSection_ === 'function' ? areaFromSection_(s) : '';
   if (a) return a;
   // "Ka1b" / "Ma2a" -> try the leading-letters base (Ka / Ma)
@@ -845,6 +846,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeDate_: normalizeDate_,
     detectDateOrder_: detectDateOrder_,
     resolveDateOrder_: resolveDateOrder_,
+    groutingArea_: groutingArea_,
     splitActivityItems_: splitActivityItems_,
     isSubcontractorHeader_: isSubcontractorHeader_,
     sliceChatByDate_: sliceChatByDate_,

@@ -1361,8 +1361,60 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
     });
   });
   acts = acts.filter(function (a) { return a.activity; });
+  acts = mergeSameWork_(acts);   // combine the same work reported across several photo/progress messages
   // KPI id-lists/counts, concrete and manpower are derived from the activities.
   return buildProductivityResult_(date, acts, 'fallback');
+}
+
+/**
+ * Combine the SAME work reported across several messages (photo-report files post one message per
+ * photo, so a work's progress is repeated). Within one area+location: rows with the same canonical
+ * elementId merge; element-less rows merge when their text is near-identical (token containment). A
+ * cluster collapses to ONE row — the longest/most-complete text, the furthest stage, the max depth,
+ * and manpower = MAX in the cluster (so a repeated photo never inflates or double-counts manpower).
+ * Genuinely different works at the same location stay separate.
+ */
+function mergeSameWork_(acts) {
+  function tok(s) {
+    return (typeof tokens_ === 'function') ? tokens_(s)
+      : String(s == null ? '' : s).toLowerCase().split(/[^a-z0-9]+/).filter(function (w) { return w.length > 2; });
+  }
+  function contain(a, b) {               // |A∩B| / |smaller| — robust to one caption being longer
+    if (!a.length || !b.length) return 0;
+    var set = {}, n = 0; a.forEach(function (t) { set[t] = 1; });
+    b.forEach(function (t) { if (set[t]) n++; });
+    return n / Math.min(a.length, b.length);
+  }
+  var groups = {}, order = [];
+  acts.forEach(function (a) {
+    var g = String(a.area || '') + '||' + String(a.section || '').toLowerCase().replace(/\s+/g, '');
+    if (!groups[g]) { groups[g] = []; order.push(g); }
+    groups[g].push(a);
+  });
+  var out = [];
+  order.forEach(function (g) {
+    var clusters = [];   // { el, toks, act }
+    groups[g].forEach(function (a) {
+      var el = a.elementId ? normElId_(a.elementId) : '';
+      var t = tok(a.activity || '');
+      var hit = null;
+      for (var i = 0; i < clusters.length; i++) {
+        var c = clusters[i];
+        if (el && c.el === el) { hit = c; break; }                       // same element -> same work
+        if (!el && !c.el && contain(c.toks, t) >= 0.7) { hit = c; break; } // near-identical caption
+      }
+      if (!hit) { clusters.push({ el: el, toks: t, act: a }); return; }
+      // merge a into the cluster's representative
+      var rep = hit.act;
+      if ((a.activity || '').length > (rep.activity || '').length) { rep.activity = a.activity; hit.toks = t; }
+      rep.stage = elementStageForward_(rep.stage, a.stage) || rep.stage || a.stage;
+      rep.manpower = Math.max(Number(rep.manpower) || 0, Number(a.manpower) || 0);
+      if (!rep.elementId && a.elementId) rep.elementId = a.elementId;
+      if (el) hit.el = el;
+    });
+    clusters.forEach(function (c) { out.push(c.act); });
+  });
+  return out;
 }
 
 function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
@@ -1403,7 +1455,9 @@ function uniqCodes_(list) {
 }
 
 function firstManpower_(t) {
-  var m = /(\d+)\s*pax\b/i.exec(t) || /man\s*power[^0-9]{0,8}(\d+)/i.exec(t);
+  var m = /(\d+)\s*pax\b/i.exec(t) ||
+          /man\s*power[^0-9]{0,8}(\d+)/i.exec(t) ||
+          /\bMP\b[^0-9A-Za-z]{0,4}(\d+)/i.exec(t);   // "MP - 8", "MP:8", "MP 8"
   return m ? parseInt(m[1], 10) : 0;
 }
 
@@ -1515,6 +1569,7 @@ if (typeof module !== 'undefined' && module.exports) {
     activityCovered_: activityCovered_,
     backfillWorthy_: backfillWorthy_,
     isPlanningNoise_: isPlanningNoise_,
+    mergeSameWork_: mergeSameWork_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
     normAreaName_: normAreaName_,
@@ -1539,6 +1594,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeRC_: normalizeRC_,
     classifyRcType_: classifyRcType_,
     parseDepthM_: parseDepthM_,
-    parseLoads_: parseLoads_
+    parseLoads_: parseLoads_,
+    firstManpower_: firstManpower_
   };
 }

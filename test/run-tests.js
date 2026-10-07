@@ -17,14 +17,14 @@ vm.createContext(sandbox);
 const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
-        mergeProductivity_, activityCovered_, backfillWorthy_, isPlanningNoise_,
+        mergeProductivity_, activityCovered_, backfillWorthy_, isPlanningNoise_, mergeSameWork_,
         areaFromSection_, normAreaName_, classifyElement_, firstElementId_, normElId_,
         uniqCodes_, sumConcreteM3_, castVolumeOf_, stageFromText_,
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
         normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
         lifecycleStageFor_, elementStageForward_, clampLifecycle_,
-        normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_ } = sandbox;
+        normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_, firstManpower_, groutingArea_ } = sandbox;
 
 let failures = 0;
 function assert(cond, msg) {
@@ -762,6 +762,24 @@ assert(parseDepthM_('(3.3 x 1.0m) / SP') === null, 'parseDepthM: a panel size al
 assert(parseDepthM_('Exposing 150mm dia WP for support') === null, 'parseDepthM ignores "150mm dia"');
 assert(parseDepthM_('GIII confirmed at depth 27.5m') === 27.5, 'parseDepthM reads "depth 27.5m"');
 assert(parseLoads_('soil disposal 14 loads today') === 14, 'parseLoads 14 loads');
+
+// build-68: combine same-work photo/progress repeats; manpower max (not summed); MP-8; TTMT area
+assert(firstManpower_('MP - 8') === 8 && firstManpower_('MP:8') === 8, 'firstManpower_ reads "MP - 8"/"MP:8"');
+assert(groutingArea_('TTMT CM') === 'Area 1' && groutingArea_('TTMT CM Ma2a') === 'Area 1', 'groutingArea_ TTMT -> Area 1');
+(function () {
+  // 8 progress messages of the SAME element (DW300) + one DISTINCT work in the same location
+  var acts = [];
+  ['SET extraction', '1st bite 10m', 'cutter wheel maintenance', '2nd bite chiseling',
+   'resume excavation', '2nd bite 22m', 'chiseling', '2nd bite excavation work completed'].forEach(function (w, i) {
+    acts.push({ area: 'Area 2', section: 'Sec-C/ER15', elementId: 'DW300', activity: 'DW300 ' + w, stage: 'Excavation', manpower: i === 1 ? 6 : 0 });
+  });
+  acts.push({ area: 'Area 2', section: 'Sec-C/ER15', elementId: '', activity: 'Micro pile head hack and clean', stage: 'Other', manpower: 4 });
+  var m = mergeSameWork_(acts);
+  var dw = m.filter(function (a) { return normElId_(a.elementId) === 'DW300'; });
+  assert(dw.length === 1, 'the 8 DW300 progress messages merge into ONE row (got ' + dw.length + ')');
+  assert(dw[0].manpower === 6, 'merged manpower is the MAX across the cluster (6), not summed');
+  assert(m.length === 2, 'a distinct element-less work at the same location stays separate (2 rows total)');
+})();
 
 // excavation normaliser
 var ex = normalizeExcavation_({ totalVolumeOrLoads: 14, activeExcavations: [
