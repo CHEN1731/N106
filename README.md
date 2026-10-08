@@ -168,6 +168,16 @@ to **enrich the resource nodes** (machine status, excavation, reinforced concret
 stops oscillating. The Excavation tracker likewise keeps the **latest/deepest** depth per
 zone.
 
+**Sub-location tags** (`subLocationTag_` in `gas/Extract.gs`; build-72). When a broad segment
+header (e.g. `Sec-E/XR14`) covers many distinct works, each activity's **specific** sub-location
+is pulled from its text and appended to the displayed section as `Sec-E/XR14 · TD 3D-1`,
+`Sec-E/XR14 · Sewer NMHD-02`, `… · GWV8060`, `… · TR 87`, `Sec-A · MH7`, `Sec-D/EI12 · CH10~CH30`,
+etc. It is **precision-first** — only high-confidence site codes (traffic-deck / diversion stage,
+sewer/manhole, instrument well, rig/pile no., chainage, bay/unit/block, QC/QD, silos) produce a
+tag; a pipe size like `600mm` or vague wording yields no tag, so rows without a clear spot stay
+clean. The tag is **display only**: area grouping and the DW/BP/BT/CW counts read `area` and the
+activity text, never the tag.
+
 **Activity granularity** (`PARSER_CONFIG.activityGranularity`, default `'work'`; build-71).
 `'work'` keeps **one row per distinct work** so every sub-segment is visible and can be
 pinpointed (the many small works inside `XR14` each stay on their own row); same-work

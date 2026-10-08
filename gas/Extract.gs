@@ -779,7 +779,7 @@ function buildProductivityResult_(date, acts, source) {
         concreteVolumeM3: Math.round(concrete * 100) / 100, areaManpower: manpower
       },
       activities: list.map(function (a) {
-        return { elementId: a.elementId || '', section: a.section || '',
+        return { elementId: a.elementId || '', section: displaySection_(a),
           activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
           manpower: Number(a.manpower) || 0 };
       })
@@ -795,10 +795,16 @@ function buildProductivityResult_(date, acts, source) {
   });
   gdw = uniqCodes_(gdw); gbp = uniqCodes_(gbp); gbt = uniqCodes_(gbt); gcw = uniqCodes_(gcw);
 
-  var mergedActivities = acts.map(function (a) {
+  // Base-section rows feed the machine/excavation/RC inference (unchanged input); the DISPLAY
+  // rows carry the sub-location tag appended to the section (build-72).
+  var mergedBase = acts.map(function (a) {
     return { area: a.area, section: a.section || '', elementId: a.elementId || '',
       activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
       manpower: Number(a.manpower) || 0 };
+  });
+  var mergedActivities = mergedBase.map(function (a) {
+    return { area: a.area, section: displaySection_(a), elementId: a.elementId,
+      activity: a.activity, stage: a.stage, manpower: a.manpower };
   });
 
   return {
@@ -813,11 +819,12 @@ function buildProductivityResult_(date, acts, source) {
       activeCrossWalls: gcw, cWallCount: gcw.length,
       totalConcreteVolumeM3: Math.round(gConc * 100) / 100, totalManpower: gMan
     },
-    // Resource & Production baseline — derived purely by inference from the activities.
-    // normalizeProductivity_ overlays the AI's richer nodes on top of this on the AI path.
-    machineStatus: normalizeMachineStatus_(null, mergedActivities),
-    excavation: normalizeExcavation_(null, mergedActivities),
-    reinforcedConcrete: normalizeRC_(null, mergedActivities, Math.round(gConc * 100) / 100),
+    // Resource & Production baseline — derived purely by inference from the activities
+    // (base sections, no display tag). normalizeProductivity_ overlays the AI's richer nodes
+    // on top of this on the AI path.
+    machineStatus: normalizeMachineStatus_(null, mergedBase),
+    excavation: normalizeExcavation_(null, mergedBase),
+    reinforcedConcrete: normalizeRC_(null, mergedBase, Math.round(gConc * 100) / 100),
     source: source || 'ai'
   };
 }
@@ -1453,6 +1460,52 @@ function collapseByLocation_(acts) {
   });
 }
 
+/**
+ * Pull a short, SPECIFIC sub-location tag out of an activity's text so a row inside
+ * a broad segment (e.g. the many distinct works reported under one XR14 header) can
+ * be pinpointed — the tag is appended to the displayed section as "Sec-x/Seg · TAG"
+ * (build-72). Precision-first: only high-confidence site codes are returned
+ * (TD 3D-1, Sewer NMHD-02, GWV8060, TR 87, L-RW5-81, CH10~CH30, Bay B4, Unit 95,
+ * MH7, QC1, Silos, OPP LAMH); returns '' when nothing specific is found — no fuzzy
+ * guessing, so rows without a clear sub-location stay clean. A tag already present in
+ * the base section is skipped (no duplication). Does NOT affect area / KPI logic (those
+ * read a.area and the activity text, never this tag).
+ */
+function subLocationTag_(text, baseSection) {
+  var t = ' ' + String(text == null ? '' : text).replace(/\s+/g, ' ') + ' ';
+  var base = String(baseSection == null ? '' : baseSection).toLowerCase();
+  // A STAGE code is a digit followed by a LETTER (+ optional -n), e.g. 3D-1 / 4A-4.
+  // Requiring the letter excludes bare pipe sizes, so "diversion 600mm" is NOT a stage.
+  var out = '', m;
+  if ((m = t.match(/\bTD[\s:#-]*(\d[A-Za-z]-?\d*)/i)) ||
+      (m = t.match(/\b(?:traffic\s*diversion|diversion|traffic\s*deck|decking|stage)[\s:#-]*(\d[A-Za-z]-?\d*)/i))) out = 'TD ' + m[1];
+  else if ((m = t.match(/\bsewer\s+(N?MHD?-?\s?\d+[A-Za-z]?)/i))) out = 'Sewer ' + m[1].replace(/\s+/g, '');
+  else if ((m = t.match(/\b(N?MHD-?\s?\d+[A-Za-z]?)\b/i))) out = m[1].replace(/\s+/g, '');
+  else if ((m = t.match(/\bMH\s?-?(\d+[A-Za-z]?)\b/i))) out = 'MH' + m[1];
+  else if ((m = t.match(/\b(GW[VP]\s?-?\d{2,5})\b/i))) out = m[1].replace(/\s+/g, '');
+  else if ((m = t.match(/\b(TR\s?-?\d{1,3})\b/i))) out = 'TR ' + m[1].replace(/\D/g, '');
+  else if ((m = t.match(/\b(L-?RW\d+-?\d+)\b/i))) out = m[1].toUpperCase();
+  else if ((m = t.match(/\bpile\s*no[:\s]*([A-Za-z0-9-]{3,})/i))) out = m[1];
+  else if ((m = t.match(/\b(Unit\s?\d+)\b/i))) out = m[1];
+  else if ((m = t.match(/\b(Bay\s?[A-Za-z]?\d+)\b/i))) out = m[1];
+  else if ((m = t.match(/\b(Block[-\s]?\d+)\b/i))) out = m[1].replace(/\s+/g, '');
+  else if ((m = t.match(/\b(CH\s?\d+(?:\+\d+)?(?:\s?[~-]\s?CH?\s?\d+(?:\+\d+)?)?)/i))) out = m[1].replace(/\s+/g, '');
+  else if ((m = t.match(/\b(Q[CD]\d+)\b/i))) out = m[1].toUpperCase();
+  else if ((m = t.match(/\bsilos?\b/i))) out = 'Silos';
+  else if ((m = t.match(/\bOPP\s+LAMH\b/i))) out = 'OPP LAMH';
+  out = out.trim();
+  if (!out) return '';
+  if (base.indexOf(out.toLowerCase()) >= 0) return '';   // already visible in the section
+  return out.slice(0, 22);
+}
+
+/** The section label as shown to the user: base section + its sub-location tag (if any). */
+function displaySection_(act) {
+  var base = (act && act.section) || '';
+  var tag = subLocationTag_((act && act.activity) || '', base);
+  return tag ? (base + ' · ' + tag) : base;
+}
+
 function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
 
 // Structural element codes, used to fill an activity's elementId from its text.
@@ -1607,6 +1660,8 @@ if (typeof module !== 'undefined' && module.exports) {
     isPlanningNoise_: isPlanningNoise_,
     mergeSameWork_: mergeSameWork_,
     collapseByLocation_: collapseByLocation_,
+    subLocationTag_: subLocationTag_,
+    displaySection_: displaySection_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
     normAreaName_: normAreaName_,
