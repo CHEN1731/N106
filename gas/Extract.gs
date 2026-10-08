@@ -1351,6 +1351,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       if (isPlanningNoise_(act)) return;   // "RTO area arrangement (…) <names>" staff-planning banner
       if (isBannerLine_(act)) return;      // a bare project/company banner with no work (e.g. "NORTH SOUTH CORRIDOR(N106)")
       if (isNoActivityOnly_(act)) return;  // a pure "No activity" status line (hidden from All Activities)
+      if (isScheduleNoise_(act)) return;   // duty-roster / leave / scheduling chatter (not a site activity)
       var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
       if (seen[k]) return;
       seen[k] = true;
@@ -1514,6 +1515,23 @@ function isNoActivityOnly_(s) {
     return w && !/^[a-z]{0,3}\d/.test(w) && !/^ch\d/.test(w);   // ignore location/structure codes (CH140, DW585, 3a…)
   });
   return words.length === 0;
+}
+
+/**
+ * True when a message is duty-roster / leave / scheduling chatter rather than a site
+ * activity (build-75). These standalone texts ("Nov duty roster", "no duty 7/11", "Annual/
+ * Unpaid Leave", "planning for the roster", "iris scanning") otherwise get carried forward
+ * onto the most-recent location and pollute the All Activities list.
+ */
+function isScheduleNoise_(s) {
+  var t = String(s == null ? '' : s).toLowerCase();
+  return /\bduty\s*roster\b/.test(t)
+    || /\bno[\s-]?duty\b/.test(t)
+    || /\b(annual|unpaid|medical|sick|paternity|maternity)\s+leave\b/.test(t)
+    || /\bleaves?\s+by\b/.test(t)
+    || /\biris\s+scanning\b/.test(t)
+    || /\bplanning\s+for\b[^]*\broster\b/.test(t)
+    || /\broster\b[^]*please\s+let\s+me\s+know/.test(t);
 }
 
 /** Union of the segment lists on a set of acts (order preserved, de-duplicated). */
@@ -1683,6 +1701,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mergeSameWork_: mergeSameWork_,
     collapseByLocation_: collapseByLocation_,
     isNoActivityOnly_: isNoActivityOnly_,
+    isScheduleNoise_: isScheduleNoise_,
     displaySection_: displaySection_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,

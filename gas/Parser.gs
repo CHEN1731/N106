@@ -324,7 +324,19 @@ function groutingRecord_(body, source, date, photos) {
   var lines = String(body).split(/\n/).map(function (l) { return l.replace(/[​-‏⁠﻿]/g, '').trim(); }).filter(Boolean);
   var locM = /location\s*[:\-]?\s*(.+)/i.exec(body);
   var loc = locM ? String(locM[1]).split(/\n/)[0].replace(/[()]/g, ' ').trim() : '';
-  var areaGroup = groutingArea_(loc);
+  // No "LOCATION:" field (inline TAM/base grouting headers like "Sec C/…QC8/Taehwa" or
+  // "TTMT CM(Qb1 & La)/SCT/Taehwa") -> use the first non-banner line as the location header,
+  // so the report is classified to its real Area instead of falling to Others.
+  if (!loc) {
+    for (var li = 0; li < lines.length; li++) {
+      var l0 = lines[li];
+      if (/^north\s+south\s+corridor\b/i.test(l0)) continue;
+      if (/^taehwa\b/i.test(l0) || /\bgeo\s*engr?\b/i.test(l0)) continue;
+      loc = l0.replace(/[()]/g, ' ').trim();
+      break;
+    }
+  }
+  var areaGroup = groutingArea_(loc) || (typeof areaFromSection_ === 'function' ? areaFromSection_(loc) : '');
   // Keep the real work lines; drop the project banner, the bare company header and the forward meta.
   var work = lines.filter(function (l) {
     if (/^north\s+south\s+corridor\b/i.test(l)) return false;

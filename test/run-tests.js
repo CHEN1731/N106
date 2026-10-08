@@ -23,7 +23,7 @@ const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateO
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
         normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
-        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_, isNoActivityOnly_,
+        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_, isNoActivityOnly_, isScheduleNoise_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_, firstManpower_, groutingArea_ } = sandbox;
 
 let failures = 0;
@@ -449,6 +449,24 @@ assert(!isNoActivityOnly_('No activity at that moment CW Jaw Crusher crushing pr
   var msg = '[9/25/26, 10:00:00 AM] ~ Eng: Sec-C/ER15\nNo activity.\n';
   assert(productivityFromRecords_(msg, '', '2026-09-25').mergedActivities.length === 0,
     'a pure No-activity message yields no activity rows');
+})();
+
+console.log('\nDrop duty-roster / leave chatter (build-75; isScheduleNoise_):');
+assert(isScheduleNoise_('November 26’ Duty Roster Karthick No Duty - 7/11, 8/11'), 'duty roster -> noise');
+assert(isScheduleNoise_('Nov. 7,8,14,21,28 no duty'), '"no duty" -> noise');
+assert(isScheduleNoise_('Kumar November 26 Unpaid Leave : 5/11,6/11'), 'unpaid leave -> noise');
+assert(isScheduleNoise_('Hi all, planning for Nov 25 roster, please let me know your no-duty / leaves by Fri'),
+  'roster planning request -> noise');
+assert(isScheduleNoise_('Hi All, I do iris scanning for section A,B & E this afternoon'), 'iris scanning -> noise');
+assert(!isScheduleNoise_('DW585 2nd stage base grouting work'), 'a real activity is NOT schedule noise');
+assert(!isScheduleNoise_('Excavation and soil disposal to Gate #33'), 'excavation work is NOT schedule noise');
+(function () {
+  // A duty-roster text following a located message must NOT be carried forward as an activity.
+  var msg = '[10/6/26, 9:00:00 AM] ~ Eng: Sec-A/Ja\nDW01 rebar cage lowering\nManpower: 5\n' +
+            '[10/6/26, 9:05:00 AM] ~ Eng: Kumar\n\nNovember 26\nUnpaid Leave : 5/11,6/11\nNo duty 7/11,8/11\n';
+  var r = productivityFromRecords_(msg, '', '2026-10-06');
+  assert(r.mergedActivities.length === 1 && !r.mergedActivities.some(a => /unpaid leave|no duty/i.test(a.activity)),
+    'the roster message is dropped, only the real activity remains (got ' + r.mergedActivities.length + ')');
 })();
 
 console.log('\nMetadata header + blank lines + SPC area (build-53):');
