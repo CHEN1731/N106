@@ -798,7 +798,7 @@ function buildProductivityResult_(date, acts, source) {
   // Base-section rows feed the machine/excavation/RC inference (unchanged input); the DISPLAY
   // rows carry the sub-location tag appended to the section (build-72).
   var mergedBase = acts.map(function (a) {
-    return { area: a.area, section: a.section || '', elementId: a.elementId || '',
+    return { area: a.area, section: a.section || '', segments: a.segments || [], elementId: a.elementId || '',
       activity: a.activity || '', stage: a.stage || stageFromText_(a.activity || ''),
       manpower: Number(a.manpower) || 0 };
   });
@@ -1358,6 +1358,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       acts.push({
         area: r.areaGroup || areaFromSection_(r.area) || '',
         section: r.area || '',
+        segments: r.segments || [],
         elementId: firstElementId_((r.area || '') + ' ' + act),
         activity: full,
         stage: stageFromText_(full),
@@ -1417,6 +1418,7 @@ function mergeSameWork_(acts) {
       rep.stage = elementStageForward_(rep.stage, a.stage) || rep.stage || a.stage;
       rep.manpower = Math.max(Number(rep.manpower) || 0, Number(a.manpower) || 0);
       if (!rep.elementId && a.elementId) rep.elementId = a.elementId;
+      rep.segments = unionSegments_([rep, a]);   // keep every named segment across the merged work
       if (el) hit.el = el;
     });
     clusters.forEach(function (c) { out.push(c.act); });
@@ -1456,54 +1458,50 @@ function collapseByLocation_(acts) {
     rep.stage = stage;
     rep.manpower = manpower;
     rep.elementId = elementId;
+    rep.segments = unionSegments_(list);   // every segment named anywhere at this location
     return rep;
   });
 }
 
 /**
- * Pull a short, SPECIFIC sub-location tag out of an activity's text so a row inside
- * a broad segment (e.g. the many distinct works reported under one XR14 header) can
- * be pinpointed — the tag is appended to the displayed section as "Sec-x/Seg · TAG"
- * (build-72). Precision-first: only high-confidence site codes are returned
- * (TD 3D-1, Sewer NMHD-02, GWV8060, TR 87, L-RW5-81, CH10~CH30, Bay B4, Unit 95,
- * MH7, QC1, Silos, OPP LAMH); returns '' when nothing specific is found — no fuzzy
- * guessing, so rows without a clear sub-location stay clean. A tag already present in
- * the base section is skipped (no duplication). Does NOT affect area / KPI logic (those
- * read a.area and the activity text, never this tag).
+ * The section label as shown to the user: the base section PAIRED with the finer zone
+ * segments the message named (build-73). A broad header such as "Sec-E/XR14 /… Dyson
+ * Island Lb1,Lb2,Lb3,Boseng" keeps section "Sec-E/XR14" and shows the extra segments as
+ * "Sec-E/XR14 · Dyson, Lb1, Lb2, Lb3" so the row can be pinpointed. `act.segments` is the
+ * list of recognised segments captured from the locator line (see segmentsOnLine_ in
+ * Parser.gs); the one already in the base section is not repeated. Display only — area /
+ * KPI logic reads a.area and the activity text, never this label.
  */
-function subLocationTag_(text, baseSection) {
-  var t = ' ' + String(text == null ? '' : text).replace(/\s+/g, ' ') + ' ';
-  var base = String(baseSection == null ? '' : baseSection).toLowerCase();
-  // A STAGE code is a digit followed by a LETTER (+ optional -n), e.g. 3D-1 / 4A-4.
-  // Requiring the letter excludes bare pipe sizes, so "diversion 600mm" is NOT a stage.
-  var out = '', m;
-  if ((m = t.match(/\bTD[\s:#-]*(\d[A-Za-z]-?\d*)/i)) ||
-      (m = t.match(/\b(?:traffic\s*diversion|diversion|traffic\s*deck|decking|stage)[\s:#-]*(\d[A-Za-z]-?\d*)/i))) out = 'TD ' + m[1];
-  else if ((m = t.match(/\bsewer\s+(N?MHD?-?\s?\d+[A-Za-z]?)/i))) out = 'Sewer ' + m[1].replace(/\s+/g, '');
-  else if ((m = t.match(/\b(N?MHD-?\s?\d+[A-Za-z]?)\b/i))) out = m[1].replace(/\s+/g, '');
-  else if ((m = t.match(/\bMH\s?-?(\d+[A-Za-z]?)\b/i))) out = 'MH' + m[1];
-  else if ((m = t.match(/\b(GW[VP]\s?-?\d{2,5})\b/i))) out = m[1].replace(/\s+/g, '');
-  else if ((m = t.match(/\b(TR\s?-?\d{1,3})\b/i))) out = 'TR ' + m[1].replace(/\D/g, '');
-  else if ((m = t.match(/\b(L-?RW\d+-?\d+)\b/i))) out = m[1].toUpperCase();
-  else if ((m = t.match(/\bpile\s*no[:\s]*([A-Za-z0-9-]{3,})/i))) out = m[1];
-  else if ((m = t.match(/\b(Unit\s?\d+)\b/i))) out = m[1];
-  else if ((m = t.match(/\b(Bay\s?[A-Za-z]?\d+)\b/i))) out = m[1];
-  else if ((m = t.match(/\b(Block[-\s]?\d+)\b/i))) out = m[1].replace(/\s+/g, '');
-  else if ((m = t.match(/\b(CH\s?\d+(?:\+\d+)?(?:\s?[~-]\s?CH?\s?\d+(?:\+\d+)?)?)/i))) out = m[1].replace(/\s+/g, '');
-  else if ((m = t.match(/\b(Q[CD]\d+)\b/i))) out = m[1].toUpperCase();
-  else if ((m = t.match(/\bsilos?\b/i))) out = 'Silos';
-  else if ((m = t.match(/\bOPP\s+LAMH\b/i))) out = 'OPP LAMH';
-  out = out.trim();
-  if (!out) return '';
-  if (base.indexOf(out.toLowerCase()) >= 0) return '';   // already visible in the section
-  return out.slice(0, 22);
-}
-
-/** The section label as shown to the user: base section + its sub-location tag (if any). */
 function displaySection_(act) {
   var base = (act && act.section) || '';
-  var tag = subLocationTag_((act && act.activity) || '', base);
-  return tag ? (base + ' · ' + tag) : base;
+  var segs = (act && act.segments) || [];
+  if (!segs.length) return base;
+  var baseLow = base.toLowerCase();
+  var rowArea = (act && act.area) || '';
+  var extras = [];
+  for (var i = 0; i < segs.length; i++) {
+    var s = String(segs[i]);
+    if (baseLow.indexOf(s.toLowerCase()) >= 0 || extras.indexOf(s) >= 0) continue;
+    // Keep a paired segment only when it belongs to THIS row's area (or has no area of its
+    // own) — this drops cross-area false hits like "SB" (southbound) matching segment "Sb".
+    var sa = areaFromSection_(s);
+    if (rowArea && sa && sa !== rowArea) continue;
+    extras.push(s);
+  }
+  if (!extras.length) return base;
+  return base + ' · ' + extras.slice(0, 6).join(', ');
+}
+
+/** Union of the segment lists on a set of acts (order preserved, de-duplicated). */
+function unionSegments_(list) {
+  var out = [], seen = {};
+  (list || []).forEach(function (a) {
+    (a && a.segments || []).forEach(function (s) {
+      var k = String(s).toLowerCase();
+      if (!seen[k]) { seen[k] = 1; out.push(s); }
+    });
+  });
+  return out;
 }
 
 function matchAll_(text, re) { var m = String(text).match(re); return m || []; }
@@ -1660,7 +1658,6 @@ if (typeof module !== 'undefined' && module.exports) {
     isPlanningNoise_: isPlanningNoise_,
     mergeSameWork_: mergeSameWork_,
     collapseByLocation_: collapseByLocation_,
-    subLocationTag_: subLocationTag_,
     displaySection_: displaySection_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,

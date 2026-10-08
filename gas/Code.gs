@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-72 · detailed location tags (TD 3D-1, Sewer NMHD-02, TR 87…)';
+var APP_VERSION = 'build-73 · Area↔Segment pairing + Dyson/Boseng/TMC map fixes';
 
 /**
  * Route:

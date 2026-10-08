@@ -65,6 +65,7 @@ var PARSER_CONFIG = {
     // Multi-letter names are listed before single letters so they win.
     segments: [
       'Portal', 'Cube8', 'SLF', 'SJII', 'TLQ', 'OPA', 'SPC', 'SOD', 'PIE', 'Sec-N',
+      'Dyson', 'Boseng', 'TMC', 'TTMT', 'XR14', 'EI12', 'ER15',
       'Wc', 'Wb', 'Wa', 'Lc', 'Lb3', 'Lb2', 'Lb1', 'La3', 'La2', 'La1',
       'Le', 'Ld', 'Mb', 'Ma', 'P5', 'FB', 'Ja', 'Jb', 'Ka', 'Kb',
       'Qa', 'Qb', 'Qc', 'Qd', 'Sa', 'Sb', 'Ta', 'Tb', 'Tc', 'Ua', 'Ub',
@@ -83,9 +84,11 @@ var PARSER_CONFIG = {
     // Map each segment to its Area group (1-4) for the dashboard's higher-level
     // filter. From the N106 site plan; unmapped segments -> areaGroup ''.
     segmentArea: {
-      // Area 1  ('SPC'/CM is always Sec-A /SPC/CM (Ja/Jb) in the data -> Area 1)
+      // Area 1  ('SPC'/CM is always Sec-A /SPC/CM (Ja/Jb) in the data -> Area 1;
+      // 'TMC'/'TTMT' = the Sec-A TMC Car Park / TTMT CM works -> Area 1)
       'Ja': 'Area 1', 'Jb': 'Area 1', 'Ka': 'Area 1', 'Kb': 'Area 1',
       'Qa': 'Area 1', 'Qb': 'Area 1', 'SPC': 'Area 1',
+      'TMC': 'Area 1', 'TTMT': 'Area 1',
       // Area 2  ('N'/Sec-N = the BTC canal / L&R-shaft / main-tunnel works;
       // 'PIE' = the "Under PIE CM / NB / Slip Rd" works — all Area 2 per site decision)
       'N': 'Area 2', 'Sec-N': 'Area 2', 'PIE': 'Area 2',
@@ -97,6 +100,7 @@ var PARSER_CONFIG = {
       // Area 4
       'La1': 'Area 4', 'La2': 'Area 4', 'La3': 'Area 4', 'Lb1': 'Area 4', 'Lb2': 'Area 4',
       'Lb3': 'Area 4', 'P5': 'Area 4', 'Lc': 'Area 4', 'Wc': 'Area 4', 'FB': 'Area 4',
+      'Dyson': 'Area 4', 'Boseng': 'Area 4',
       // Named location codes (not lettered segments)
       'OPA': 'Area 2', 'SOD': 'Area 3', 'EI12': 'Area 3', 'XR14': 'Area 4', 'ER15': 'Area 2'
     },
@@ -458,6 +462,7 @@ function messageToRecord_(msg, source, order, carry) {
     areaGroup: (loc.areaGroup || '').trim(),
     section: (loc.section || '').trim(),
     segment: (loc.segment || '').trim(),
+    segments: loc.segments || [],
     activity: activity.trim(),
     activityItems: items,
     remark: remark.trim(),
@@ -559,6 +564,30 @@ function resolveLocator_(body) {
 
   if (out.segment && cfg.segmentArea && cfg.segmentArea[out.segment]) {
     out.areaGroup = cfg.segmentArea[out.segment];
+  }
+  // All recognised zone segments named on the locator line (primary first). A broad
+  // header like "Sec E/XR14/…/Dyson Island Lb1,Lb2,Lb3,Boseng" names several finer
+  // segments; the dashboard shows them paired with the section so a row can be pinpointed.
+  out.segments = out.locatorLine ? segmentsOnLine_(out.locatorLine) : [];
+  return out;
+}
+
+/**
+ * Every recognised ZONE segment named on a line, in order, de-duplicated. Uses the
+ * configured `segments` list plus the `segmentArea` keys (La1, Wc, Dyson, Boseng, XR14,
+ * OPA, EI12 …) as the vocabulary — NOT the structure-code patterns (DW/BP/EI…) — and
+ * skips 1-character names (N/P/R) to avoid false hits in free text.
+ */
+function segmentsOnLine_(line) {
+  var cfg = PARSER_CONFIG.locator || {};
+  var vocab = {};
+  (cfg.segments || []).forEach(function (s) { if (String(s).length > 1) vocab[String(s).toLowerCase()] = s; });
+  Object.keys(cfg.segmentArea || {}).forEach(function (s) { if (String(s).length > 1) vocab[s.toLowerCase()] = s; });
+  var tokens = String(line).split(/[\/()\[\].,;:\s]+/).filter(Boolean);
+  var out = [], seen = {};
+  for (var i = 0; i < tokens.length; i++) {
+    var hit = vocab[tokens[i].toLowerCase()];
+    if (hit && !seen[hit.toLowerCase()]) { seen[hit.toLowerCase()] = 1; out.push(hit); }
   }
   return out;
 }
@@ -834,6 +863,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseWhatsApp: parseWhatsApp,
     resolveLocator_: resolveLocator_,
+    segmentsOnLine_: segmentsOnLine_,
     stripMedia_: stripMedia_,
     canonicalArea_: canonicalArea_,
     hasActivitySignal_: hasActivitySignal_,

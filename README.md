@@ -168,15 +168,15 @@ to **enrich the resource nodes** (machine status, excavation, reinforced concret
 stops oscillating. The Excavation tracker likewise keeps the **latest/deepest** depth per
 zone.
 
-**Sub-location tags** (`subLocationTag_` in `gas/Extract.gs`; build-72). When a broad segment
-header (e.g. `Sec-E/XR14`) covers many distinct works, each activity's **specific** sub-location
-is pulled from its text and appended to the displayed section as `Sec-E/XR14 · TD 3D-1`,
-`Sec-E/XR14 · Sewer NMHD-02`, `… · GWV8060`, `… · TR 87`, `Sec-A · MH7`, `Sec-D/EI12 · CH10~CH30`,
-etc. It is **precision-first** — only high-confidence site codes (traffic-deck / diversion stage,
-sewer/manhole, instrument well, rig/pile no., chainage, bay/unit/block, QC/QD, silos) produce a
-tag; a pipe size like `600mm` or vague wording yields no tag, so rows without a clear spot stay
-clean. The tag is **display only**: area grouping and the DW/BP/BT/CW counts read `area` and the
-activity text, never the tag.
+**Area ↔ Segment pairing** (`segmentsOnLine_` in `gas/Parser.gs`, `displaySection_` in
+`gas/Extract.gs`; build-73). A broad header names several finer zone segments — e.g.
+`Sec E/XR14/Whitley RD/Dyson Island Lb1,Lb2,Lb3,Boseng Ave`. The parser keeps `Sec-E/XR14` as the
+section and shows the extra segments it recognised on that header line paired after it:
+`Sec-E/XR14 · Dyson, Lb1, Lb2, Lb3, Boseng`; likewise `Sec-A/SPC · Ja, Jb`, `R · Sa`. Only
+recognised **zone** segments (the `segments` list + `segmentArea` keys, 1-character names like
+`N`/`P`/`R` skipped) are paired, and only those in the **same area** as the row — so `SB`
+(southbound) does not get mistaken for segment `Sb`. Display only: area grouping and the
+DW/BP/BT/CW counts read `area` and the activity text, never this label.
 
 **Activity granularity** (`PARSER_CONFIG.activityGranularity`, default `'work'`; build-71).
 `'work'` keeps **one row per distinct work** so every sub-segment is visible and can be
@@ -432,6 +432,11 @@ your exports, no logic changes needed:
   (`PIE`) are mapped to **Area 2** — adding a named location both to `segmentArea` *and* to the
   `segments` list is what lets a report leading with it (e.g. `Under PIE CM / …` with no
   `Sec-B` prefix) resolve at all, instead of being dropped by `requireLocator`.
+  The current site map (build-73): **Area 1** = Ja, Jb, Ka, Kb, Qa, Qb, SPC, TMC, TTMT;
+  **Area 2** = N, Sec-N, PIE, P, Qc, Qd, R, Sa, Ma, Mb, Ld, Le, Wb, OPA, ER15; **Area 3** = Sb,
+  Ta, Tb, Tc, Ua, Ub, Wa, SOD, EI12; **Area 4** = La1–La3, Lb1–Lb3, P5, Lc, Wc, FB, XR14,
+  **Dyson**, **Boseng**. (`TMC`/`TTMT` are the Sec-A TMC Car Park / TTMT CM works — Area 1, not
+  Area 4; `Dyson`/`Boseng` are Sec-E / Area 4 sub-zones inside XR14.)
 - **`requireLocator`** — `true` (recommended): keep ONLY messages with a real
   `Sec-/segment` locator, so greetings, questions (RFI), emoji and coordination
   chatter never reach the Sheet. Set `false` to also keep `General`-bucket notes.

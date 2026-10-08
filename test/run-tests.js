@@ -23,7 +23,7 @@ const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateO
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
         normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
-        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, subLocationTag_,
+        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_, firstManpower_, groutingArea_ } = sandbox;
 
 let failures = 0;
@@ -827,30 +827,33 @@ console.log('\nOne row per location (build-70; collapseByLocation_):');
   assert(wrk.mergedActivities.length === 2, 'granularity=work -> the two ER15 messages stay 2 rows (got ' + wrk.mergedActivities.length + ')');
 })();
 
-console.log('\nSub-location tag in the section label (build-72; subLocationTag_):');
-// Precision-first codes -> a specific tag; vague text -> no tag.
-assert(subLocationTag_('SCT TD:3D-1 /(Lb2~WC) Road diversion works') === 'TD 3D-1', 'TD:3D-1 -> "TD 3D-1"');
-assert(subLocationTag_('SCT /Highway Traffic diversion:3D-1: Stage-2 Asphalt') === 'TD 3D-1', 'diversion:3D-1 -> "TD 3D-1"');
-assert(subLocationTag_('Goodlink /Sewer NMHD-02 2nd lift wall rebar') === 'Sewer NMHD-02', 'Sewer NMHD-02 -> "Sewer NMHD-02"');
-assert(subLocationTag_('Geosmart /Instrumentation GWV8060 (Piezometer) trial pit') === 'GWV8060', 'GWV8060 -> "GWV8060"');
-assert(subLocationTag_('TR 87 Mobilised machine ! GL +5.07mSHD Drill in progress') === 'TR 87', 'TR 87 -> "TR 87"');
-assert(subLocationTag_('Sambo Silos dismantle & send out from site') === 'Silos', 'Silos -> "Silos"');
-assert(subLocationTag_('SCT -Manual excavation ongoing at Bay B4') === 'Bay B4', 'Bay B4 -> "Bay B4"');
-assert(subLocationTag_('MH7 Rectification done Thomson Rd Lane 3 opened') === 'MH7', 'MH7 -> "MH7"');
-assert(subLocationTag_('CH10~CH30 Excavation & top soils cutting down') === 'CH10~CH30', 'CH10~CH30 -> "CH10~CH30"');
-// pipe sizes / vague work are NOT tagged
-assert(subLocationTag_('Drain diversion 600mm dia pipe culvert haunching') === '', 'a pipe size (600mm) is NOT read as a stage/TD -> no tag');
-assert(subLocationTag_('SCT blasting mock up works') === '', 'vague work -> no tag');
-assert(subLocationTag_('guide wall hacking for tam grout work') === '', 'no site code -> no tag');
-// a tag already in the base section is not duplicated
-assert(subLocationTag_('QC1 TAM grouting DW995', 'Sec-C/QC1') === '', 'tag already in the section is skipped');
-// end-to-end: the displayed section carries the tag; area is unaffected
+console.log('\nArea<->Segment pairing in the section label (build-73):');
+// New map entries: Dyson / Boseng -> Area 4; TMC / TTMT -> Area 1.
+assert(areaFromSection_('Sec-E/Dyson') === 'Area 4' && areaFromSection_('Dyson') === 'Area 4', 'Dyson -> Area 4');
+assert(areaFromSection_('Boseng') === 'Area 4', 'Boseng -> Area 4');
+assert(areaFromSection_('Sec A/TMC Car Park') === 'Area 1' && areaFromSection_('TMC') === 'Area 1', 'TMC -> Area 1 (was mis-filed to Area 4)');
+assert(areaFromSection_('TTMT') === 'Area 1', 'TTMT -> Area 1');
+// segmentsOnLine_ lists every recognised zone segment on a header (primary first), skips 1-char (N/P/R).
 (function () {
-  var msg = '[10/6/26, 9:00:00 AM] ~ Eng: Sec E/XR14\nGoodlink /Sewer NMHD-02 2nd lift wall rebar works completed\n';
+  var segs = segmentsOnLine_('Sec E/XR14/Whitley RD/Dyson Island Lb1,Lb2,Lb3,Boseng Ave,Whitley Villas &CJC');
+  assert(segs.indexOf('XR14') === 0, 'primary segment (XR14) is first');
+  ['Dyson', 'Lb1', 'Lb2', 'Lb3', 'Boseng'].forEach(function (s) {
+    assert(segs.indexOf(s) >= 0, 'segmentsOnLine_ captures ' + s);
+  });
+})();
+// displaySection_ pairs the base section with the extra segments (base segment not repeated).
+assert(displaySection_({ section: 'Sec-E/XR14', segments: ['XR14', 'Dyson', 'Lb1', 'Lb2', 'Lb3', 'Boseng'] })
+  === 'Sec-E/XR14 · Dyson, Lb1, Lb2, Lb3, Boseng', 'section paired with the finer segments');
+assert(displaySection_({ section: 'Sec-A/Ja', segments: ['Ja'] }) === 'Sec-A/Ja', 'no extras -> section unchanged');
+assert(displaySection_({ section: 'Sec-D', segments: [] }) === 'Sec-D', 'no segments -> section unchanged');
+// end-to-end: the finer segments from the header are shown; area stays Area 4.
+(function () {
+  var msg = '[10/6/26, 9:00:00 AM] ~ Eng: Sec E/XR14/Whitley RD/Dyson Island Lb1,Lb2,Lb3,Boseng Ave\nHoarding installation works ongoing\n';
   var r = productivityFromRecords_(msg, '', '2026-10-06');
   var row = r.mergedActivities[0];
-  assert(row.section === 'Sec-E/XR14 · Sewer NMHD-02', 'the displayed section appends the sub-location tag (got "' + row.section + '")');
-  assert(row.area === 'Area 4', 'area is still Area 4 (the tag does not disturb area resolution)');
+  assert(/Sec-E\/XR14 ·/.test(row.section) && /Dyson/.test(row.section) && /Lb1/.test(row.section) && /Boseng/.test(row.section),
+    'displayed section pairs XR14 with Dyson/Lb1/Boseng (got "' + row.section + '")');
+  assert(row.area === 'Area 4', 'area stays Area 4 (the pairing does not disturb area resolution)');
 })();
 
 // excavation normaliser
