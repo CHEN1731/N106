@@ -709,14 +709,12 @@ function isSubcontractorHeader_(line) {
 }
 
 /**
- * Collapse a message's activity lines into ONE work-item. A WhatsApp message is
- * a single activity: its heading, bullet lines, measurements, metrics AND any
- * sub-contractor sub-headers (SCT / Huationg / HTC …) all describe the one report
- * and are joined together — sub-contractor headers do NOT split the message
- * (user decision, build-69). Banner / date / roster-heading noise is dropped up
- * front. Returns a single-element array (empty only when nothing substantive
- * remains). `isSubcontractorHeader_` / PARSER_CONFIG.locator.subcontractors are
- * retained for config documentation but no longer drive any split.
+ * Split a message's activity lines into work-items by SUB-HEADING (build-74, restored
+ * from build-61). Lines under the SAME sub-contractor / crew sub-header (SCT, Huationg,
+ * HTC …) are combined into ONE activity; a different sub-header starts a new activity.
+ * The lead lines before the first sub-header are their own activity. A message with no
+ * sub-header is a single activity (bullets / measurements merged). Banner / date /
+ * roster-heading noise is dropped up front.
  */
 function splitActivityItems_(actLines) {
   var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); };
@@ -728,8 +726,26 @@ function splitActivityItems_(actLines) {
     if (!isHeaderNoise_(actLines[i]) && norm(actLines[i])) lines.push(actLines[i]);
   }
   if (!lines.length) return [];
-  // The whole message is ONE activity (bullets + sub-contractor headers merged).
-  return [norm(lines.map(strip).join(' '))].filter(Boolean);
+
+  var hasHeader = false;
+  for (var h = 0; h < lines.length; h++) { if (isSubcontractorHeader_(lines[h])) { hasHeader = true; break; } }
+  if (!hasHeader) {
+    // No sub-contractor sub-headings -> the whole message is ONE activity (lines merged).
+    return [norm(lines.map(strip).join(' '))].filter(Boolean);
+  }
+
+  // Split at each sub-contractor sub-header; combine the lines within each sub-section.
+  var items = [], cur = [];
+  for (var j = 0; j < lines.length; j++) {
+    if (isSubcontractorHeader_(lines[j])) {
+      if (cur.length) items.push(norm(cur.map(strip).join(' ')));
+      cur = [lines[j]];
+    } else {
+      cur.push(lines[j]);
+    }
+  }
+  if (cur.length) items.push(norm(cur.map(strip).join(' ')));
+  return items.map(norm).filter(Boolean);
 }
 
 /**

@@ -453,15 +453,21 @@ your exports, no logic changes needed:
   mis-filed (e.g. under June) even if no Report date is picked. A header with a field > 12 (`9/25`)
   is auto-detected and overrides this; the in-body hand-typed `Date:` field stays **D/M/Y** (e.g.
   `Date:05/10/2026` = Oct 5). Set to `'dmy'` or `''` (auto-only) if the export locale changes.
-- **One message = one activity** — a whole WhatsApp message is a **single activity**
-  (`splitActivityItems_` in `gas/Parser.gs`): its heading, bullet lines, measurements, metrics
-  (e.g. `Running volume 57/80 m3`, `Current depth 23.5m`) **and any sub-contractor / crew
-  sub-headers** (`SCT`, `Huationg`, `HTC`, …) all describe the same report and are merged into one
-  row. Neither bullets nor sub-contractor headers split a message (build-69 — superseding the
-  earlier per-sub-contractor split). The AI path is told the same rule. Report-metadata lines
-  (`Contractor:`, `Time:`, `Weather:`, `Shift:`, `Date:`) and manpower/machinery roster counts are
-  not activities, and `SPC`/CM maps to Area 1. (`PARSER_CONFIG.locator.subcontractors` is retained
-  for documentation but no longer drives a split.)
+- **Split by sub-heading, combine lines within** (`splitActivityItems_` in `gas/Parser.gs`;
+  build-74, restored from build-61). A message's heading, bullet lines, measurements and metrics
+  (e.g. `Running volume 57/80 m3`, `Current depth 23.5m`) are **combined into one activity**;
+  a **sub-contractor / crew sub-header** (`SCT`, `Huationg`, `HTC`, … in
+  `PARSER_CONFIG.locator.subcontractors`) starts a **new** activity, and the lines under each
+  sub-header are combined. So two sub-contractors in one message are two activities, while bullets
+  under one heading stay one. Same-work photo/progress repeats are still merged afterwards by
+  `mergeSameWork_`. The AI path is told the same rule. Report-metadata lines (`Contractor:`,
+  `Time:`, `Weather:`, `Shift:`, `Date:`) and manpower/machinery roster counts are not activities,
+  and `SPC`/CM maps to Area 1.
+- **"No activity" rows are hidden** (`isNoActivityOnly_` in `gas/Extract.gs`; build-74). A row that
+  is only a "No activity / No activities" status note (after ignoring an `NS` prefix, filler like
+  "at this moment"/"site condition normal", and a leading location code) is dropped from the All
+  Activities page. A row that reports real work alongside the phrase (e.g. `… pipe roofing / No
+  activity`, `No activity at that moment CW crushing …`) is kept.
 - **`activityGranularity`** — `'work'` (default) keeps **one row per distinct work** so each
   sub-segment stays visible and pinpointable (same-work photo/progress repeats are still merged).
   Set to `'location'` to combine every work at the same location (area + `Sec-x`/segment) into one

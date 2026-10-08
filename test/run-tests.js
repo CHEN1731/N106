@@ -23,7 +23,7 @@ const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateO
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
         normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
-        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_,
+        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_, isNoActivityOnly_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_, firstManpower_, groutingArea_ } = sandbox;
 
 let failures = 0;
@@ -355,23 +355,22 @@ const mdyFb = productivityFromRecords_(mdyExport, '', '2026-09-25');
 assert(mdyFb.mergedActivities.some(a => /3A-7|decking|diversion/i.test((a.activity || a.activityDescription || ''))),
   'offline path keeps the TD 3A-7 traffic-diversion activity');
 
-console.log('\nOne message = one activity (build-69; was sub-contractor split in build-56):');
-// One heading's bullets / measurements are ONE activity.
+console.log('\nSplit by sub-heading, combine lines within (build-74; restored from build-61):');
+// One heading's bullets / measurements (no sub-contractor sub-header) -> ONE activity.
 assert(splitActivityItems_(['- Cleaning work.', '- T1 & T2 tying work.', '- W5 starter bar installation work.']).length === 1,
-  'a one-heading 3-bullet list -> 1 activity (merged)');
+  'a one-heading 3-bullet list -> 1 activity (lines combined)');
 assert(splitActivityItems_(['BT27-1(1.0 x 2.8m)', '- LSS Type 3 backfilling in progress', '- Running volume:57/80m3']).length === 1,
   'activity + its measurement bullet -> 1 activity');
 assert(splitActivityItems_(['DW1547 rebar fixing']).length === 1, 'single line -> 1 item');
-// Sub-contractor sub-headers NO LONGER split the message (user decision, build-69).
+// Different sub-contractor sub-headers DO split; lines under each are combined.
 (function () {
-  var one = splitActivityItems_(['SCT', 'Exposing 150mm dia WP', 'Huationg', 'Soil disposal works']);
-  assert(one.length === 1, 'two sub-contractor sub-headers -> 1 activity (not split)');
-  assert(/Exposing 150mm dia WP/.test(one[0]) && /Soil disposal works/.test(one[0]),
-    'the single merged activity contains both sub-contractors\' work');
+  var two = splitActivityItems_(['SCT', 'Exposing 150mm dia WP', 'Huationg', 'Soil disposal works']);
+  assert(two.length === 2, 'two sub-contractor sub-headers -> 2 activities (split by sub-heading)');
+  assert(/Exposing 150mm dia WP/.test(two[0]) && /Soil disposal works/.test(two[1]),
+    'each sub-heading keeps its own work');
 })();
-// The helper is retained (config documentation) but no longer drives any split.
 assert(isSubcontractorHeader_('SCT') && isSubcontractorHeader_('Huationg') && isSubcontractorHeader_('SCT /MSK'),
-  'sub-contractor names are still recognised as headers (helper retained)');
+  'sub-contractor names are recognised as sub-headers');
 assert(!isSubcontractorHeader_('North Cell') && !isSubcontractorHeader_('Roof Slab') && !isSubcontractorHeader_('Manpower SCT - 13'),
   'cell labels / headings / inline-SCT are NOT sub-contractor headers');
 const multiMsg =
@@ -407,22 +406,24 @@ assert(!isRosterLine_('Traffic control') && !isRosterLine_('Lifting work') && !i
 assert(isRosterLine_('SUPERVISOR-1') && isRosterLine_('General worker -5') && isRosterLine_('Excavators -0') && isRosterLine_('Foreman :'),
   'isRosterLine_ flags roster counts');
 
-console.log('\nOne message = one activity even with sub-contractor sub-headers (build-69):');
-// One location, two sub-contractors (HTC / SCT) in ONE message: a SINGLE activity (build-69,
-// no sub-contractor split), classified to Area 1, whose text carries ALL the sub-contractors' work.
+console.log('\nSplit a message by sub-contractor sub-heading (build-74; restored from build-61):');
+// One location, two sub-contractors (HTC / SCT): the lead + each sub-contractor are SEPARATE
+// activities, each classified to Area 1, and the SCT work is NOT glued onto the HTC activity.
 const spcMsg =
   '[9/25/26, 10:00:00 AM] ~ Eng: Sec A/SPC/CM(Ja)/Huationg & SCT/\n' +
   'Roof Slab (NB-CH4220 to CH4305)\nCurrent Excavation depth:4.50m/4.50m\n' +
   ' HTC \n- Excavation and soil disposal work ongoing to gate #33 \n' +
   ' SCT \n- 300mm water pipe support installation.\n';
 const spc = productivityFromRecords_(spcMsg, '', '2026-09-25');
-assert(spc.mergedActivities.length === 1, 'the SPC/HTC/SCT message is ONE activity (got ' + spc.mergedActivities.length + ')');
-assert(spc.mergedActivities.every(a => a.area === 'Area 1'), 'the SPC activity is classified to Area 1');
-assert(/water pipe/i.test(spc.mergedActivities[0].activity) && /soil disposal/i.test(spc.mergedActivities[0].activity),
-  'the single activity contains both the SCT water-pipe and the HTC soil-disposal work');
+assert(spc.mergedActivities.length === 3, 'the SPC/HTC/SCT message -> 3 activities (lead + HTC + SCT) (got ' + spc.mergedActivities.length + ')');
+assert(spc.mergedActivities.every(a => a.area === 'Area 1'), 'all SPC activities classified to Area 1');
+const spcWater = spc.mergedActivities.find(a => /water pipe/i.test(a.activity));
+const spcSoil = spc.mergedActivities.find(a => /soil disposal/i.test(a.activity));
+assert(spcWater && !/soil disposal/i.test(spcWater.activity), 'the SCT water-pipe work is its own activity (not glued to HTC)');
+assert(spcSoil && !/water pipe/i.test(spcSoil.activity), 'the HTC soil-disposal work is its own activity');
 
-console.log('\nOne message = one activity, sub-headers without bullets (build-69):');
-// Sub-contractor sub-headers (SCT / Huationg) with no bullets still DO NOT split the message.
+console.log('\nSplit by sub-heading even without bullets (build-74):');
+// Sub-contractor sub-headers (SCT / Huationg) with no bullets still delimit separate activities.
 const spcNoBul =
   '[9/25/26, 10:00:00 AM] ~ Eng: Sec A/SPC/CM(Ja)/Huationg & SCT/\n' +
   '-\tRoof Slab (NB-CH4220 to CH4305)\n' +
@@ -431,10 +432,24 @@ const spcNoBul =
   'SCT\nExposing 150mm dia WP for support installation\n' +
   'Huationg\nSoil disposal works on going to Gate #33 (3 loads)\n';
 const nb = productivityFromRecords_(spcNoBul, '', '2026-09-25');
-assert(nb.mergedActivities.length === 1, 'non-bulleted sub-contractor message -> 1 activity (got ' + nb.mergedActivities.length + ')');
-assert(nb.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)), 'the SCT "Exposing 150mm dia WP" work is kept (in the merged activity)');
-assert(nb.mergedActivities.some(a => /Soil disposal works on going to Gate #33/i.test(a.activity)), 'the Huationg soil-disposal work is kept (in the merged activity)');
-assert(nb.mergedActivities.every(a => a.area === 'Area 1'), 'classified to Area 1');
+assert(nb.mergedActivities.length === 3, 'non-bulleted sub-contractor message -> 3 activities (got ' + nb.mergedActivities.length + ')');
+assert(nb.mergedActivities.some(a => /Exposing 150mm dia WP/i.test(a.activity)), 'the SCT "Exposing 150mm dia WP" activity is captured');
+assert(nb.mergedActivities.some(a => /Soil disposal works on going to Gate #33/i.test(a.activity)), 'the Huationg soil-disposal activity is captured');
+assert(nb.mergedActivities.every(a => a.area === 'Area 1'), 'all classified to Area 1');
+
+console.log('\nHide pure "No activity" rows (build-74; isNoActivityOnly_):');
+assert(isNoActivityOnly_('No activity.') && isNoActivityOnly_('-No activity.') && isNoActivityOnly_('NS no activity and site condition normal.'),
+  'pure "No activity" status lines are flagged');
+assert(isNoActivityOnly_('CH140-CH170 No activity this moment'), 'a location code + "No activity" is flagged');
+assert(!isNoActivityOnly_('Receiving and Launching shaft 900mm dia Pipe roofing / No activity.'),
+  'a line with real work before "No activity" is KEPT');
+assert(!isNoActivityOnly_('No activity at that moment CW Jaw Crusher crushing preparation'),
+  'a line with real work after "No activity" is KEPT');
+(function () {
+  var msg = '[9/25/26, 10:00:00 AM] ~ Eng: Sec-C/ER15\nNo activity.\n';
+  assert(productivityFromRecords_(msg, '', '2026-09-25').mergedActivities.length === 0,
+    'a pure No-activity message yields no activity rows');
+})();
 
 console.log('\nMetadata header + blank lines + SPC area (build-53):');
 assert(areaFromSection_('SPC') === 'Area 1', 'SPC -> Area 1');

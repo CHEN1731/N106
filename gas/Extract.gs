@@ -1350,6 +1350,7 @@ function productivityFromRecords_(rtoText, aisText, dateHint) {
       if (isRosterLine_(act)) return;      // a manpower/machinery count, not an activity
       if (isPlanningNoise_(act)) return;   // "RTO area arrangement (…) <names>" staff-planning banner
       if (isBannerLine_(act)) return;      // a bare project/company banner with no work (e.g. "NORTH SOUTH CORRIDOR(N106)")
+      if (isNoActivityOnly_(act)) return;  // a pure "No activity" status line (hidden from All Activities)
       var k = String((r.area || '') + '|' + act).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 60);
       if (seen[k]) return;
       seen[k] = true;
@@ -1490,6 +1491,29 @@ function displaySection_(act) {
   }
   if (!extras.length) return base;
   return base + ' · ' + extras.slice(0, 6).join(', ');
+}
+
+/**
+ * True when an activity is ONLY a "No activity" status note (hidden from the All
+ * Activities page, build-74). Must mention "no activity/activities"; after removing that
+ * phrase, the NS/N-S prefix, common filler ("at this moment", "site condition normal",
+ * "due to …") and a leading location code (CH140, DW585 …), nothing substantive remains.
+ * A row that also reports real work (e.g. "… pipe roofing / No activity", "No activity at
+ * that moment CW crushing …") is KEPT.
+ */
+function isNoActivityOnly_(s) {
+  var t = String(s == null ? '' : s).toLowerCase().replace(/[​-‏⁠﻿]/g, '');
+  if (!/\bno\s+activit(y|ies)\b/.test(t)) return false;
+  var core = t
+    .replace(/\bno\s+activit(y|ies)\b/g, ' ')     // remove the phrase in place (keep any real work around it)
+    .replace(/\b(ns|n\/s)\b/g, ' ')
+    .replace(/\b(at|this|that|the|a|an|moment|and|site|conditions?|normal|observed|now|today|for|due|to|waiting|yet|still|no|of|in|on|is|are|been|report|reported)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  var words = core.split(/\s+/).filter(function (w) {
+    return w && !/^[a-z]{0,3}\d/.test(w) && !/^ch\d/.test(w);   // ignore location/structure codes (CH140, DW585, 3a…)
+  });
+  return words.length === 0;
 }
 
 /** Union of the segment lists on a set of acts (order preserved, de-duplicated). */
@@ -1658,6 +1682,7 @@ if (typeof module !== 'undefined' && module.exports) {
     isPlanningNoise_: isPlanningNoise_,
     mergeSameWork_: mergeSameWork_,
     collapseByLocation_: collapseByLocation_,
+    isNoActivityOnly_: isNoActivityOnly_,
     displaySection_: displaySection_,
     buildProductivityResult_: buildProductivityResult_,
     areaFromSection_: areaFromSection_,
