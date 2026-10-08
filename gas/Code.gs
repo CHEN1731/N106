@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-75 · drop duty-roster chatter + fix inline-grouting area (two-file compare)';
+var APP_VERSION = 'build-76 · only line-leading labels (fix inline "Area:" clobbering the locator)';
 
 /**
  * Route:

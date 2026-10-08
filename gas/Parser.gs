@@ -524,9 +524,14 @@ function extractLabelled_(body) {
   }
   if (!allLabels.length) return result;
 
-  // Split body on any label so a labelled value ends at the next label.
+  // A label is only a real field when it STARTS a line (optionally after a bullet marker),
+  // never mid-sentence — otherwise text like "…1st lift Shotcrete Area:Sofit lean concrete…"
+  // is mis-read as a labelled Area and clobbers the real locator. Split body on any
+  // line-leading label so a labelled value ends at the next line-leading label.
   var labelAlt = allLabels.map(escapeRe_).join('|');
-  var re = new RegExp('(^|\\n|\\s)(' + labelAlt + ')\\s*[:：]\\s*', 'i');
+  var lead = '(^|\\n)[ \\t]*(?:[-*•·▪◦][ \\t]*)?';
+  var re = new RegExp(lead + '(' + labelAlt + ')\\s*[:：]\\s*', 'i');
+  var nextRe = new RegExp('\\n[ \\t]*(?:[-*•·▪◦][ \\t]*)?(' + labelAlt + ')\\s*[:：]', 'i');
   var rest = body;
   var guard = 0;
   while (guard++ < 50) {
@@ -534,8 +539,8 @@ function extractLabelled_(body) {
     if (!m) break;
     var labelWord = m[2].toLowerCase();
     var after = rest.slice(m.index + m[0].length);
-    // value runs until the next label or end of body.
-    var nextLabel = new RegExp('(\\n|\\s)(' + labelAlt + ')\\s*[:：]', 'i').exec(after);
+    // value runs until the next line-leading label or end of body.
+    var nextLabel = nextRe.exec(after);
     var value = nextLabel ? after.slice(0, nextLabel.index) : after;
     var key = keyByLabel[labelWord];
     if (key && result[key] === undefined) result[key] = value.trim();
@@ -892,6 +897,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseWhatsApp: parseWhatsApp,
     resolveLocator_: resolveLocator_,
     segmentsOnLine_: segmentsOnLine_,
+    extractLabelled_: extractLabelled_,
     stripMedia_: stripMedia_,
     canonicalArea_: canonicalArea_,
     hasActivitySignal_: hasActivitySignal_,

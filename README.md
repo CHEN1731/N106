@@ -446,7 +446,10 @@ your exports, no logic changes needed:
 - **`areas`** — optional generic name/alias fallback for non-N106 reuse (empty by
   default).
 - **`labels`** — optional `Date:`/`Area:`/`Activity:`/`Remark:` synonyms; a labelled
-  message uses those over the heuristics (hybrid).
+  message uses those over the heuristics (hybrid). A label is only read as a field when it
+  **starts a line** (optionally after a bullet) — a mid-sentence `Area:` such as
+  "…1st lift Shotcrete Area:Sofit lean concrete…" is NOT treated as the Area field, so it can't
+  clobber the real locator (build-76).
 - **`lineFormats`** — WhatsApp export headers (iOS / Android), auto-detected.
 - **`dateOrder`** — the site's export locale for **ambiguous** header dates (both fields ≤ 12, e.g.
   `10/6/26`). Default **`'mdy'`** (US month-first → `10/6` = Oct 6), so a day is never silently

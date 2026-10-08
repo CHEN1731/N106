@@ -14,7 +14,7 @@ vm.createContext(sandbox);
 ['Parser.gs', 'Compare.gs', 'Extract.gs', 'Docx.gs', 'Code.gs', 'Webhook.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(root, 'gas', f), 'utf8'), sandbox, { filename: f });
 });
-const { parseWhatsApp, resolveLocator_, stripMedia_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
+const { parseWhatsApp, resolveLocator_, extractLabelled_, stripMedia_, normalizeDate_, detectDateOrder_, resolveDateOrder_, splitActivityItems_, isSubcontractorHeader_, docxXmlToText_,
         sliceChatByDate_, filterByDates_, mergeByDate_, runComparison,
         normalizeProductivity_, productivityFromRecords_, buildProductivityResult_, isRosterLine_,
         mergeProductivity_, activityCovered_, backfillWorthy_, isPlanningNoise_, mergeSameWork_,
@@ -467,6 +467,28 @@ assert(!isScheduleNoise_('Excavation and soil disposal to Gate #33'), 'excavatio
   var r = productivityFromRecords_(msg, '', '2026-10-06');
   assert(r.mergedActivities.length === 1 && !r.mergedActivities.some(a => /unpaid leave|no duty/i.test(a.activity)),
     'the roster message is dropped, only the real activity remains (got ' + r.mergedActivities.length + ')');
+})();
+
+console.log('\nInline "Area:" must not clobber the locator (build-76):');
+(function () {
+  // "…1st lift Shotcrete Area:Sofit lean concrete…" — the inline "Area:" is NOT a labelled field.
+  var body = 'Under PIE CM/SCT/Sec-N(N2&N3)/NSC-SB:Main Tunnel/Receiving Shaft~Launching Shaft/ERSS S3 Layer(-5.3mSHD)\n' +
+    'Excavation Access layer to Under Bukit Timah Canal\n' +
+    'Center Cell\n' +
+    '• Between South & Center Cells Beam SBP Gap 1st lift Shotcrete Area:Sofit lean concrete hacking/debris clearing\n' +
+    'Manpower - 4';
+  var f = extractLabelled_(body);
+  assert(f.area === undefined, 'a mid-line "Area:" is NOT extracted as a labelled Area field');
+  var loc = resolveLocator_(body);
+  assert(loc.areaGroup === 'Area 2' && /PIE|Sec-N/.test(loc.area), 'the locator resolves to Sec-N/PIE (Area 2), not the "Sofit…" sentence');
+  var rec = parseWhatsApp('[10/6/26, 9:00:00 AM] ~ Eng: ' + body + '\n', 'RTO');
+  assert(rec.length === 1 && !/Sofit lean concrete/i.test(rec[0].area) && !/Sofit lean concrete/i.test(rec[0].section),
+    'the record section/area is the locator, not the Shotcrete-Area sentence (got section="' + (rec[0] && rec[0].section) + '")');
+})();
+// a REAL line-leading "Area:" field is still read (value ends at the next line-leading label)
+(function () {
+  var f = extractLabelled_('Area: Zone 2\nActivity: excavation');
+  assert(f.area === 'Zone 2' && f.activity === 'excavation', 'line-leading "Area:"/"Activity:" fields are still extracted');
 })();
 
 console.log('\nMetadata header + blank lines + SPC area (build-53):');
