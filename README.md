@@ -160,13 +160,26 @@ These are stored per date in the `DailySummaries` tab (three JSON columns + flat
 they are **read-only** in the Viewer for now. When no API key is set, the offline fallback
 derives them deterministically from the parsed activities.
 
-**Activities are deterministic.** The activity list / areas / KPIs always come from the
-offline parser (`productivityFromRecords_`: one WhatsApp message = one activity, no
-sub-contractor split, nothing dropped). When an API key is set the AI is still called, but only
-to **enrich the resource nodes** (machine status, excavation, reinforced concrete) via
-`mergeProductivity_(fb, ai)` — it no longer decides how activities are split, so the list
-stops oscillating. The Excavation tracker likewise keeps the **latest/deepest** depth per
-zone.
+**Activities = one row per location per day (AI consolidation; build-77).** When an API key is
+set, the activity list comes from Claude's consolidation (`callClaudeProductivity_`, rule 4 of
+`PRODUCTIVITY_SYSTEM`): every update posted for a **location** during the day — the repeated
+photo captions, the progress updates, and the same location in both the RTO and AIS inputs —
+becomes **one row** with one chronological summary (e.g. `Sec-A/Kb1 · DW592 … 2nd bite excavation
+progressing then done (39.0 to 45.9/45.887m), water stop end tube trimming and SET extraction …`),
+the location's manpower (highest single report, repeats not added) and its furthest stage.
+Distinct places stay separate (XR14/Whitley Rd/Lb3, XR14/Dyson CM(Lb1), XR14/FB). The prompt
+carries the Oct-2 sheet rows as the style example. After the AI returns, `withOfflineSafetyNet_`
+drops "No activity" / duty-roster rows and, only for an **Area the AI returned nothing for**, adds
+the offline parse's rows (consolidated per location) — Areas the AI covered are never topped up,
+so its merged rows aren't duplicated. Area labels still come from the site map. If the AI call
+fails, is refused, or is truncated, the offline parser (`productivityFromRecords_`) is used for
+the whole day. The Excavation tracker keeps the **latest/deepest** depth per zone.
+
+The AI request (`postClaude_`) targets **Claude Opus 5.5** (`claude-opus-5-5`) by default: no
+forced `tool_choice` (Opus 5.5 rejects it — the prompt asks for exactly one tool call), no
+`thinking` field (always on; `effort: medium`), `max_tokens` 32000 to leave room for the
+thinking, and the server-side refusal fallback (`fallbacks: "default"`, beta header
+`server-side-fallback-2026-07-01`) on the models that support it.
 
 **Area ↔ Segment pairing** (`segmentsOnLine_` in `gas/Parser.gs`, `displaySection_` in
 `gas/Extract.gs`; build-73). A broad header names several finer zone segments — e.g.
@@ -264,7 +277,8 @@ falls back to the regex parser otherwise. To enable it:
 
 1. Apps Script → **Project Settings → Script properties** → add
    **`ANTHROPIC_API_KEY`** = your Anthropic key. (Optional `CLAUDE_MODEL`, default
-   `claude-opus-5`; set a cheaper model if you prefer. Optional **`LOADS_TO_M3`** =
+   `claude-opus-5-5` — leave it unset to use the default; an older value such as
+   `claude-opus-5` or `claude-sonnet-5` overrides it. Optional **`LOADS_TO_M3`** =
    your truck loads→m³ factor, default 6, used only for the Excavation Tracker's
    "reported this range" subline.)
 2. That's it — **Compare** now sends each day's messages to Claude and gets back

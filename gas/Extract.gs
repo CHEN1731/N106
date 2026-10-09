@@ -8,11 +8,11 @@
  *
  * Setup: Apps Script → Project Settings → Script properties:
  *   ANTHROPIC_API_KEY   (required to enable the AI path)
- *   CLAUDE_MODEL        (optional; defaults to claude-opus-5)
+ *   CLAUDE_MODEL        (optional; defaults to claude-opus-5-5 — leave it unset to use the default)
  */
 
 var ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-var DEFAULT_MODEL = 'claude-sonnet-5';
+var DEFAULT_MODEL = 'claude-opus-5-5';
 
 /**
  * The single entry point the app uses. Returns records shaped exactly like
@@ -45,9 +45,50 @@ function getModel_() {
   } catch (e) { return DEFAULT_MODEL; }
 }
 
+/** Models that accept the server-side refusal fallback `fallbacks: "default"`. */
+function supportsDefaultFallback_(model) {
+  return /^claude-(opus-5(-5)?|fable-5-1|sonnet-5-5)$/.test(String(model || ''));
+}
+
 /**
- * Call Claude to extract structured records. Uses a forced tool call so the
- * response is guaranteed-shape JSON (no prose to parse).
+ * POST one Messages API request; return the parsed response or throw (callers then fall
+ * back to the offline parser). Claude Opus 5.5 rejects a forced tool_choice and always
+ * thinks, so callers send tool_choice "auto" with an explicit instruction to call the tool,
+ * no `thinking` field, and a max_tokens that leaves room for the thinking. A declined
+ * request is re-run server-side on Anthropic's recommended fallback model where supported.
+ */
+function postClaude_(key, body) {
+  var headers = { 'x-api-key': key, 'anthropic-version': '2023-06-01' };
+  if (supportsDefaultFallback_(body.model)) {
+    body.fallbacks = 'default';
+    headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
+  }
+  var resp = UrlFetchApp.fetch(ANTHROPIC_URL, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    headers: headers, payload: JSON.stringify(body)
+  });
+  var code = resp.getResponseCode();
+  var data = JSON.parse(resp.getContentText());
+  if (code !== 200) throw new Error('Anthropic ' + code + ': ' + (data && data.error && data.error.message));
+  if (data.stop_reason === 'refusal') {
+    throw new Error('Anthropic refusal' + (data.stop_details && data.stop_details.category ? ' (' + data.stop_details.category + ')' : ''));
+  }
+  if (data.stop_reason === 'max_tokens') throw new Error('Anthropic response truncated at max_tokens');
+  return data;
+}
+
+/** The input of the named tool_use block in a Messages API response, or null. */
+function toolInput_(data, name) {
+  var input = null;
+  (data && data.content || []).forEach(function (b) {
+    if (b.type === 'tool_use' && b.input && (!b.name || b.name === name)) input = b.input;
+  });
+  return input;
+}
+
+/**
+ * Call Claude to extract structured records via the emit_records tool (JSON shape, no
+ * prose to parse).
  */
 function callClaude_(text, source, key) {
   var tool = {
@@ -95,41 +136,20 @@ function callClaude_(text, source, key) {
     '- IGNORE greetings, acknowledgements, emoji-only and coordination chatter.\n' +
     '- "date" = the report/message date as ISO yyyy-mm-dd (use the report header date ' +
     'for a document).\n' +
-    'Call emit_records with every record you find.\n\n' +
+    'Respond by calling the emit_records tool exactly once, with every record you find.\n\n' +
     'INPUT:\n' + text;
 
   var body = {
     model: getModel_(),
-    max_tokens: 8192,
+    max_tokens: 16000,
     output_config: { effort: 'low' },
     tools: [tool],
-    tool_choice: { type: 'tool', name: 'emit_records' },
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: instructions }]
   };
 
-  var resp = UrlFetchApp.fetch(ANTHROPIC_URL, {
-    method: 'post',
-    contentType: 'application/json',
-    muteHttpExceptions: true,
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01'
-    },
-    payload: JSON.stringify(body)
-  });
-
-  var code = resp.getResponseCode();
-  var data = JSON.parse(resp.getContentText());
-  if (code !== 200) {
-    throw new Error('Anthropic ' + code + ': ' + (data && data.error && data.error.message));
-  }
-
-  var records = [];
-  (data.content || []).forEach(function (block) {
-    if (block.type === 'tool_use' && block.input && block.input.records) {
-      records = block.input.records;
-    }
-  });
+  var input = toolInput_(postClaude_(key, body), 'emit_records');
+  var records = (input && input.records) || [];
 
   return records.map(function (r) { return normalizeExtracted_(r, source); })
                 .filter(function (r) { return r; });
@@ -247,8 +267,8 @@ function sectionListText_() {
  * @return {Object} { date, mergedActivities[], productivityData{}, source }
  */
 function generateProductivity(rtoText, aisText, dateHint) {
-  // Offline parse is the COMPLETENESS backbone — compute it up front, guarded so it
-  // can never hard-fail the turn (a 0-activity dashboard).
+  // Offline parse = the safety net — compute it up front, guarded so it can never
+  // hard-fail the turn (a 0-activity dashboard).
   var fb = null;
   try { fb = productivityFromRecords_(rtoText, aisText, dateHint); }
   catch (e) { try { console.error('offline parse failed: ' + e); } catch (e2) {} }
@@ -257,17 +277,42 @@ function generateProductivity(rtoText, aisText, dateHint) {
   if (key) {
     try {
       var p = callClaudeProductivity_(rtoText, aisText, key, dateHint);
-      // Activities are DETERMINISTIC (offline parser): one paragraph = one activity, split only
-      // by sub-contractor, nothing dropped, areas by the site map. The AI is used ONLY to enrich
-      // the resource nodes (machine / excavation / RC), which read the raw bite/depth evidence.
-      if (fb && fb.mergedActivities && fb.mergedActivities.length) return mergeProductivity_(fb, p);
-      // Offline found nothing -> fall back to whatever the AI produced.
-      if (p) return p;
+      // Activities come from the AI's ONE-ROW-PER-LOCATION consolidation (every update at a
+      // location merged into one chronological summary, RTO + AIS together — the Oct-2 sheet
+      // style). The offline parse only fills an Area the AI returned nothing for.
+      if (p && p.mergedActivities && p.mergedActivities.length) return withOfflineSafetyNet_(p, fb);
     } catch (err) {
-      try { console.error('AI productivity failed, using fallback: ' + err); } catch (e) {}
+      try { console.error('AI productivity failed, using offline parse: ' + err); } catch (e) {}
     }
   }
   return fb || productivityFromRecords_(rtoText, aisText, dateHint);
+}
+
+/**
+ * Finalise the AI's per-location result: drop rows that are only "No activity" or duty-roster
+ * chatter, and — as a safety net for a catastrophic omission — add the offline parse's rows
+ * (consolidated per location) for any Area the AI returned no rows for. Areas the AI did cover
+ * are never topped up row-by-row, so the AI's merged rows are not duplicated. KPIs / concrete /
+ * manpower are rebuilt from the final rows; the AI's machine / excavation / RC nodes are kept.
+ */
+function withOfflineSafetyNet_(ai, fb) {
+  function copy(a) { var o = {}; for (var k in a) o[k] = a[k]; return o; }
+  var rows = (ai.mergedActivities || []).filter(function (a) {
+    return a.activity && !isNoActivityOnly_(a.activity) && !isScheduleNoise_(a.activity);
+  }).map(copy);
+  var covered = {};
+  rows.forEach(function (a) { covered[a.area] = true; });
+  var extra = [];
+  if (fb && fb.mergedActivities) {
+    extra = collapseByLocation_(fb.mergedActivities.filter(function (a) {
+      return a.area && a.area !== 'Others' && !covered[a.area];
+    }).map(copy));
+  }
+  var res = buildProductivityResult_(ai.date || (fb && fb.date) || '', rows.concat(extra), 'ai');
+  if (ai.machineStatus) res.machineStatus = ai.machineStatus;
+  if (ai.excavation) res.excavation = ai.excavation;
+  if (ai.reinforcedConcrete) res.reinforcedConcrete = ai.reinforcedConcrete;
+  return res;
 }
 
 /**
@@ -357,24 +402,63 @@ var PRODUCTIVITY_SYSTEM =
   '- "Housekeeping" or "Cleaning" (unless it is a specific major milestone)\n' +
   '- "Preparation work" (only extract if it involves physical installation like "platform setup")\n' +
   '- "Waiting for..." (unless it signifies a specific halt/delay)\n' +
-  '- "Maintenance" (e.g., "crane maintenance" or "hose change", unless it stops production)\n\n' +
+  '- "Maintenance" (e.g., "crane maintenance" or "hose change", unless it stops production)\n' +
+  '- Duty rosters, leave / no-duty notices, scheduling and staff-planning messages (not site work)\n\n' +
   '3. STRICT GROUPING BY AREA:\n' +
   'Group every kept activity under exactly one "areaName": "Area 1", "Area 2", "Area 3", ' +
   '"Area 4", or "Others" (only when it truly maps to no area). Derive the area from the ' +
   'section/segment code using the site-plan map given in the user message.\n\n' +
-  '4. MERGING LOGIC:\n' +
-  'Merge into ONE activity object ONLY when two lines describe the SAME element AND the same ' +
-  'operation (e.g. RTO and AIS both report casting of "DW1547"). Do NOT over-merge: keep ' +
-  'every DISTINCT work item as its own activity (a different element, panel, structure type, ' +
-  'or operation is a separate entry), and never drop an activity that passed the inclusion ' +
-  'rules. Listing fewer activities than there are distinct work items is an error.\n' +
-  'CRITICAL — ONE MESSAGE IS ONE ACTIVITY: a heading plus its bullet lines, measurements, ' +
-  'metrics (e.g. "Running volume 57/80 m3", "Current depth 23.5m", bullets listing sub-steps) ' +
-  'AND any sub-contractor / crew sub-headers (SCT, MSK, Huationg, HTC, Kori, Kian Hup, CGW, ' +
-  'CHCI, Samsung, Taehwa, Geosmart …) within the same WhatsApp message all describe the SAME ' +
-  'report — MERGE them into a SINGLE activity. Do NOT split one message into several activities ' +
-  'by bullet, measurement, sub-step OR sub-contractor. Merge across RTO/AIS only when the SAME ' +
-  'element+operation is reported twice.\n\n' +
+  '4. MERGING LOGIC — ONE ROW PER LOCATION PER DAY:\n' +
+  'Site engineers post many photo messages through the day for the same location (progress ' +
+  'updates, and repeats of the same caption), and the RTO notes and the AIS report describe ' +
+  'many of the same locations. Output exactly ONE activity object per LOCATION per day that ' +
+  'consolidates every update reported at that location in BOTH inputs. Never output the same ' +
+  'location twice, and never repeat the same work in two rows.\n' +
+  '- LOCATION = the specific site location from the message header (Section + place + ' +
+  'segment), written concisely in "section", e.g. "Sec-A/Kb1" (Singtel ex-bldg), ' +
+  '"Sec-A/Cube8-TTMT CM(Qb1&Qb4)", "Sec-A/SPC/CM(Ja/Jb)", "Sec-A/TMC/SCT", "Ka1b/Taehwa", ' +
+  '"Sec-E/XR14/Whitley Rd/Lb3". Headers that name the same place with different wording or ' +
+  'sub-contractor order (e.g. "Sec A/Singtel ex-bldg (Kb1)/Lt Sambo" and "Singtel ' +
+  'Building(Kb1)/ LT Sambo") are the SAME location. Keep genuinely different places separate: ' +
+  'XR14/Whitley Rd/Lb3, XR14/Dyson CM(Lb1) and XR14/FB are three rows; the TMC build-up wall ' +
+  '(TMC/SCT) and the JGP grouting at Opp TMC carpark (Ka1b) are two rows.\n' +
+  '- "activityDescription" = one concise summary of the whole day at that location, in ' +
+  'chronological order: the element and its key parameters first, then how the work ' +
+  'progressed (show progress as a range with the latest figure, e.g. "2nd bite excavation ' +
+  'progressing then done (39.0 to 45.9/45.887m)"), then the other works there, naming each ' +
+  'sub-contractor\'s work (SCT, Kori, Huationg, …). Say a repeated caption once. Keep every ' +
+  'distinct work item and every key figure (depths, volumes, loads, BH no., start/finish times); ' +
+  'never drop a sub-contractor\'s work.\n' +
+  '- "elementId" = the main structural element at that location (e.g. DW592), else "".\n' +
+  '- "manpower" = the manpower at that location for the day. When the same crew appears in ' +
+  'several photo updates use the highest single report — never add up repeats. 0 if not stated.\n' +
+  '- "stage" = the furthest stage reached at that location (rule 7).\n' +
+  '- Omit a location whose every update is "No activity" / stopped / break time with no work.\n' +
+  'These rows show the exact style wanted (they illustrate format only — never copy their ' +
+  'content into another day):\n' +
+  '{"section":"Sec-A/Kb1","elementId":"DW592","activityDescription":"DW592 (1.5x3.0m) SP, ' +
+  'GWFT +3.959mSHD, 2nd bite excavation progressing then done (39.0 to 45.9/45.887m), water ' +
+  'stop end tube trimming and SET extraction at DW594 side (4/4 pcs completed), base ' +
+  'cleaning/desanding started","manpower":12,"stage":"Excavation"}\n' +
+  '{"section":"Sec-A/Cube8-TTMT CM(Qb1&Qb4)","elementId":"","activityDescription":"SCT & Kori ' +
+  'under Traffic Deck Utility Support Installation Bay B1~B13 S1 layer: Bay B4 manual ' +
+  'excavation ongoing, Bay B1-B3 soil shifting, 300mm water pipe valve haunching support frame ' +
+  'welding/S1 strut installation, Bay B7 700mm ABD water pipe removal, PC retaining wall ' +
+  'excavation, Bay B10-B13 excavation/levelling","manpower":7,"stage":"Excavation"}\n' +
+  '{"section":"Sec-A/SPC/CM(Ja/Jb)","elementId":"","activityDescription":"Roof Slab ' +
+  '(NB-CH4220 to CH4305), Huationg access prep for 700mm abandoned water pipe expose & lean ' +
+  'concrete removal, SCT hacking/exposing 150mm & 300mm water pipe for supporting work, ' +
+  'Current Excavation depth 4.50/4.50m","manpower":9,"stage":"Excavation"}\n' +
+  '{"section":"Sec-A/TMC/SCT","elementId":"DW567","activityDescription":"DW567/568 hacking ' +
+  'work for build up wall construction, TD4A-4 build-up wall construction DW566 & 567 ' +
+  'hacking","manpower":6,"stage":"Breaking"}\n' +
+  '{"section":"Sec-A/TTMT CM(Qb1&La)/SCT/TAWHWA","elementId":"","activityDescription":' +
+  '"Fissure grouting work - grout cement plant setting up and materials unloading/shifting in ' +
+  'progress","manpower":0,"stage":"Other"}\n' +
+  '{"section":"Ka1b/Taehwa","elementId":"","activityDescription":"JGP Work BH NO:UJ-30, Dia ' +
+  '2.0m, drilling started 9:19hrs, drilling completed 11:13hrs, pre-cutting completed, ' +
+  'grouting commenced 13:32hrs and completed 17:40hrs, Design Volume 40087L Actual 40189L",' +
+  '"manpower":7,"stage":"Other"}\n\n' +
   '5. TRACEABILITY (back-check):\n' +
   'For each activity, set "elementId" to the specific structural ID it concerns (DW1547, ' +
   'BP-T9-3, BT20-2, CW323 …) or "". Each area\'s kpiBreakdown lists ' +
@@ -473,14 +557,15 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
               },
               activities: {
                 type: 'array',
+                description: 'ONE entry per LOCATION per day (all updates at a location consolidated)',
                 items: {
                   type: 'object',
                   properties: {
-                    elementId: { type: 'string', description: 'the specific ID (DW/BP/BT/CW) if applicable, else ""' },
-                    section: { type: 'string', description: 'section/segment/location, e.g. Sec-C/Mb' },
-                    activityDescription: { type: 'string', description: 'the work description; keep any volume figure such as "54/54 m3"' },
+                    elementId: { type: 'string', description: 'the main structural element at this location (DW/BP/BT/CW) if any, else ""' },
+                    section: { type: 'string', description: 'the specific site location of this row, e.g. Sec-A/Kb1, Sec-A/SPC/CM(Ja/Jb), Sec-E/XR14/Whitley Rd/Lb3' },
+                    activityDescription: { type: 'string', description: 'consolidated chronological summary of the whole day at this location; keep key figures such as depths, "54/54 m3", loads, BH no.' },
                     stage: { type: 'string', description: 'construction stage: Guide Wall | Excavation | Rebar Cage | Concrete Casting | Trimming | Breaking | Completed | Other' },
-                    manpower: { type: 'integer', description: 'manpower for this activity (0 if unknown)' }
+                    manpower: { type: 'integer', description: 'manpower at this location for the day (highest single report, repeats not added; 0 if unknown)' }
                   },
                   required: ['elementId', 'section', 'activityDescription', 'stage', 'manpower']
                 }
@@ -609,17 +694,17 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'Build a daily productivity dashboard for construction project N106 from two inputs: ' +
     '(A) RTO field notes and (B) the AIS Daily Report. Apply the INCLUSION, EXCLUSION, ' +
     'GROUPING, MERGING, and TRACEABILITY rules from your instructions strictly.\n\n' +
-    'A message is ONE activity: MERGE its heading, bullet lines, measurements, metrics ' +
-    '(e.g. "Running volume 57/80 m3", "Current depth 23.5m") AND any sub-contractor / crew ' +
-    'sub-headers (SCT, MSK, Huationg, HTC, Kori, Kian Hup, …) within the same message into a ' +
-    'SINGLE activity description. Do NOT split one message into several activities by bullet, ' +
-    'measurement, sub-step OR sub-contractor. Ignore report-metadata lines ' +
-    '(Contractor:, Time:, Weather:, Shift:, Date:) and pure manpower/machinery counts; they are ' +
-    'not activities.\n\n' +
+    'Output ONE activity per LOCATION per day (rule 4). Each location is posted many times through ' +
+    'the day as photo updates, and the RTO notes and the AIS report describe many of the same ' +
+    'locations — consolidate all of them into one row per location with one chronological ' +
+    'summary. Never list the same location, or the same work, twice. Ignore report-metadata lines ' +
+    '(Contractor:, Time:, Weather:, Shift:, Date:), pure manpower/machinery counts, duty rosters / ' +
+    'leave notices, and locations whose only update is "No activity".\n\n' +
     'Group all kept, merged activities BY AREA. Output one entry in "areas" per area worked ' +
     'on, each with:\n' +
     '   - "areaName": exactly "Area 1".."Area 4" or "Others".\n' +
-    '   - "activities": each = { elementId, section, activityDescription, manpower, sourceEvidence }.\n' +
+    '   - "activities": one per location, each = { section (the location), elementId, ' +
+    'activityDescription (the consolidated day summary), stage, manpower }.\n' +
     '   - "kpiBreakdown": the counts/ID-lists for THIS area (activeDWalls + dWallCount, ' +
     'activeBoredPiles + bPileCount, activeButtressWalls + bWallCount, activeCrossWalls + ' +
     'cWallCount), plus concreteVolumeM3 (m3 cast in this area) and areaManpower. Each ID list ' +
@@ -643,31 +728,21 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'By segment/location code:\n' + areaListText_() + '\n' +
     'By Section letter (when no finer code is present):\n' + sectionListText_() + '\n' +
     (dateHint ? ('This report is for ' + dateHint + '. Only include work for that date.\n') : '') +
-    'Call emit_productivity once.\n\n' +
+    'Respond by calling the emit_productivity tool exactly once (no other output).\n\n' +
     '=== RTO NOTES ===\n' + (rtoText || '(none)') +
     '\n\n=== AIS DAILY REPORT ===\n' + (aisText || '(none)');
 
   var body = {
     model: getModel_(),
-    max_tokens: 16384,                      // 8192 truncated big days -> trailing activities lost
-    output_config: { effort: 'medium' },   // 'low' dropped activities; medium is more complete
+    max_tokens: 32000,                      // the reply + the model's thinking (always on for Opus 5.5)
+    output_config: { effort: 'medium' },   // consolidating a day per location needs judgement
     system: PRODUCTIVITY_SYSTEM,
     tools: [tool],
-    tool_choice: { type: 'tool', name: 'emit_productivity' },
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: prompt }]
   };
 
-  var resp = UrlFetchApp.fetch(ANTHROPIC_URL, {
-    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    payload: JSON.stringify(body)
-  });
-  var code = resp.getResponseCode();
-  var data = JSON.parse(resp.getContentText());
-  if (code !== 200) throw new Error('Anthropic ' + code + ': ' + (data && data.error && data.error.message));
-
-  var raw = null;
-  (data.content || []).forEach(function (b) { if (b.type === 'tool_use' && b.input) raw = b.input; });
+  var raw = toolInput_(postClaude_(key, body), 'emit_productivity');
   if (!raw) throw new Error('No productivity data returned');
   return normalizeProductivity_(raw, dateHint, 'ai');
 }
@@ -1699,6 +1774,8 @@ if (typeof module !== 'undefined' && module.exports) {
     backfillWorthy_: backfillWorthy_,
     isPlanningNoise_: isPlanningNoise_,
     mergeSameWork_: mergeSameWork_,
+    withOfflineSafetyNet_: withOfflineSafetyNet_,
+    supportsDefaultFallback_: supportsDefaultFallback_,
     collapseByLocation_: collapseByLocation_,
     isNoActivityOnly_: isNoActivityOnly_,
     isScheduleNoise_: isScheduleNoise_,

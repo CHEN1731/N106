@@ -956,5 +956,64 @@ var fbBc = fbRes.machineStatus.bcCutters.filter(function (c) { return c.machineS
 assert(fbBc.length >= 1 && fbBc[0].workingOnElements.length >= 1, 'fallback detects a BC Cutter with a nested element');
 assert(fbRes.reinforcedConcrete.totalConcreteVolumeM3 === 42, 'fallback RC total = concrete cast (42)');
 
+console.log('\nAI one-row-per-location activities (build-77; mocked Messages API):');
+(function () {
+  var props = { ANTHROPIC_API_KEY: 'test-key' };
+  var captured = null, reply = null;
+  sandbox.PropertiesService = { getScriptProperties: function () {
+    return { getProperty: function (k) { return props[k] || null; } }; } };
+  sandbox.UrlFetchApp = { fetch: function (url, opts) {
+    captured = { url: url, opts: opts, body: JSON.parse(opts.payload) };
+    return { getResponseCode: function () { return 200; },
+             getContentText: function () { return JSON.stringify(reply); } };
+  } };
+  function aiReply(rows, stop) {
+    return { stop_reason: stop || 'tool_use', content: [
+      { type: 'thinking', thinking: '' },
+      { type: 'tool_use', name: 'emit_productivity', input: {
+        date: '2026-10-02',
+        areas: [{ areaName: 'Area 1', kpiBreakdown: {}, activities: rows }],
+        grandTotals: { totalConcreteVolumeM3: 0, totalManpower: 12 },
+        machineStatus: { bcCutters: [], boringRigs: [] },
+        excavation: { totalVolumeOrLoads: 0, activeExcavations: [] },
+        reinforcedConcrete: { totalConcreteVolumeM3: 0, rcActivities: [] } } }] };
+  }
+  // Two photo updates of DW592 (Area 1) + one ER15 report (Area 2) that the AI "misses".
+  var chat =
+    '[10/2/26, 1:22:42 AM] ~ Eng: Sec A/Singtel ex-bldg (Kb1)/Lt Sambo\nDW592 (1.5 x 3.0m) SP\n-2nd bite excavation in progress\nManpower: 12\n' +
+    '[10/2/26, 4:18:34 AM] ~ Eng: Sec A/Singtel ex-bldg (Kb1)/Lt Sambo\nDW592 (1.5 x 3.0m) SP\n-2nd bite excavation done\nManpower: 12\n' +
+    '[10/2/26, 9:00:00 AM] ~ Eng: Sec-C/ER15(Le2)/LT Sambo\nDW107 1st bite excavation 26.5m\nManpower: 5\n';
+  reply = aiReply([
+    { section: 'Sec-A/Kb1', elementId: 'DW592', activityDescription: 'DW592 (1.5x3.0m) SP, 2nd bite excavation progressing then done', stage: 'Excavation', manpower: 12 },
+    { section: 'Sec-A/TMC/SCT', elementId: '', activityDescription: 'No activity', stage: 'Other', manpower: 0 }
+  ]);
+  var r = sandbox.generateProductivity(chat, '', '2026-10-02');
+  var dw = r.mergedActivities.filter(function (a) { return /DW592/.test(a.activity); });
+  assert(dw.length === 1 && /progressing then done/.test(dw[0].activity), 'DW592 is ONE consolidated AI row (not repeated per photo update)');
+  assert(!r.mergedActivities.some(function (a) { return /^no activity$/i.test(a.activity); }), 'an AI "No activity" row is dropped');
+  assert(r.mergedActivities.some(function (a) { return a.area === 'Area 2' && /DW107/.test(a.activity); }), 'an Area the AI returned nothing for (Area 2) is filled from the offline parse');
+  assert(r.mergedActivities.filter(function (a) { return a.area === 'Area 1'; }).length === 1, 'an Area the AI covered is NOT topped up with offline duplicates');
+  // Request shape for Claude Opus 5.5
+  assert(captured.body.model === 'claude-opus-5-5', 'default model is claude-opus-5-5');
+  assert(captured.body.tool_choice && captured.body.tool_choice.type === 'auto', 'tool_choice is auto (a forced tool_choice is rejected by Opus 5.5)');
+  assert(!('thinking' in captured.body), 'no thinking field (Opus 5.5 always thinks; disabling it is rejected)');
+  assert(captured.body.max_tokens >= 32000, 'max_tokens leaves room for the thinking as well as the reply');
+  assert(captured.body.fallbacks === 'default' && captured.opts.headers['anthropic-beta'] === 'server-side-fallback-2026-07-01',
+    'server-side refusal fallback is opted in');
+  // A refusal falls back to the offline parse.
+  reply = { stop_reason: 'refusal', stop_details: { category: 'cyber' }, content: [] };
+  assert(sandbox.generateProductivity(chat, '', '2026-10-02').source === 'fallback', 'a refusal falls back to the offline parse');
+  // A truncated reply (max_tokens) also falls back rather than showing a partial day.
+  reply = aiReply([{ section: 'Sec-A/Kb1', elementId: 'DW592', activityDescription: 'DW592 partial', stage: 'Excavation', manpower: 12 }], 'max_tokens');
+  assert(sandbox.generateProductivity(chat, '', '2026-10-02').source === 'fallback', 'a max_tokens-truncated reply falls back to the offline parse');
+  // A CLAUDE_MODEL override without server-side fallback support sends no fallbacks parameter.
+  props.CLAUDE_MODEL = 'claude-sonnet-5';
+  reply = aiReply([{ section: 'Sec-A/Kb1', elementId: 'DW592', activityDescription: 'DW592 excavation', stage: 'Excavation', manpower: 12 }]);
+  sandbox.generateProductivity(chat, '', '2026-10-02');
+  assert(captured.body.model === 'claude-sonnet-5' && !('fallbacks' in captured.body) && !captured.opts.headers['anthropic-beta'],
+    'no fallbacks parameter for a model without server-side fallback');
+  delete sandbox.PropertiesService; delete sandbox.UrlFetchApp;
+})();
+
 console.log('\n' + (failures ? (failures + ' FAILED') : 'ALL PASSED'));
 process.exit(failures ? 1 : 0);

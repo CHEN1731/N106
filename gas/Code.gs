@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-76 · only line-leading labels (fix inline "Area:" clobbering the locator)';
+var APP_VERSION = 'build-77 · AI one-row-per-location activities (Oct-2 style) on Opus 5.5';
 
 /**
  * Route:
