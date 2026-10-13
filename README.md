@@ -118,7 +118,10 @@ with them (the Area KPIs, charts, and activity table stay below):
   `m³` volumes and `mSHD` levels). Within one
   card an element at *Completed* and one at *Excavation* can appear together. An element is
   logged (and counted) only when its own text has its machine trigger — **bite** for a
-  BC Cutter (DW/BT/CW) or **depth** for a Boring Rig (BP). **Rebar cage / casting are NOT
+  BC Cutter (DW/BT/CW), or for a Boring Rig (BP) **depth** or a boring / coring word — **bore,
+  boring, bored, core, coring** (`RIG_TRIGGER_RE`, build-78; a BP report doesn't always state a
+  depth). "Bored pile" alone (the element type) and "boring rig" alone (the machine name) are not
+  work and don't count. **Rebar cage / casting are NOT
   triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
   counted; they only refine the stage of an element already logged via bite/depth.
   The panel shows the **whole fleet — 6 BC Cutters + 4 Boring Rigs**: machines doing bite/depth

@@ -113,9 +113,11 @@
         EL_KNOWN[n]=true;
         if(ar && !EL_AREA[n]) EL_AREA[n]=ar;
         if(loc && !EL_LOC[n]) EL_LOC[n]=loc;
-        // a machine trigger for this element's family: bite for DW/BT/CW, depth for BP
+        // a machine trigger for this element's family: bite for DW/BT/CW; depth / bore / core for BP
+        // (mirrors RIG_TRIGGER_RE in Extract.gs — "bored pile" / "boring rig" alone don't count)
         var fam = (classifyEl(id)==='BP') ? 'rig' : 'bc';
-        if ((fam==='rig' ? /\bdepth\b/i : /\bbite\b/i).test(txt)) EL_TRIG[n]=true;
+        var rigRe = /\bdepth\b|\bbor(?:e|es|ing)\b(?!\s*rigs?\b)|\bbored\b(?!\s*piles?\b)|\bcor(?:e|es|ed|ing)\b/i;
+        if ((fam==='rig' ? rigRe : /\bbite\b/i).test(txt)) EL_TRIG[n]=true;
       });
     });
     var name = (report && report.spreadsheetName) || '(no sheet)';

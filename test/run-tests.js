@@ -956,6 +956,27 @@ var fbBc = fbRes.machineStatus.bcCutters.filter(function (c) { return c.machineS
 assert(fbBc.length >= 1 && fbBc[0].workingOnElements.length >= 1, 'fallback detects a BC Cutter with a nested element');
 assert(fbRes.reinforcedConcrete.totalConcreteVolumeM3 === 42, 'fallback RC total = concrete cast (42)');
 
+console.log('\nBoring Rig trigger includes bore / core (build-78):');
+assert(machineTrigger_('BP-T9-3 boring in progress', 'rig') === 'bore', '"boring" triggers a Boring Rig');
+assert(machineTrigger_('BP12 bored to toe level', 'rig') === 'bore', '"bored" (as a verb) triggers');
+assert(machineTrigger_('BP12 bore hole drilling', 'rig') === 'bore', '"bore" triggers');
+assert(machineTrigger_('BP12 coring work in progress', 'rig') === 'core', '"coring" triggers');
+assert(machineTrigger_('BP12 core sample taken', 'rig') === 'core', '"core" triggers');
+assert(machineTrigger_('BP12 current depth 21.5m', 'rig') === 'depth', '"depth" still triggers');
+assert(machineTrigger_('Bored pile BP12 rebar cage lowering', 'rig') === '', '"bored pile" alone (element type) does NOT trigger');
+assert(machineTrigger_('Boring rig moving to BP12', 'rig') === '', '"boring rig" alone (machine name) does NOT trigger');
+assert(machineTrigger_('NORTH SOUTH CORRIDOR BP12', 'rig') === '', '"corridor" is not read as "core"');
+assert(machineTrigger_('DW1547 boring', 'bc') === '', 'bore / core do not trigger a BC Cutter');
+(function () {
+  var ms = normalizeMachineStatus_(null, [{ elementId: 'BP-T9-3', section: 'Sec-D', area: 'Area 3', activity: 'BP-T9-3 boring work in progress' }]);
+  var rigs = (ms.boringRigs || []).filter(function (r) { return r.workingOnElements && r.workingOnElements.length; });
+  assert(rigs.length === 1 && rigs[0].workingOnElements.some(function (e) { return normElId_(e.elementId) === normElId_('BP-T9-3'); }),
+    'a BP boring report with no depth is logged on a Boring Rig');
+  var ms2 = normalizeMachineStatus_(null, [{ elementId: 'BP-T9-3', section: 'Sec-D', area: 'Area 3', activity: 'Bored pile BP-T9-3 rebar cage lowering' }]);
+  assert(!(ms2.boringRigs || []).some(function (r) { return r.workingOnElements && r.workingOnElements.length; }),
+    'a rebar-cage-only bored pile is still NOT logged on a rig');
+})();
+
 console.log('\nAI one-row-per-location activities (build-77; mocked Messages API):');
 (function () {
   var props = { ANTHROPIC_API_KEY: 'test-key' };

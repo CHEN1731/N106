@@ -488,11 +488,14 @@ var PRODUCTIVITY_SYSTEM =
   'STRICT LOGICAL TRIGGERS — do NOT log a machine unless its trigger is present in the text:\n' +
   '- A BC Cutter works Diaphragm Walls (DW), Buttress Walls (BT) and Cross Walls (CW); a ' +
   'Boring Rig works Bored Piles (BP / P-number piles). Log a BC Cutter ONLY when a DW/BT/CW ' +
-  'has "bite"; log a Boring Rig ONLY when a BP has "depth" (current/drilling depth). Rebar ' +
+  'has "bite"; log a Boring Rig ONLY when a BP has a drilling indicator: "depth" (current/drilling ' +
+  'depth), "bore"/"boring"/"bored", or "core"/"coring" — a BP report does not always state a depth ' +
+  '("bored pile" alone is only the element type and "boring rig" alone is only the machine name; ' +
+  'neither counts). Rebar ' +
   'cage and concrete casting are NOT machine triggers — an element with only rebar cage or ' +
-  'casting (and no bite/depth) must NOT be logged on a machine. They only set the ' +
-  'lifecycleStage of an element already logged via bite/depth (rebar cage = Rebar; casting = ' +
-  'Concreting, or Completed when done). If an element has no bite (BC) / depth (rig), do NOT ' +
+  'casting (and no bite / drilling indicator) must NOT be logged on a machine. They only set the ' +
+  'lifecycleStage of an element already logged via bite / drilling (rebar cage = Rebar; casting = ' +
+  'Concreting, or Completed when done). If an element has no bite (BC) / depth-bore-core (rig), do NOT ' +
   'log it.\n' +
   '- NEST the worked elements inside the machine: each machine object is { machineId, area, ' +
   'location, machineState, workingOnElements:[{ elementId, lifecycleStage, depth }], evidence }. ' +
@@ -512,7 +515,8 @@ var PRODUCTIVITY_SYSTEM =
   '(e.g. "boring rig moving gate 15->16" = Idle, "BC cutter wheel maintenance" = Maintenance), ' +
   'not only the working ones; machines with no element reported are Idle; never exceed 6 cutters ' +
   '/ 4 rigs. "evidence" ' +
-  '= the snippet containing the trigger ("DW1547 1st bite : 21.50m", "Current depth: 27.5m").\n' +
+  '= the snippet containing the trigger ("DW1547 1st bite : 21.50m", "Current depth: 27.5m", ' +
+  '"BP-T9-3 boring in progress").\n' +
   '- excavation.activeExcavations: one entry per active excavation zone with { location, ' +
   'currentDepth (metres, number), activity }. excavation.totalVolumeOrLoads = the total ' +
   'soil-disposal LOADS for the day if stated (a number), else 0.\n' +
@@ -716,7 +720,7 @@ function callClaudeProductivity_(rtoText, aisText, key, dateHint) {
     'NEST the worked elements: each machine = { machineId, area, location, machineState, ' +
     'workingOnElements:[{ elementId, lifecycleStage, depth }], evidence }. depth = the ' +
     'element\'s dug/drilling depth in metres if stated (else 0). lifecycleStage ∈ ' +
-    'Excavation | Rebar | Concreting | Completed (bite/depth→Excavation, rebar cage→Rebar, ' +
+    'Excavation | Rebar | Concreting | Completed (bite/depth/bore/core→Excavation, rebar cage→Rebar, ' +
     'casting→Concreting/Completed). Group every element one machine worked at one location ' +
     'into its workingOnElements. machineState ∈ Active | Maintenance | Idle. 6 BC Cutters + ' +
     '4 Boring Rigs — unreported machines are Idle; do NOT log an element without a trigger.\n' +
@@ -919,7 +923,7 @@ function round2_(n) { return Math.round(toNum_(n) * 100) / 100; }
 function locKey_(s) { return String(s == null ? '' : s).toUpperCase().replace(/\s+/g, ''); }
 
 // Machine-detection triggers. An element is "being worked" (and its machine logged) only
-// when its text hits one of the three work stages: bite (DW/BT/CW) / depth (BP) = Excavation,
+// when its text hits one of the three work stages: bite (DW/BT/CW) / depth-bore-core (BP) = Excavation,
 // rebar cage = Rebar, or concrete casting = Concreting/Completed.
 var CASTING_RE = /cast|concret|pour/i;
 // Machine own-state keywords. Maintenance: a repair/servicing keyword or a whole-word "change"
@@ -928,7 +932,10 @@ var CASTING_RE = /cast|concret|pour/i;
 var MAINT_RE = /maint|breakdown|repair|servic|\bchange\b/i;
 var IDLE_RE = /\bidle\b|\bstand[\s-]?by\b|shifting|shifted|relocat|\bmoving\b/i;
 var BITE_RE = /\bbite\b/i;
-var DEPTH_RE = /\bdepth\b/i;
+// Boring Rig work trigger (BP): "depth", or the boring / coring verbs — bore, boring, bored,
+// core, coring (build-78; a BP report doesn't always state a depth). "bored pile" alone is just
+// the element-type name and "boring rig" alone is the machine's own name: neither is work.
+var RIG_TRIGGER_RE = /\bdepth\b|\bbor(?:e|es|ing)\b(?!\s*rigs?\b)|\bbored\b(?!\s*piles?\b)|\bcor(?:e|es|ed|ing)\b/i;
 var REBAR_CAGE_RE = /rebar|reinforc|steel\s*fix/i;
 
 // Element lifecycle stages, ordered so a stage only ever advances.
@@ -936,15 +943,19 @@ var LIFECYCLE = ['Excavation', 'Rebar', 'Concreting', 'Completed'];
 var LIFECYCLE_RANK = { Excavation: 1, Rebar: 2, Concreting: 3, Completed: 4 };
 
 /**
- * Trigger for a machine of `family` ('bc' | 'rig'): 'bite' (bc) or 'depth' (rig), else '' to
- * DROP. ONLY "bite" attaches an element to a BC Cutter; ONLY "depth" attaches one to a Boring
- * Rig. Rebar cage / casting are NOT machine triggers — they only refine the lifecycle stage of
- * an element that is already attached via bite/depth.
+ * Trigger for a machine of `family` ('bc' | 'rig'): 'bite' (bc) or 'depth' | 'bore' | 'core'
+ * (rig), else '' to DROP. ONLY "bite" attaches an element to a BC Cutter; ONLY depth / boring /
+ * coring attaches one to a Boring Rig (RIG_TRIGGER_RE). Rebar cage / casting are NOT machine
+ * triggers — they only refine the lifecycle stage of an element already attached.
  */
 function machineTrigger_(text, family) {
   var t = String(text == null ? '' : text);
   if (family === 'bc') return BITE_RE.test(t) ? 'bite' : '';
-  if (family === 'rig') return DEPTH_RE.test(t) ? 'depth' : '';
+  if (family === 'rig') {
+    var m = RIG_TRIGGER_RE.exec(t);
+    if (!m) return '';
+    return /^depth$/i.test(m[0]) ? 'depth' : (/^cor/i.test(m[0]) ? 'core' : 'bore');
+  }
   return '';
 }
 
@@ -953,7 +964,7 @@ function lifecycleStageFor_(text) {
   var t = String(text == null ? '' : text);
   if (CASTING_RE.test(t)) return /\b(complete|completed|finished|done)\b/i.test(t) ? 'Completed' : 'Concreting';
   if (REBAR_CAGE_RE.test(t)) return 'Rebar';
-  if (BITE_RE.test(t) || DEPTH_RE.test(t) || /excavat/i.test(t)) return 'Excavation';
+  if (BITE_RE.test(t) || RIG_TRIGGER_RE.test(t) || /excavat/i.test(t)) return 'Excavation';
   return '';
 }
 
@@ -1011,7 +1022,7 @@ function machineEvidence_(text, family) {
   // Split on ; , newline, or a sentence period (one followed by space/end) — never a
   // decimal point, so "21.5m" / "27.5m" stay intact.
   var clauses = full.split(/\s*(?:;|\n|,|\.(?=\s|$))\s*/).filter(Boolean);
-  var res = [(family === 'rig' ? DEPTH_RE : BITE_RE), REBAR_CAGE_RE, CASTING_RE, MAINT_RE];
+  var res = [(family === 'rig' ? RIG_TRIGGER_RE : BITE_RE), REBAR_CAGE_RE, CASTING_RE, MAINT_RE];
   for (var i = 0; i < clauses.length; i++) {
     for (var j = 0; j < res.length; j++) { if (res[j].test(clauses[i])) return clauses[i].trim(); }
   }
