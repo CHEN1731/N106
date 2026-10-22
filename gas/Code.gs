@@ -89,7 +89,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-78 · Boring Rig detects bore/core (not only depth)';
+var APP_VERSION = 'build-79 · element stage frozen per day (no later-stage overwrite)';
 
 /**
  * Route:
@@ -547,13 +547,10 @@ function getReport() {
   var summaries = Object.keys(sumByDate).map(function (k) { return sumByDate[k]; })
     .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
 
-  // ElementTracker: the persistent forward-only lifecycle stage per element id, so the
-  // machine cards can show each element's *tracked* stage (id -> stage).
-  var elementStages = {};
-  readTable_(ss, TABS.elementTracker).forEach(function (r) {
-    var id = String(r.element_id == null ? '' : r.element_id).trim();
-    if (id) elementStages[id.toUpperCase().replace(/\s+/g, '')] = String(r.lifecycle_stage || '');
-  });
+  // Per-day lifecycle history (id -> [{date, stage}]) from the daily machine snapshots, so the
+  // machine cards show each element's tracked stage AS OF the day being viewed. ElementTracker
+  // only holds the latest stage, which made older days show today's stage (build-79).
+  var elementStageLog = elementStageHistory_(summaries);
 
   // Static soil-volume tracker (Tunnel / FB): the user-maintained planned vs cumulative m3.
   ensureExcavationProgress_(ss);
@@ -583,7 +580,7 @@ function getReport() {
     activities: activities,
     productivity: prod,
     summaries: summaries,
-    elementStages: elementStages,
+    elementStageLog: elementStageLog,
     excavationProgress: excavationProgress,
     excavationDaily: excavationDaily,
     config: { loadsToM3: loadsToM3_(),

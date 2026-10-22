@@ -144,8 +144,11 @@ with them (the Area KPIs, charts, and activity table stay below):
   (`Math.max`), not the last-processed reading.
   On Save, one loop writes both
   a **`DailyMachineLogs`** row per machine (daily fleet state) and a **forward-only**
-  **`ElementTracker`** upsert per element (the cross-day lifecycle DB the cards read for each
-  element's *tracked* stage).
+  **`ElementTracker`** upsert per element (the cross-day lifecycle DB, latest stage per element).
+  **Each day's stage is frozen** (build-79): the cards show an element's tracked stage **as of the
+  day being viewed** — the last forward-only advance on or before it, rebuilt from the saved daily
+  snapshots (`elementStageHistory_`). So when DW1547 reaches Rebar on Oct 3, the Oct 1 cards still
+  show Excavation; for a From/To range the stage is as of the day whose machines are shown.
 - **Excavation Tracker** — a **static soil-volume tracker** (m³) for the whole **Tunnel +
   Facility Building**, mirroring the site team's own spreadsheet: per-zone **Planned /
   Cumulative / Remaining / % Progress** (with a bar) + a TOTAL row. The figures live in the

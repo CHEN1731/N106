@@ -23,7 +23,7 @@ const { parseWhatsApp, resolveLocator_, extractLabelled_, stripMedia_, normalize
         parseWebhookMessages_, phoneSource_, normalizePhone_,
         waTimestampToDate_, buildDayTexts_, toDateStr_,
         normalizeMachineStatus_, machineTrigger_, machineStateFor_, machineStateFromEvidence_, mentionsMachine_, machineEvidence_,
-        lifecycleStageFor_, elementStageForward_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_, isNoActivityOnly_, isScheduleNoise_,
+        lifecycleStageFor_, elementStageForward_, elementStageHistory_, clampLifecycle_, collapseByLocation_, displaySection_, segmentsOnLine_, isNoActivityOnly_, isScheduleNoise_,
         normalizeExcavation_, normalizeRC_, classifyRcType_, parseDepthM_, parseLoads_, firstManpower_, groutingArea_ } = sandbox;
 
 let failures = 0;
@@ -975,6 +975,45 @@ assert(machineTrigger_('DW1547 boring', 'bc') === '', 'bore / core do not trigge
   var ms2 = normalizeMachineStatus_(null, [{ elementId: 'BP-T9-3', section: 'Sec-D', area: 'Area 3', activity: 'Bored pile BP-T9-3 rebar cage lowering' }]);
   assert(!(ms2.boringRigs || []).some(function (r) { return r.workingOnElements && r.workingOnElements.length; }),
     'a rebar-cage-only bored pile is still NOT logged on a rig');
+})();
+
+console.log('\nElement stage frozen per day (build-79):');
+(function () {
+  function day(date, bc, rig) {
+    return { date: date, machineStatus: { bcCutters: bc || [], boringRigs: rig || [] } };
+  }
+  function m(els) { return { machineId: 'BC Cutter 1', workingOnElements: els }; }
+  // Deliberately out of order: history must not depend on the order the days were saved.
+  var sums = [
+    day('2026-10-05', [m([{ elementId: 'DW1', lifecycleStage: 'Concreting' }])]),
+    day('2026-10-01', [m([{ elementId: 'DW1', lifecycleStage: 'Excavation' }])]),
+    day('2026-10-03', [m([{ elementId: 'DW01', lifecycleStage: 'rebar' }])]),
+    day('2026-10-02', [m([{ elementId: 'DW1', lifecycleStage: 'Excavation' }])]),
+    day('2026-10-06', [m([{ elementId: 'DW1', lifecycleStage: 'Excavation' }])]),
+    day('2026-10-04', [m([{ elementId: 'BP U7-3', lifecycleStage: 'Excavation' }]),
+                       m([{ elementId: 'U7-3', lifecycleStage: 'Rebar' }])],
+                      [{ machineId: 'Boring Rig 1', assignedIds: ['BP9'] }]),
+    day('2026-10-07', [m([{ elementId: 'CW5', lifecycleStage: '' }])])
+  ];
+  var h = elementStageHistory_(sums);
+  // Mirrors the Viewer's stageAsOf: the last advance on or before the day shown.
+  function asOf(id, date) {
+    var st = '';
+    (h[normElId_(id)] || []).forEach(function (x) { if (x.date <= date) st = x.stage; });
+    return st;
+  }
+  assert(JSON.stringify(h.DW1) === JSON.stringify([
+    { date: '2026-10-01', stage: 'Excavation' }, { date: '2026-10-03', stage: 'Rebar' },
+    { date: '2026-10-05', stage: 'Concreting' }]),
+    'DW1 history = one entry per advance, sorted by date (DW01 = DW1, "rebar" canonicalised)');
+  assert(asOf('DW1', '2026-10-02') === 'Excavation', 'Oct 2 stays Excavation even though DW1 later reached Concreting');
+  assert(asOf('DW1', '2026-10-04') === 'Rebar', 'Oct 4 (no report) shows the stage as of then (Rebar)');
+  assert(asOf('DW1', '2026-10-06') === 'Concreting', 'a later lower report does not regress the stage (forward-only)');
+  assert(asOf('DW1', '2026-09-30') === '', 'before the first report there is no stage');
+  assert(JSON.stringify(h['U7-3']) === JSON.stringify([{ date: '2026-10-04', stage: 'Rebar' }]),
+    'same element twice on one day (BP U7-3 = U7-3) -> one entry at the furthest stage');
+  assert(!h.CW5 && !h.BP9, 'blank stages and legacy assignedIds add no history');
+  assert(JSON.stringify(elementStageHistory_(null)) === '{}', 'no summaries -> empty history');
 })();
 
 console.log('\nAI one-row-per-location activities (build-77; mocked Messages API):');

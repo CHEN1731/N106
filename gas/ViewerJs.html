@@ -2,7 +2,7 @@
   var ACTS = [];   // merged activities [{_row,date,area,section,elementId,activity,manpower,sourceEvidence}]
   var PROD = [];    // productivity history (asc by date)
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
-  var ELEMENT_STAGES = {};  // elementId(normalised) -> tracked lifecycle stage (ElementTracker)
+  var ELEMENT_STAGE_LOG = {};  // elementId(normalised) -> [{date, stage}] forward-only stage per day
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
   var EL_LOC = {};          // elementId(normalised) -> its location/section (from activities)
   var EL_KNOWN = {};        // elementId(normalised) -> true if it appears in the activities
@@ -92,7 +92,7 @@
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
     SUMMARIES = ((report && report.summaries) || []).slice().sort(function(a,b){
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
-    ELEMENT_STAGES = (report && report.elementStages) || {};
+    ELEMENT_STAGE_LOG = (report && report.elementStageLog) || {};
     EXCAV_PROGRESS = (report && report.excavationProgress) || [];
     EXCAV_DAILY = (report && report.excavationDaily) || [];
     LOADS_TO_M3 = (report && report.config && Number(report.config.loadsToM3)) || 6;
@@ -302,7 +302,7 @@
       var rc=s.reinforcedConcrete||{}; rcTotal += Number(rc.totalConcreteVolumeM3)||0;
       (rc.rcActivities||[]).forEach(function(r){ rcActs.push(r); });
     });
-    return { machineStatus:machine,
+    return { date:pick.date, machineStatus:machine,   // date = the machine snapshot's day (stages as of it)
       excavation:{ totalVolumeOrLoads:loads, activeExcavations:zones },
       reinforcedConcrete:{ totalConcreteVolumeM3:Math.round(rcTotal*100)/100, rcActivities:rcActs } };
   }
@@ -315,6 +315,13 @@
     if (v==='rebar') return 'lc-rebar'; if (v==='concreting') return 'lc-conc';
     if (v==='completed') return 'lc-done'; return 'lc-exc'; }
   var LC_ICON={'lc-exc':'🟤','lc-rebar':'🔵','lc-conc':'🟠','lc-done':'🟢'};
+  // An element's tracked stage AS OF `date` (the last advance on or before it), so a day's
+  // cards stay frozen at that day's stage — later Rebar/Concreting never overwrites them.
+  function stageAsOf(id, date){
+    var log=ELEMENT_STAGE_LOG[normId(id)]||[], st='';
+    for (var i=0;i<log.length;i++){ if (date && log[i].date>date) break; st=log[i].stage; }
+    return st;
+  }
   var BC_FLEET=6, RIG_FLEET=4;   // physical fleet totals (for the deployed/total count)
   // Canonical element key (mirrors normElId_ in gas/Extract.gs): drop a trailing "(…)",
   // normalise unicode dashes, strip a separated "BP" prefix, remove spaces. So "U7-3" =
@@ -464,7 +471,7 @@
       var cls=stateClass(mc.machineState);
       var body = mc.workingOnElements.length
         ? '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
-        var stage = ELEMENT_STAGES[normId(e.elementId)] || e.lifecycleStage || 'Excavation';
+        var stage = stageAsOf(e.elementId, sum && sum.date) || e.lifecycleStage || 'Excavation';
         var lc = lcClass(stage);
         var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : parseDepth(mc.evidence);
         var depthTag = (d!=null && d>0) ? '<span class="eldepth">'+d+' m</span>' : '';

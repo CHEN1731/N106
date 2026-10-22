@@ -142,8 +142,10 @@ upserted by date. A daily snapshot of the 6 BC Cutters + 4 Boring Rigs.
 Also written in the same loop, but **keyed by `element_id` (not by date)** and
 **forward-only**: an element's `lifecycle_stage` only ever advances
 (Excavation → Rebar → Concreting → Completed, via `elementStageForward_`). This is the
-cross-day source of truth for where each wall/pile is; the Viewer reads it (`elementStages`)
-to show each element's *tracked* stage on the machine cards.
+cross-day record of where each wall/pile is **now**. The Viewer's machine cards don't read it
+(build-79): they show each element's stage **as of the day being viewed**, rebuilt from the
+`DailySummaries` machine snapshots (`elementStageHistory_` → `elementStageLog`), so a later
+stage never overwrites what an earlier day showed.
 
 | Column | Type | Notes |
 |--------|------|-------|

@@ -982,6 +982,37 @@ function elementStageForward_(oldStage, newStage) {
   return rn > ro ? clampLifecycle_(newStage) : (clampLifecycle_(oldStage) || clampLifecycle_(newStage) || '');
 }
 
+/**
+ * Per-day element lifecycle history, rebuilt from the saved daily machine snapshots
+ * (DailySummaries machineStatus). Returns { normElId: [{ date, stage }] } ascending by date,
+ * one entry per date the forward-only stage advanced. The Viewer reads the last entry on or
+ * before the day it shows, so each day's cards stay FROZEN at that day's stage — a later
+ * Rebar / Concreting never overwrites an earlier day (build-79). Order-independent: unlike
+ * ElementTracker it doesn't matter in which order the days were saved.
+ */
+function elementStageHistory_(summaries) {
+  var byId = {};
+  (summaries || []).slice().sort(function (a, b) {
+    return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0);
+  }).forEach(function (s) {
+    var m = (s && s.machineStatus) || {};
+    [].concat(m.bcCutters || [], m.boringRigs || []).forEach(function (x) {
+      (x && Array.isArray(x.workingOnElements) ? x.workingOnElements : []).forEach(function (e) {
+        var id = normElId_(e && e.elementId);
+        if (!id) return;
+        var log = byId[id] || [];
+        var last = log.length ? log[log.length - 1] : null;
+        var next = elementStageForward_(last ? last.stage : '', e.lifecycleStage);
+        if (!next || (last && next === last.stage)) return;
+        if (last && last.date === s.date) last.stage = next;   // advanced again the same day
+        else log.push({ date: s.date, stage: next });
+        byId[id] = log;
+      });
+    });
+  });
+  return byId;
+}
+
 /** Machine's own state from evidence: Maintenance on a maintenance keyword, else Active. */
 function machineStateFor_(text) { return MAINT_RE.test(String(text == null ? '' : text)) ? 'Maintenance' : 'Active'; }
 
@@ -1809,6 +1840,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mentionsMachine_: mentionsMachine_,
     lifecycleStageFor_: lifecycleStageFor_,
     elementStageForward_: elementStageForward_,
+    elementStageHistory_: elementStageHistory_,
     clampLifecycle_: clampLifecycle_,
     machineEvidence_: machineEvidence_,
     normalizeExcavation_: normalizeExcavation_,
