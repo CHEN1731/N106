@@ -25,6 +25,7 @@ var TABS = {
   elementTracker: 'ElementTracker', // persistent, one row per element: forward-only lifecycle stage
   excavationProgress: 'ExcavationProgress' // static soil-volume tracker (Tunnel/FB): planned vs cumulative m3
   , excavationDaily: 'ExcavationDaily' // user-maintained daily soil log: date/zone/m3 (rolled up D/W/M in the Viewer)
+  , fleetRoster: 'FleetRoster' // editable machine fleet: one row per machine per change date (Viewer ⚙ Edit fleet)
 };
 
 // Static soil-volume tracker — mirrors the user's Excavation Tracker spreadsheet. The user
@@ -89,7 +90,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-79 · element stage frozen per day (no later-stage overwrite)';
+var APP_VERSION = 'build-80 · editable machine fleet (count + home Area, from a date)';
 
 /**
  * Route:
@@ -141,7 +142,7 @@ function runComparison(rtoText, aisText, reportDate) {
   // Scope a full-history RTO chat to the report date so only that day is used.
   var target = reportDate ? normalizeDate_(reportDate) : '';
   var rtoScoped = target ? sliceChatByDate_(rtoText, [target]) : rtoText;
-  var prod = generateProductivity(rtoScoped, aisText, target);
+  var prod = withFleetCap_(target, function () { return generateProductivity(rtoScoped, aisText, target); });
   return {
     date: prod.date,
     reportDate: target || prod.date || '',
@@ -170,6 +171,11 @@ var SUMMARY_HEADER = ['date', 'total_concrete_m3', 'total_loads', 'active_cutter
 // Unified machine + element-lifecycle tabs (FOLLOW-UP 16).
 var MACHINE_LOG_HEADER = ['date', 'machine_id', 'family', 'area', 'location', 'machine_state', 'elements', 'evidence'];
 var ELEMENT_TRACKER_HEADER = ['element_id', 'type', 'area', 'location', 'lifecycle_stage', 'last_machine', 'first_seen', 'last_updated'];
+// Editable machine fleet (build-80): each machine's home Area (or Spare), saved per change date.
+// A change applies from effective_from onward, so earlier days keep the fleet they had. With no
+// rows the Viewer's DEFAULT_FLEET_ROSTER (gas/ViewerJs.html) and Extract.gs's FLEET cap are used.
+var FLEET_ROSTER_HEADER = ['effective_from', 'machine_type', 'machine_no', 'home_area'];
+var FLEET_TYPES = ['BC Cutter', 'Boring Rig'];
 
 /**
  * Persist the productivity result. `result` is what runComparison returned.
@@ -298,6 +304,123 @@ function saveMachinesAndElements_(ss, date, machine) {
     return [r.element_id, r.type, r.area, r.location, r.lifecycle_stage, r.last_machine, r.first_seen, r.last_updated];
   });
   writeTable_(ss, TABS.elementTracker, ELEMENT_TRACKER_HEADER, elRows);
+}
+
+/** Canonical machine type ('BC Cutter' | 'Boring Rig'), or '' if unrecognised. */
+function fleetType_(v) {
+  var s = String(v == null ? '' : v);
+  if (/cutter|^\s*bc\b/i.test(s)) return 'BC Cutter';
+  if (/\brig\b|boring/i.test(s)) return 'Boring Rig';
+  return '';
+}
+
+/**
+ * Pure: FleetRoster rows -> [{ effectiveFrom, roster: { 'BC Cutter': { homes: { 'Area 1': [1], … },
+ * spares: [5, 6] }, 'Boring Rig': … } }], ascending by date. A blank / "Spare" home_area is a spare.
+ * A type with no rows on a date is left out (it keeps the roster in effect before that date).
+ */
+function fleetRostersFromRows_(rows) {
+  function num(a, b) { return a - b; }
+  var byDate = {};
+  (rows || []).forEach(function (r) {
+    var date = toDateStr_(r.effective_from), type = fleetType_(r.machine_type), no = Number(r.machine_no);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !type || !(no > 0)) return;
+    var d = byDate[date] || (byDate[date] = {});
+    var t = d[type] || (d[type] = { seen: {}, homes: {}, spares: [] });
+    if (t.seen[no]) return;                                   // same machine twice on one date: keep the first
+    t.seen[no] = true;
+    var area = normAreaName_(r.home_area);
+    if (/^Area [1-4]$/.test(area)) (t.homes[area] = t.homes[area] || []).push(no);
+    else t.spares.push(no);
+  });
+  return Object.keys(byDate).sort().map(function (date) {
+    var roster = {};
+    Object.keys(byDate[date]).forEach(function (type) {
+      var t = byDate[date][type], homes = {};
+      Object.keys(t.homes).sort().forEach(function (a) { homes[a] = t.homes[a].sort(num); });
+      roster[type] = { homes: homes, spares: t.spares.sort(num) };
+    });
+    return { effectiveFrom: date, roster: roster };
+  });
+}
+
+/**
+ * Pure: the fleet cap { bcCutters, boringRigs } in effect on `date` (blank = the latest change) —
+ * per type, the machine count of the last change on or before it, else `dflt`'s. null = no change.
+ */
+function fleetCapFromRosters_(rosters, date, dflt) {
+  var n = {}, any = false;
+  (rosters || []).forEach(function (c) {
+    if (date && c.effectiveFrom > date) return;
+    FLEET_TYPES.forEach(function (type) {
+      var t = c.roster && c.roster[type];
+      if (!t) return;
+      var count = t.spares.length;
+      Object.keys(t.homes).forEach(function (a) { count += t.homes[a].length; });
+      n[type] = count; any = true;
+    });
+  });
+  if (!any) return null;
+  return { bcCutters: n['BC Cutter'] != null ? n['BC Cutter'] : dflt.bcCutters,
+    boringRigs: n['Boring Rig'] != null ? n['Boring Rig'] : dflt.boringRigs };
+}
+
+/**
+ * Run `fn` with Extract.gs's hard fleet cap (FLEET) set to the fleet saved for `date`, so a fleet
+ * edited in the Viewer also caps the machines detected on Save. Restores FLEET afterwards.
+ */
+function withFleetCap_(date, fn) {
+  var saved = FLEET;
+  try {
+    var cap = null;
+    try { cap = fleetCapFromRosters_(fleetRostersFromRows_(readTable_(getSpreadsheet_(), TABS.fleetRoster)), date, saved); }
+    catch (e) { cap = null; }                                  // no sheet (tests / editor): built-in cap
+    FLEET = cap || saved;
+    return fn();
+  } finally {
+    FLEET = saved;
+  }
+}
+
+/**
+ * Pure: validate a Viewer fleet change and turn it into FleetRoster rows.
+ * change = { effectiveFrom: 'yyyy-mm-dd', machines: { 'BC Cutter': [{ no, area }], 'Boring Rig': […] } },
+ * area = 'Area 1'..'Area 4' or 'Spare'. Throws a user-facing message on bad input.
+ */
+function fleetRosterRows_(change) {
+  change = change || {};
+  var date = toDateStr_(change.effectiveFrom);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Pick the date the fleet applies from.');
+  var rows = [];
+  FLEET_TYPES.forEach(function (type) {
+    var list = (change.machines && change.machines[type]) || [], seen = {};
+    if (!list.length) throw new Error('Keep at least one ' + type + '.');
+    list.forEach(function (m) {
+      var no = Number(m && m.no);
+      if (!(no > 0) || Math.floor(no) !== no) throw new Error(type + ': machine numbers must be whole numbers above 0.');
+      if (seen[no]) throw new Error(type + ' ' + no + ' is listed twice.');
+      seen[no] = true;
+      var area = /^\s*spare\s*$/i.test(String(m.area == null ? '' : m.area)) ? 'Spare' : normAreaName_(m.area);
+      if (!/^(Area [1-4]|Spare)$/.test(area)) throw new Error(type + ' ' + no + ': pick Area 1–4 or Spare.');
+      rows.push([date, type, no, area]);
+    });
+  });
+  return rows;
+}
+
+/** Viewer ⚙ Edit fleet: save the fleet that applies from change.effectiveFrom (replaces that date's). */
+function saveFleetRoster(change) {
+  var rows = fleetRosterRows_(change);
+  upsertByDate_(getSpreadsheet_(), TABS.fleetRoster, FLEET_ROSTER_HEADER, 0, rows);
+  return rows.length;
+}
+
+/** Viewer ⚙ Edit fleet: remove the fleet change saved for `date` (that day falls back to the one before). */
+function deleteFleetRoster(date) {
+  var ss = getSpreadsheet_(), d = toDateStr_(date);
+  var kept = readTable_(ss, TABS.fleetRoster).filter(function (r) { return toDateStr_(r.effective_from) !== d; })
+    .map(function (r) { return FLEET_ROSTER_HEADER.map(function (h) { return r[h]; }); });
+  writeTable_(ss, TABS.fleetRoster, FLEET_ROSTER_HEADER, kept);
 }
 
 /**
@@ -552,6 +675,9 @@ function getReport() {
   // only holds the latest stage, which made older days show today's stage (build-79).
   var elementStageLog = elementStageHistory_(summaries);
 
+  // Fleet changes made in the Viewer (⚙ Edit fleet), each applying from its date onward.
+  var fleetRosters = fleetRostersFromRows_(readTable_(ss, TABS.fleetRoster));
+
   // Static soil-volume tracker (Tunnel / FB): the user-maintained planned vs cumulative m3.
   ensureExcavationProgress_(ss);
   var excavationProgress = readTable_(ss, TABS.excavationProgress).map(function (r) {
@@ -581,6 +707,7 @@ function getReport() {
     productivity: prod,
     summaries: summaries,
     elementStageLog: elementStageLog,
+    fleetRosters: fleetRosters,
     excavationProgress: excavationProgress,
     excavationDaily: excavationDaily,
     config: { loadsToM3: loadsToM3_(),

@@ -1016,6 +1016,68 @@ console.log('\nElement stage frozen per day (build-79):');
   assert(JSON.stringify(elementStageHistory_(null)) === '{}', 'no summaries -> empty history');
 })();
 
+console.log('\nEditable machine fleet (build-80):');
+(function () {
+  var rows = [
+    { effective_from: '2026-10-20', machine_type: 'BC Cutter', machine_no: 1, home_area: 'Area 1' },
+    { effective_from: '2026-10-20', machine_type: 'BC Cutter', machine_no: 3, home_area: 'Area 3' },
+    { effective_from: '2026-10-20', machine_type: 'BC Cutter', machine_no: 2, home_area: 'Area 2' },
+    { effective_from: '2026-10-20', machine_type: 'BC Cutter', machine_no: 5, home_area: 'Spare' },
+    { effective_from: '2026-10-20', machine_type: 'BC Cutter', machine_no: 3, home_area: 'Area 2' }, // duplicate -> first wins
+    { effective_from: '2026-10-20', machine_type: 'Boring Rig', machine_no: 1, home_area: '' },
+    { effective_from: '2026-10-25', machine_type: 'Boring Rig', machine_no: 1, home_area: 'area 4' },
+    { effective_from: '2026-10-25', machine_type: 'Boring Rig', machine_no: 2, home_area: 'Area 4' },
+    { effective_from: 'not a date', machine_type: 'BC Cutter', machine_no: 9, home_area: 'Area 1' },
+    { effective_from: '2026-10-25', machine_type: 'Crane', machine_no: 1, home_area: 'Area 1' }
+  ];
+  var r = sandbox.fleetRostersFromRows_(rows);
+  assert(r.length === 2 && r[0].effectiveFrom === '2026-10-20' && r[1].effectiveFrom === '2026-10-25',
+    'rosters grouped by change date, ascending; bad dates / unknown types skipped');
+  assert(JSON.stringify(r[0].roster['BC Cutter']) === JSON.stringify({ homes: { 'Area 1': [1], 'Area 2': [2], 'Area 3': [3] }, spares: [5] }),
+    'BC roster: each machine in its home Area, Spare -> spares, a repeated machine keeps its first Area');
+  assert(JSON.stringify(r[0].roster['Boring Rig']) === JSON.stringify({ homes: {}, spares: [1] }), 'a blank home_area is a spare');
+  assert(!r[1].roster['BC Cutter'] && JSON.stringify(r[1].roster['Boring Rig'].homes) === JSON.stringify({ 'Area 4': [1, 2] }),
+    'a date that only changes Boring Rigs leaves BC Cutters out (they keep the earlier roster)');
+
+  var dflt = { bcCutters: 6, boringRigs: 4 };
+  assert(sandbox.fleetCapFromRosters_(r, '2026-10-19', dflt) === null, 'before any change -> no override (built-in 6 / 4)');
+  var c20 = sandbox.fleetCapFromRosters_(r, '2026-10-22', dflt);
+  assert(c20.bcCutters === 4 && c20.boringRigs === 1, 'cap on Oct 22 = the Oct 20 fleet (4 BC, 1 rig)');
+  var c25 = sandbox.fleetCapFromRosters_(r, '2026-10-30', dflt);
+  assert(c25.bcCutters === 4 && c25.boringRigs === 2, 'cap on Oct 30: rigs from Oct 25, BC still from Oct 20');
+  assert(sandbox.fleetCapFromRosters_(r, '', dflt).boringRigs === 2, 'no date -> the latest change');
+
+  var ok = sandbox.fleetRosterRows_({ effectiveFrom: '2026-10-20', machines: {
+    'BC Cutter': [{ no: 1, area: 'Area 1' }, { no: 7, area: 'spare' }], 'Boring Rig': [{ no: 1, area: 'Area 3' }] } });
+  assert(JSON.stringify(ok) === JSON.stringify([['2026-10-20', 'BC Cutter', 1, 'Area 1'], ['2026-10-20', 'BC Cutter', 7, 'Spare'],
+    ['2026-10-20', 'Boring Rig', 1, 'Area 3']]), 'fleetRosterRows_ -> one sheet row per machine');
+  function throws(change, re) { try { sandbox.fleetRosterRows_(change); return false; } catch (e) { return re.test(e.message); } }
+  var two = { 'BC Cutter': [{ no: 1, area: 'Area 1' }], 'Boring Rig': [{ no: 1, area: 'Area 1' }] };
+  assert(throws({ effectiveFrom: '', machines: two }, /date/), 'rejects a missing date');
+  assert(throws({ effectiveFrom: '2026-10-20', machines: { 'BC Cutter': [], 'Boring Rig': two['Boring Rig'] } }, /at least one BC Cutter/),
+    'rejects an empty fleet type');
+  assert(throws({ effectiveFrom: '2026-10-20', machines: { 'BC Cutter': [{ no: 2, area: 'Area 1' }, { no: 2, area: 'Area 2' }], 'Boring Rig': two['Boring Rig'] } }, /listed twice/),
+    'rejects a machine number used twice');
+  assert(throws({ effectiveFrom: '2026-10-20', machines: { 'BC Cutter': [{ no: 1, area: 'Others' }], 'Boring Rig': two['Boring Rig'] } }, /Area 1–4 or Spare/),
+    'rejects an area that is not Area 1-4 / Spare');
+
+  // withFleetCap_: the fleet saved for the report date caps the machines detected on Save.
+  var sheetRows = [sandbox.FLEET_ROSTER_HEADER].concat(['1', '2', '3', '4', '5', '6', '7'].map(function (n) {
+    return ['2026-10-20', 'BC Cutter', Number(n), 'Area 1']; }));
+  sandbox.SpreadsheetApp = { openById: function () { return { getSheetByName: function (name) {
+    return name === 'FleetRoster' ? { getDataRange: function () { return { getValues: function () { return sheetRows; } }; } } : null;
+  } }; } };
+  var acts = [1, 2, 3, 4, 5, 6, 7].map(function (i) {
+    return { elementId: 'DW' + (100 + i), section: 'Sec-A/Loc' + i, area: 'Area 1', activity: 'DW' + (100 + i) + ' 1st bite excavation 10m' }; });
+  function bcCount() { return normalizeMachineStatus_(null, acts).bcCutters.length; }
+  assert(bcCount() === 6, 'built-in cap folds 7 BC locations to 6 cards');
+  assert(sandbox.withFleetCap_('2026-10-22', bcCount) === 7, 'with a saved 7-cutter fleet, all 7 BC Cutters are kept');
+  assert(sandbox.withFleetCap_('2026-10-19', bcCount) === 6, 'a day before the change keeps the built-in cap');
+  assert(bcCount() === 6 && sandbox.FLEET.bcCutters === 6, 'FLEET is restored after the run');
+  delete sandbox.SpreadsheetApp;
+  assert(sandbox.withFleetCap_('2026-10-22', bcCount) === 6, 'no spreadsheet available -> built-in cap (never fails the run)');
+})();
+
 console.log('\nAI one-row-per-location activities (build-77; mocked Messages API):');
 (function () {
   var props = { ANTHROPIC_API_KEY: 'test-key' };

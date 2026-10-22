@@ -229,7 +229,7 @@ function processRawLogs() {
     var rows = byDate[date];
     var texts = buildDayTexts_(rows);
     try {
-      saveToSheet(generateProductivity(texts.rto, texts.ais, date));
+      saveToSheet(withFleetCap_(date, function () { return generateProductivity(texts.rto, texts.ais, date); }));
       rows.forEach(function (rr) { sheet.getRange(rr.sheetRow, iProcessed + 1).setValue(true); });
       rebuilt.push(date);
     } catch (err) {

@@ -158,6 +158,21 @@ stage never overwrites what an earlier day showed.
 | `first_seen` | Date | first date this element appeared |
 | `last_updated` | Date | last date its stage changed |
 
+## Tab: `FleetRoster` — editable machine fleet (build-80)
+
+Written by the Viewer's **⚙ Edit fleet** (`saveFleetRoster` / `deleteFleetRoster`), upserted by
+`effective_from`; can also be edited by hand. One row per machine per change. The Viewer's
+machine cards for a day use, per machine type, the latest change on or before that day (else the
+built-in `DEFAULT_FLEET_ROSTER`: BC Cutter 1 = Area 1, 2–3 = Area 2, 4 = Area 3, 5–6 = Spare;
+Boring Rig 1–3 = Area 1–3, 4 = Spare). The same change sets the hard fleet cap on Save.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `effective_from` | Date (yyyy-mm-dd) | the fleet applies from this day onward; upsert key |
+| `machine_type` | Text | `BC Cutter` / `Boring Rig` (a date with no rows for a type keeps that type's earlier fleet) |
+| `machine_no` | Number | 1, 2, 3 … — shown as e.g. `BC Cutter 3` |
+| `home_area` | Text | `Area 1`–`Area 4`, or `Spare` (blank = Spare) |
+
 ## Tab: `Raw_Logs` — inbound WhatsApp Cloud API audit (full-automation path)
 
 Written by `doPost` in `gas/Webhook.gs` whenever the WhatsApp Business (Meta Cloud)

@@ -113,6 +113,19 @@
   .respanel{margin-top:12px}
   /* Site Machine Layout — KPI cards at the top */
   .sitebanner{margin:16px 0 4px;border-left:4px solid var(--dw)}
+  /* ⚙ Edit fleet — machine count + home Area per machine, from a date */
+  .fleeteditor{margin:4px 0 12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--plane)}
+  .fleettop{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin-bottom:10px}
+  .fleettop label{display:flex;flex-direction:column;font-size:11.5px;color:var(--ink2);gap:3px}
+  .fleeteditor input,.fleeteditor select{margin:0;padding:5px 8px;border-radius:8px;
+    border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:13px}
+  .fleetcols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .fleetcol{display:flex;flex-direction:column;gap:6px}
+  .fleetrow{display:flex;align-items:center;gap:8px}
+  .fleetname{flex:1;font-size:12.5px;font-weight:600;white-space:nowrap}
+  .fleetcol > button.f-add{align-self:flex-start}
+  .fleetbtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  @media (max-width:520px){.fleetcols{grid-template-columns:1fr}}
   .marea{margin-top:12px}
   .marea:first-child{margin-top:2px}
   .mareahead{font-size:12.5px;font-weight:700;color:var(--ink);padding:6px 10px;border-radius:8px;

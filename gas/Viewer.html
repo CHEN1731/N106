@@ -67,8 +67,14 @@
           <div class="kpi cw"><div class="v" id="kCW">–</div><div class="k">Cross Walls (CW)</div></div>
         </div>
         <div class="panel sitebanner">
-          <h2>Machine Status &amp; Element Lifecycle</h2>
-          <p class="sub" id="siteSub">6 BC Cutters &amp; 4 Boring Rigs — with the elements each is working</p>
+          <div class="acthead">
+            <div>
+              <h2>Machine Status &amp; Element Lifecycle</h2>
+              <p class="sub" id="siteSub">6 BC Cutters &amp; 4 Boring Rigs — with the elements each is working</p>
+            </div>
+            <button id="fleetToggle" class="linky" title="Change the number of machines or the Area each one is in">⚙ Edit fleet</button>
+          </div>
+          <div id="fleetEditor" class="fleeteditor" hidden></div>
           <div id="siteMachines" class="sitegrid"></div>
         </div>
       </section>

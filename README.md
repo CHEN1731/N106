@@ -135,7 +135,13 @@ with them (the Area KPIs, charts, and activity table stay below):
   Boring Rig 1; **Area 2** = BC Cutter 2 & 3 + Boring Rig 2; **Area 3** = BC Cutter 4 + Boring Rig 3;
   **spares** = BC Cutter 5 & 6 + Boring Rig 4 (shown under *Idle / Standby* until an area has more
   machines working than its home slots, then a spare is "called up" into that area with a
-  *spare · called up* tag). Edit `FLEET_ROSTER` if machines are permanently reassigned.
+  *spare · called up* tag). That is the built-in roster (`DEFAULT_FLEET_ROSTER`). **⚙ Edit fleet**
+  (build-80) on the panel changes it without code: add / remove machines (the total) and set each
+  machine's home **Area 1–4 or Spare** — for a move (e.g. BC Cutter 3 from Area 2 to Area 3) or a
+  machine standing idle that the WhatsApp chat never mentions. A change **applies from a chosen date
+  onward** (default: the day shown); earlier days keep the fleet they had, and the change saved for a
+  date can be removed again. It is stored in the **`FleetRoster`** tab and also sets the hard fleet
+  cap used when a day is saved (`withFleetCap_`), so a fleet of 7 BC Cutters keeps 7 cards.
   Element ids are **canonicalised** (`normElId_` / the Viewer's `normId`): a separated `BP`
   prefix, dash variants, and **leading zeros** are normalised
   (`BP U7-3` = `BP-U7-3` = `U7–3` = `U7-3`; `DW06` = `DW6`), and an element is deduped
