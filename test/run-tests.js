@@ -1140,6 +1140,96 @@ console.log('\nRebar / casting follow-ups on the machine cards (build-81):');
     'DW669 history: Excavation (Nov 4) -> Rebar (Nov 5) -> Completed (Nov 6)');
 })();
 
+console.log('\nMicropiles / grouting / test coring are not machine work (build-82):');
+(function () {
+  var ok = sandbox.machineElementOk_;
+  assert(!ok('L-RW5-94', 'rig') && !ok('BP L-RW5-94', 'rig') && !ok('RW41A', 'rig') && !ok('BPS', 'rig'),
+    'micropile L-RW5-94 (even as "BP L-RW5-94"), recharge well RW41A and a bare "BPs" are not rig elements');
+  assert(ok('BP-P157', 'rig') && ok('BP-T12A-2', 'rig') && ok('T3-5', 'rig') && ok('U7-3', 'rig') && ok('P157', 'rig'),
+    'real bored piles (BP-P157, BP-T12A-2, T3-5, U7-3, P157) are rig elements');
+  assert(ok('DW669', 'bc') && ok('CW 193', 'bc') && ok('BT20-2', 'bc') && !ok('BP-P157', 'bc') && !ok('DW669', 'rig'),
+    'DW / CW / BT belong to a BC Cutter only; a BP never goes on a cutter, a DW never on a rig');
+
+  // Save time: what the AI might return for the Nov 6 micropile message.
+  var ev = 'Micro plie L-RW5-94 boring work in progress Current depth:21.0m/31.131m';
+  function rigs(raw, acts) { return normalizeMachineStatus_(raw, acts || []).boringRigs
+    .map(function (m) { return m.machineState + ':' + m.workingOnElements.map(function (e) { return e.elementId; }).join('+'); }); }
+  function aiRig(els, evidence, state) { return { bcCutters: [], boringRigs: [{ machineId: 'Boring Rig 2', area: 'Area 2',
+    location: 'OPP LAMH', machineState: state || 'Active', workingOnElements: els, evidence: evidence }] }; }
+  assert(rigs(aiRig([{ elementId: 'L-RW5-94', lifecycleStage: 'Excavation', depth: 21 }], ev)).length === 0, 'AI micropile element L-RW5-94 -> no Boring Rig');
+  assert(rigs(aiRig([{ elementId: 'BP L-RW5-94' }], ev)).length === 0, 'AI micropile labelled "BP L-RW5-94" -> no Boring Rig');
+  assert(rigs(aiRig([], ev)).length === 0, 'AI micropile with no element -> no rig card at all (not even Idle)');
+  assert(rigs(aiRig([], 'TAM GROUTING WORK BH NO:UJ-38 Depth :24.61m~24.11m', 'Idle')).length === 0, 'TAM grouting -> no rig card');
+  assert(rigs(null, [{ elementId: '', section: 'CJC CM/SCT', area: 'Area 2', activity: 'Mock Up Test Drilling & Coring CASE-D Depth: 3.0m Coring in progress' }]).length === 0,
+    'mock-up test drilling & coring -> no rig card');
+  var real = rigs(aiRig([{ elementId: 'BP-T12A-2', depth: 6 }], 'BP-T12A-2 Boring work commenced Current depth: 6.0m'));
+  assert(real.length === 1 && real[0] === 'Active:BP-T12A-2', 'a real bored pile with boring / depth is still on a Boring Rig');
+  assert(rigs(null, [{ elementId: '', section: 'Gate 16', area: 'Area 3', activity: 'Boring rig moving to gate 16' }]).join() === 'Idle:',
+    'a named boring rig moving is still kept as an Idle card');
+
+  // Saved JSON: what is already in DailySummaries.
+  var saved = { bcCutters: [{ machineId: 'BC Cutter 1', area: 'Area 3', machineState: 'Active', workingOnElements: [{ elementId: 'DW669' }] },
+      { machineId: 'BC Cutter 2', area: 'Area 1', machineState: 'Maintenance', workingOnElements: [], evidence: 'BC cutter wheel maintenance' }],
+    boringRigs: [{ machineId: 'Boring Rig 1', area: 'Area 2', machineState: 'Active', workingOnElements: [{ elementId: 'L-RW5-94', depth: 21 }], evidence: ev },
+      { machineId: 'Boring Rig 2', area: 'Area 3', machineState: 'Active', workingOnElements: [{ elementId: 'BP-P157' }, { elementId: 'L-RW5-93' }] },
+      { machineId: 'Boring Rig 3', area: 'Area 2', machineState: 'Idle', workingOnElements: [], evidence: 'TAM GROUTING WORK Depth :24.61m' },
+      { machineId: 'Boring Rig 4', assignedIds: ['L-RW5-94', 'T3-5'] }] };
+  var res = sandbox.sanitizeMachineStatus_(saved);
+  assert(res.machine.bcCutters.length === 2, 'cutter cards (DW669, the maintenance one) are untouched');
+  assert(JSON.stringify(res.machine.boringRigs.map(function (m) { return m.machineId + ':' +
+      (m.workingOnElements || m.assignedIds).map(function (e) { return e.elementId || e; }).join('+'); })) ===
+    JSON.stringify(['Boring Rig 2:BP-P157', 'Boring Rig 4:T3-5']),
+    'saved rigs: micropile-only card dropped, BP-P157 kept without L-RW5-93, grouting card dropped, legacy ids filtered');
+  assert(res.removed.length === 4, 'every removal is reported (L-RW5-94, L-RW5-93, the grouting card, legacy L-RW5-94)');
+  assert(saved.boringRigs[1].workingOnElements.length === 2, 'the input object is not modified');
+
+  // One-time sheet cleanup, on an in-memory spreadsheet.
+  function mockSs(tabs) {
+    function sheet(name) {
+      var o = { data: tabs[name] };
+      o.getLastRow = function () { return o.data.length; };
+      o.getDataRange = function () { return { getValues: function () { return o.data.map(function (r) { return r.slice(); }); } }; };
+      o.getRange = function (r, c, nr, nc) { return {
+        setValue: function (v) { o.data[r - 1][c - 1] = v; },
+        setValues: function (vals) { vals.forEach(function (row, i) { o.data[r - 1 + i] = row.slice(); }); },
+        setFontWeight: function () {} }; };
+      o.clearContents = function () { o.data = []; tabs[name] = o.data; };
+      o.setFrozenRows = function () {};
+      return o;
+    }
+    var made = {};
+    return { tabs: function () { Object.keys(made).forEach(function (k) { tabs[k] = made[k].data; }); return tabs; },
+      getSheetByName: function (n) { if (!tabs[n]) return null; return made[n] || (made[n] = sheet(n)); },
+      insertSheet: function (n) { tabs[n] = []; return (made[n] = sheet(n)); } };
+  }
+  var tabs = {
+    DailySummaries: [sandbox.SUMMARY_HEADER,
+      ['2026-11-05', 0, 0, 1, 1, JSON.stringify({ bcCutters: [], boringRigs: [{ machineId: 'Boring Rig 2', machineState: 'Active', workingOnElements: [{ elementId: 'BP-P157' }] }] }), '{}', '{}'],
+      ['2026-11-06', 230, 0, 1, 2, JSON.stringify(saved), '{}', '{}']],
+    DailyMachineLogs: [sandbox.MACHINE_LOG_HEADER,
+      ['2026-11-05', 'Boring Rig 2', 'rig', 'Area 3', '', 'Active', 'BP-P157:Excavation', ''],
+      ['2026-11-06', 'Boring Rig 1', 'rig', 'Area 2', 'OPP LAMH', 'Active', 'L-RW5-94:Excavation@21m', ev]],
+    ElementTracker: [sandbox.ELEMENT_TRACKER_HEADER,
+      ['DW669', 'DW', 'Area 3', '', 'Excavation', 'BC Cutter 1', '2026-11-04', '2026-11-04'],
+      ['L-RW5-94', '', 'Area 2', 'OPP LAMH', 'Excavation', 'Boring Rig 1', '2026-11-06', '2026-11-06'],
+      ['BP-P157', 'BP', 'Area 3', '', 'Excavation', 'Boring Rig 2', '2026-11-05', '2026-11-05']]
+  };
+  var ss = mockSs(tabs);
+  var rep = sandbox.cleanupMachineStatusIn_(ss);
+  var t = ss.tabs();
+  var nov6 = JSON.parse(t.DailySummaries[2][5]);
+  assert(rep.dates.join() === '2026-11-06' && !/L-RW5/.test(t.DailySummaries[2][5]) && /BP-P157/.test(t.DailySummaries[2][5]),
+    'cleanup: Nov 6 DailySummaries machine JSON loses the micropile, keeps BP-P157');
+  assert(t.DailySummaries[2][3] === 2 && t.DailySummaries[2][4] === 2 && nov6.boringRigs.length === 2,
+    'cleanup: active_cutters / active_rigs recounted from the cleaned JSON');
+  assert(t.DailySummaries[1][5] === tabs.DailySummaries[1][5], 'cleanup: a clean day (Nov 5) is left exactly as it was');
+  var logs = t.DailyMachineLogs.slice(1).map(function (r) { return r[0] + ' ' + r[1] + ' ' + r[6]; });
+  assert(logs[0] === '2026-11-05 Boring Rig 2 BP-P157:Excavation' && !logs.some(function (l) { return /L-RW5/.test(l); }) &&
+    logs.some(function (l) { return /2026-11-06 Boring Rig 2 BP-P157/.test(l); }), 'cleanup: Nov 6 DailyMachineLogs rebuilt without the micropile; Nov 5 kept');
+  assert(t.ElementTracker.slice(1).map(function (r) { return r[0]; }).join() === 'DW669,BP-P157', 'cleanup: L-RW5-94 removed from ElementTracker');
+  assert(rep.lines.length === 3 && sandbox.cleanupMachineStatusIn_(mockSs(t)).lines.length === 0, 'cleanup reports what it did; running it again changes nothing');
+})();
+
 console.log('\nAI one-row-per-location activities (build-77; mocked Messages API):');
 (function () {
   var props = { ANTHROPIC_API_KEY: 'test-key' };

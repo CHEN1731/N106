@@ -496,7 +496,9 @@ var PRODUCTIVITY_SYSTEM =
   'casting (and no bite / drilling indicator) must NOT be logged on a machine. They only set the ' +
   'lifecycleStage of an element already logged via bite / drilling (rebar cage = Rebar; casting = ' +
   'Concreting, or Completed when done). If an element has no bite (BC) / depth-bore-core (rig), do NOT ' +
-  'log it.\n' +
+  'log it. Micropiles ("micro pile" / "micro plie", e.g. L-RW5-94), mini piles, TAM / JGP grouting, ' +
+  'recharge wells and mock-up / SI drilling & coring are other trades\' work, NOT a Boring Rig, even ' +
+  'when they say boring / depth — never log them on a machine.\n' +
   '- NEST the worked elements inside the machine: each machine object is { machineId, area, ' +
   'location, machineState, workingOnElements:[{ elementId, lifecycleStage, depth }], evidence }. ' +
   '"lifecycleStage" is exactly "Excavation", "Rebar", "Concreting", or "Completed" (the ' +
@@ -936,6 +938,64 @@ var BITE_RE = /\bbite\b/i;
 // core, coring (build-78; a BP report doesn't always state a depth). "bored pile" alone is just
 // the element-type name and "boring rig" alone is the machine's own name: neither is work.
 var RIG_TRIGGER_RE = /\bdepth\b|\bbor(?:e|es|ing)\b(?!\s*rigs?\b)|\bbored\b(?!\s*piles?\b)|\bcor(?:e|es|ed|ing)\b/i;
+// Other trades' drilling that says "boring" / "depth" but is NOT our BC Cutter / Boring Rig work
+// (build-82): micropiles (incl. the "micro plie" typo, e.g. L-RW5-94), mini piles, TAM / JGP
+// grouting, recharge wells, mock-up / SI coring, starter-bar / waler / anchor drilling, soil nails.
+var NOT_MACHINE_RE = /micro\s*-?\s*p(?:ile|lie)s?|mini\s*-?\s*piles?|\bgrout|\bTAM\b|\bJGP\b|recharge\s*well|mock\s*-?\s*up|starter\s*bars?|waler|\banchors?\b|soil\s*nail/i;
+// Ids that are never a machine's element: retaining-wall micropiles (L-RW5-94), recharge wells (RW41A, RW-ST-11).
+var NOT_MACHINE_ID_RE = /(?:^|[^A-Z])RW[-\s]?(?:ST|\d)|^MP[-\s]?\d/i;
+
+/**
+ * True when `id` is a real element of the machine family: a DW / BT / CW for a BC Cutter ('bc'),
+ * a bored pile for a Boring Rig ('rig': BP…, or a bare pile code like T9-3 / U7-3 / P157).
+ */
+function machineElementOk_(id, family) {
+  var s = String(id == null ? '' : id).toUpperCase().replace(/\s+/g, '');
+  if (!/\d/.test(s) || NOT_MACHINE_ID_RE.test(s)) return false;
+  if (family === 'rig') return /^BP/.test(s) || /^[A-Z]\d+[A-Z]?-\d+$/.test(s) || /^P\d+$/.test(s);
+  return /^(?:DW|BT|CW)/.test(s);
+}
+
+/** Evidence with no element that is another trade's drilling (micropile / grouting / test coring…). */
+function notMachineEvidence_(text, family) {
+  var t = String(text == null ? '' : text);
+  return NOT_MACHINE_RE.test(t) && !mentionsMachine_(t, family);
+}
+
+/**
+ * Drop what isn't BC Cutter / Boring Rig work from a SAVED machine node (build-82): elements of the
+ * wrong family or micropile / recharge-well ids, cards left with no element (they were only
+ * "working" on those), and element-less cards whose evidence is another trade's drilling.
+ * Pure. -> { machine: { bcCutters, boringRigs }, removed: [what was dropped] }
+ */
+function sanitizeMachineStatus_(machine) {
+  machine = machine || {};
+  var removed = [];
+  function clean(list, family) {
+    var out = [];
+    (Array.isArray(list) ? list : []).forEach(function (m) {
+      if (!m) return;
+      var c = {};
+      for (var k in m) c[k] = m[k];
+      var key = Array.isArray(m.workingOnElements) && m.workingOnElements.length ? 'workingOnElements'
+        : (Array.isArray(m.assignedIds) && m.assignedIds.length ? 'assignedIds' : '');
+      if (key) {
+        c[key] = m[key].filter(function (e) {
+          var id = key === 'assignedIds' ? e : (e && e.elementId);
+          if (machineElementOk_(id, family)) return true;
+          removed.push(String(id == null ? '' : id));
+          return false;
+        });
+        if (c[key].length) out.push(c);
+        return;
+      }
+      if (notMachineEvidence_(m.evidence || m.activity, family)) { removed.push(String(m.evidence || m.activity).slice(0, 60)); return; }
+      out.push(c);
+    });
+    return out;
+  }
+  return { machine: { bcCutters: clean(machine.bcCutters, 'bc'), boringRigs: clean(machine.boringRigs, 'rig') }, removed: removed };
+}
 var REBAR_CAGE_RE = /rebar|reinforc|steel\s*fix/i;
 
 // Element lifecycle stages, ordered so a stage only ever advances.
@@ -1212,6 +1272,10 @@ function normalizeMachineStatus_(raw, mergedActivities) {
     // family trigger — "bite" for a BC Cutter, "depth" for a Boring Rig. Casting / rebar cage
     // alone never attach (they only refine an already-attached element's stage).
     if (!machineTrigger_(ev, family)) return;
+    // Only a real element of this family (no micropile on a rig); with no id, only evidence that
+    // isn't another trade's drilling (micropile / grouting / test coring …) — build-82.
+    var eid0 = String(elementId == null ? '' : elementId).trim();
+    if (eid0 ? !machineElementOk_(eid0, family) : notMachineEvidence_(ev, family)) return;
     // This reading's machine state — the LATEST reading processed wins (no sticky maintenance):
     // prefer an explicit (AI) state, else derive from the evidence. Element-bearing -> hasWork true.
     var st = clampMachineState_(stateHint) || machineStateFromEvidence_(ev, true);
@@ -1274,6 +1338,7 @@ function normalizeMachineStatus_(raw, mergedActivities) {
   // already represented, possibly deployed); it only upgrades that card to Maintenance.
   function addMentionCard(family, area, location, ev, stateHint) {
     var evS = String(ev == null ? '' : ev);
+    if (notMachineEvidence_(evS, family)) return;   // a micropile / grouting rig is not ours
     var state = clampMachineState_(stateHint) || machineStateFromEvidence_(evS, false);
     area = areaFromSection_(location) || normAreaName_(area) || '';
     var loc = String(location == null ? '' : location).trim();
@@ -1950,6 +2015,8 @@ if (typeof module !== 'undefined' && module.exports) {
     elementStageForward_: elementStageForward_,
     elementStageHistory_: elementStageHistory_,
     machineFollowUps_: machineFollowUps_,
+    machineElementOk_: machineElementOk_,
+    sanitizeMachineStatus_: sanitizeMachineStatus_,
     followUpStageFor_: followUpStageFor_,
     elementSegments_: elementSegments_,
     clampLifecycle_: clampLifecycle_,

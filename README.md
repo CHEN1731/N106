@@ -121,7 +121,16 @@ with them (the Area KPIs, charts, and activity table stay below):
   BC Cutter (DW/BT/CW), or for a Boring Rig (BP) **depth** or a boring / coring word — **bore,
   boring, bored, core, coring** (`RIG_TRIGGER_RE`, build-78; a BP report doesn't always state a
   depth). "Bored pile" alone (the element type) and "boring rig" alone (the machine name) are not
-  work and don't count. **Rebar cage / casting are NOT
+  work and don't count. **Only real elements go on a machine** (build-82): DW / BT / CW on a BC
+  Cutter, a bored pile (BP…, T9-3, U7-3, P157) on a Boring Rig. **Micropiles** (e.g. `L-RW5-94`,
+  also the "micro plie" typo), mini piles, TAM / JGP grouting, recharge wells and mock-up / SI
+  drilling & coring say "boring" / "depth" too, but are other trades' work and are never logged
+  on a machine (`machineElementOk_`, `NOT_MACHINE_RE`). This is applied on Save and again when
+  the Viewer reads `DailySummaries`. To clean days saved before build-82 **in the sheet itself**,
+  run **`cleanupMachineStatus`** once from the Apps Script editor (Run, then View → Logs): it
+  rewrites each affected `DailySummaries.machine_status_json` (+ `active_cutters` /
+  `active_rigs`), rebuilds those dates' `DailyMachineLogs`, removes the ids from `ElementTracker`,
+  and logs every removal. It only removes and is safe to run again. **Rebar cage / casting are NOT
   triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
   counted; they only refine the stage of an element already logged via bite/depth.
   **Follow-ups (build-81):** once a machine has dug / bored an element, that element comes back

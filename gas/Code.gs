@@ -90,7 +90,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-81 · dug elements stay on the machine card through rebar / casting';
+var APP_VERSION = 'build-82 · micropiles / grouting / test coring never logged as machine work';
 
 /**
  * Route:
@@ -205,7 +205,8 @@ function saveToSheet(result) {
 
   // DailySummaries: the Resource & Production nodes for this date (Machine / Excavation /
   // RC), stringified + a few flat convenience numbers. New tab — never breaks other rows.
-  var machine = result.machineStatus || { bcCutters: [], boringRigs: [] };
+  // Never store another trade's drilling (e.g. a micropile) as BC Cutter / Boring Rig work (build-82).
+  var machine = sanitizeMachineStatus_(result.machineStatus || { bcCutters: [], boringRigs: [] }).machine;
   var excav = result.excavation || { totalVolumeOrLoads: 0, activeExcavations: [] };
   var rc = result.reinforcedConcrete || { totalConcreteVolumeM3: 0, rcActivities: [] };
   upsertByDate_(ss, TABS.summaries, SUMMARY_HEADER, 0, [[
@@ -256,19 +257,10 @@ function saveMachinesAndElements_(ss, date, machine) {
     });
   }
 
-  var logRows = [];
+  var logRows = machineLogRows_(date, machine);   // Action A — daily machine log rows
   fleet.forEach(function (m) {
     m = m || {};
-    var family = m.family || '';
     var els = Array.isArray(m.workingOnElements) ? m.workingOnElements : [];
-    // Action A — daily machine log row.
-    var elemStr = els.map(function (e) {
-      var s = (e.elementId || '') + ':' + (e.lifecycleStage || '');
-      if (e.depth != null && e.depth !== '' && Number(e.depth) > 0) s += '@' + e.depth + 'm';
-      return s;
-    }).filter(function (s) { return s !== ':'; }).join(', ');
-    logRows.push([date, m.machineId || '', family, m.area || '', m.location || '',
-      m.machineState || '', elemStr, m.evidence || '']);
 
     // Action B — upsert each element's lifecycle (advance only).
     els.forEach(function (e) {
@@ -304,6 +296,86 @@ function saveMachinesAndElements_(ss, date, machine) {
     return [r.element_id, r.type, r.area, r.location, r.lifecycle_stage, r.last_machine, r.first_seen, r.last_updated];
   });
   writeTable_(ss, TABS.elementTracker, ELEMENT_TRACKER_HEADER, elRows);
+}
+
+/** DailyMachineLogs rows for one date: one per machine, elements as "DW1547:Excavation@21.5m". */
+function machineLogRows_(date, machine) {
+  machine = machine || {};
+  return (machine.bcCutters || []).concat(machine.boringRigs || []).map(function (m) {
+    m = m || {};
+    var els = Array.isArray(m.workingOnElements) ? m.workingOnElements : [];
+    var elemStr = els.map(function (e) {
+      var s = (e.elementId || '') + ':' + (e.lifecycleStage || '');
+      if (e.depth != null && e.depth !== '' && Number(e.depth) > 0) s += '@' + e.depth + 'm';
+      return s;
+    }).filter(function (s) { return s !== ':'; }).join(', ');
+    return [date, m.machineId || '', m.family || '', m.area || '', m.location || '',
+      m.machineState || '', elemStr, m.evidence || ''];
+  });
+}
+
+/**
+ * MAINTENANCE (build-82) — run ONCE from the Apps Script editor (pick cleanupMachineStatus -> Run),
+ * then see View -> Logs. Removes what was wrongly saved as BC Cutter / Boring Rig work on days
+ * already saved (e.g. the micropile L-RW5-94 on a Boring Rig): rewrites each affected
+ * DailySummaries machine_status_json (+ active_cutters / active_rigs), rebuilds that date's
+ * DailyMachineLogs rows, and deletes those ids from ElementTracker. Only removes; safe to re-run.
+ */
+function cleanupMachineStatus() {
+  var ss = getSpreadsheet_();
+  var report = cleanupMachineStatusIn_(ss);
+  Logger.log(report.lines.length ? report.lines.join('\n') : 'Nothing to remove — machine status is clean.');
+  return report;
+}
+
+/** The work of cleanupMachineStatus on spreadsheet `ss` (separate so it can be tested). */
+function cleanupMachineStatusIn_(ss) {
+  var lines = [], changed = {};
+  var sheet = ss.getSheetByName(TABS.summaries);
+  if (sheet && sheet.getLastRow() > 1) {
+    var values = sheet.getDataRange().getValues(), header = values[0];
+    var cJson = header.indexOf('machine_status_json'), cBc = header.indexOf('active_cutters'),
+      cRig = header.indexOf('active_rigs'), cDate = header.indexOf('date');
+    for (var r = 1; r < values.length && cJson >= 0; r++) {
+      var raw = String(values[r][cJson] == null ? '' : values[r][cJson]).trim(), parsed;
+      if (!raw) continue;
+      try { parsed = JSON.parse(raw); } catch (e) { continue; }
+      var res = sanitizeMachineStatus_(parsed);
+      if (!res.removed.length) continue;
+      var date = toDateStr_(values[r][cDate]);
+      changed[date] = res.machine;
+      sheet.getRange(r + 1, cJson + 1).setValue(JSON.stringify(res.machine));
+      if (cBc >= 0) sheet.getRange(r + 1, cBc + 1).setValue(countActive_(res.machine.bcCutters));
+      if (cRig >= 0) sheet.getRange(r + 1, cRig + 1).setValue(countActive_(res.machine.boringRigs));
+      lines.push(date + ' DailySummaries: removed ' + res.removed.join(', '));
+    }
+  }
+  // DailyMachineLogs: rebuild the changed dates from the cleaned machine status, keep other dates.
+  var dates = Object.keys(changed);
+  if (dates.length && ss.getSheetByName(TABS.machineLogs)) {
+    var kept = readTable_(ss, TABS.machineLogs).filter(function (row) { return !changed[toDateStr_(row.date)]; })
+      .map(function (row) { return MACHINE_LOG_HEADER.map(function (h) { return row[h]; }); });
+    dates.forEach(function (d) { kept = kept.concat(machineLogRows_(d, changed[d])); });
+    kept.sort(function (a, b) { var x = toDateStr_(a[0]), y = toDateStr_(b[0]); return x < y ? -1 : (x > y ? 1 : 0); });
+    writeTable_(ss, TABS.machineLogs, MACHINE_LOG_HEADER, kept);
+    lines.push('DailyMachineLogs: rebuilt ' + dates.sort().join(', '));
+  }
+  // ElementTracker: drop ids that are not a BC Cutter / Boring Rig element.
+  if (ss.getSheetByName(TABS.elementTracker)) {
+    var gone = [];
+    var rows = readTable_(ss, TABS.elementTracker).filter(function (row) {
+      var id = String(row.element_id == null ? '' : row.element_id).trim();
+      var ok = machineElementOk_(id, 'bc') || machineElementOk_(id, 'rig');
+      if (!ok) gone.push(id);
+      return ok;
+    });
+    if (gone.length) {
+      writeTable_(ss, TABS.elementTracker, ELEMENT_TRACKER_HEADER, rows.map(function (row) {
+        return ELEMENT_TRACKER_HEADER.map(function (h) { return row[h]; }); }));
+      lines.push('ElementTracker: removed ' + gone.join(', '));
+    }
+  }
+  return { lines: lines, dates: dates.sort() };
 }
 
 /** Canonical machine type ('BC Cutter' | 'Boring Rig'), or '' if unrecognised. */
@@ -662,7 +734,8 @@ function getReport() {
       totalLoads: Number(row.total_loads) || 0,
       activeCutters: Number(row.active_cutters) || 0,
       activeRigs: Number(row.active_rigs) || 0,
-      machineStatus: parseJson_(row.machine_status_json, { bcCutters: [], boringRigs: [] }),
+      // cleaned on read too (build-82), so a micropile saved earlier never shows on a machine card
+      machineStatus: sanitizeMachineStatus_(parseJson_(row.machine_status_json, { bcCutters: [], boringRigs: [] })).machine,
       excavation: parseJson_(row.excavation_json, { totalVolumeOrLoads: 0, activeExcavations: [] }),
       reinforcedConcrete: parseJson_(row.rc_json, { totalConcreteVolumeM3: 0, rcActivities: [] })
     };
