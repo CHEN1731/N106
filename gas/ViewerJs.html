@@ -4,6 +4,7 @@
   var SUMMARIES = [];  // Resource & Production nodes per date (asc by date)
   var ELEMENT_STAGE_LOG = {};  // elementId(normalised) -> [{date, stage}] forward-only stage per day
   var FLEET_ROSTERS = [];   // saved fleet changes [{effectiveFrom, roster}] (FleetRoster tab), asc by date
+  var MACHINE_FOLLOWUPS = {}; // date -> [{elementId, family, area, location, lifecycleStage}] dug earlier, rebar / casting that day
   var EL_AREA = {};         // elementId(normalised) -> its Area (from activities), for card area
   var EL_LOC = {};          // elementId(normalised) -> its location/section (from activities)
   var EL_KNOWN = {};        // elementId(normalised) -> true if it appears in the activities
@@ -94,6 +95,7 @@
     SUMMARIES = ((report && report.summaries) || []).slice().sort(function(a,b){
       return String(a.date)<String(b.date)?-1:(String(a.date)>String(b.date)?1:0); });
     ELEMENT_STAGE_LOG = (report && report.elementStageLog) || {};
+    MACHINE_FOLLOWUPS = (report && report.machineFollowUps) || {};
     FLEET_ROSTERS = ((report && report.fleetRosters) || []).slice().sort(function(a,b){
       return a.effectiveFrom<b.effectiveFrom?-1:(a.effectiveFrom>b.effectiveFrom?1:0); });
     EXCAV_PROGRESS = (report && report.excavationProgress) || [];
@@ -415,6 +417,20 @@
         if (seenEl[k]) return false; seenEl[k]=1; return true;
       });
     });
+    // Follow-ups (build-81): an element a machine dug earlier whose rebar cage / casting is reported
+    // this day goes back on a same-type card in its Area (badge Rebar / Concreting / Completed).
+    // It never makes a machine Active — with no machine working there it sits on an Idle card.
+    (MACHINE_FOLLOWUPS[(sum && sum.date) || ''] || []).forEach(function(f){
+      var k = normId(f.elementId); if (!k || seenEl[k]) return; seenEl[k]=1;
+      var type = f.family==='rig' ? 'Boring Rig' : 'BC Cutter';
+      var e = { elementId:f.elementId, lifecycleStage:f.lifecycleStage||'', depth:null, followUp:true,
+        location: f.location || EL_LOC[k] || '', area: f.area || EL_AREA[k] || areaFromSectionJS_(f.location) || '' };
+      function inArea(onlyWorked){ return machines.filter(function(mc){ return mc.type===type &&
+        mc.workingOnElements.some(function(x){ return (!onlyWorked || !x.followUp) && (x.area||'Others')===(e.area||'Others'); }); })[0]; }
+      var host = inArea(true) || inArea(false);
+      if (host) host.workingOnElements.push(e);
+      else machines.push({ type:type, machineId:type, area:e.area, location:e.location, machineState:'Idle', workingOnElements:[e], evidence:'' });
+    });
     // Split each element-bearing card so every card holds exactly ONE area (per-element area).
     // Element-less cards are idle / maintenance machines — keep them aside to place after folding.
     var split = [], idleMentions = [];
@@ -471,13 +487,14 @@
             workingOnElements:(t.src.workingOnElements||[]).concat(c.workingOnElements||[]), evidence:t.src.evidence };
         }
       });
-      // 3) materialise one card per slot (unfilled home slot -> Idle in its area; unused spare -> Idle)
+      // 3) materialise one card per slot (unfilled home slot -> Idle in its area; unused spare -> Idle).
+      // Only bite / depth work makes a slot Active — rebar / casting follow-ups don't.
       return slots.map(function(s){
-        var src = s.src;
+        var src = s.src, worked = !!src && (src.workingOnElements||[]).some(function(e){ return !e.followUp; });
         return { type:type, machineId:type+' '+s.num, area:(src ? (s.area||src.area) : s.home)||'',
-          machineState: src ? (src.machineState==='Maintenance' ? 'Maintenance' : (src.workingOnElements&&src.workingOnElements.length ? 'Active':'Idle')) : 'Idle',
+          machineState: src ? (src.machineState==='Maintenance' ? 'Maintenance' : (worked ? 'Active':'Idle')) : 'Idle',
           workingOnElements: src ? (src.workingOnElements||[]) : [], evidence: src ? (src.evidence||'') : '',
-          spare: !s.home, calledUp: (!s.home && !!src) };
+          spare: !s.home, calledUp: (!s.home && worked) };
       });
     }
     var bcCards = rosterCards('BC Cutter'), rigCards = rosterCards('Boring Rig');
@@ -491,18 +508,22 @@
     function cleanLoc(s){ return String(s||'').replace(/^Sec-[A-E]\s*\/\s*/i,'').trim(); }
     function cardHtml(mc){
       var cls=stateClass(mc.machineState);
-      var body = mc.workingOnElements.length
-        ? '<div class="midlabel">Working on:</div>' + mc.workingOnElements.map(function(e){
+      function elRow(e){
         var stage = stageAsOf(e.elementId, sum && sum.date) || e.lifecycleStage || 'Excavation';
         var lc = lcClass(stage);
-        var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : parseDepth(mc.evidence);
+        var d = (e.depth!=null && isFinite(Number(e.depth)) && Number(e.depth)>0) ? Number(e.depth) : (e.followUp ? null : parseDepth(mc.evidence));
         var depthTag = (d!=null && d>0) ? '<span class="eldepth">'+d+' m</span>' : '';
         var locTag = e.location ? '<span class="elloc">'+esc(cleanLoc(e.location))+'</span>' : '';
         return '<div class="elrow"><span class="elid">📌 '+esc(e.elementId||'—')+'</span>'+locTag+depthTag+
           '<span class="elarrow">➔</span><span class="lcbadge '+lc+'">'+(LC_ICON[lc]||'')+' '+esc(stage)+'</span></div>';
-      }).join('')
+      }
+      var worked = mc.workingOnElements.filter(function(e){ return !e.followUp; });
+      var follow = mc.workingOnElements.filter(function(e){ return e.followUp; });
+      var body = (worked.length
+        ? '<div class="midlabel">Working on:</div>' + worked.map(elRow).join('')
         : '<div class="midlabel idlenote">'+(mc.machineState==='Maintenance'?'Under maintenance':'Idle — no active element')+
-          (mc.evidence?' · '+esc(cleanLoc(mc.evidence)):'')+'</div>';
+          (mc.evidence?' · '+esc(cleanLoc(mc.evidence)):'')+'</div>') +
+        (follow.length ? '<div class="midlabel">Rebar / casting ('+(mc.type==='Boring Rig'?'bored':'dug')+' earlier):</div>' + follow.map(elRow).join('') : '');
       return '<div class="machcard '+cls+'">'+
         '<div class="mtop"><span class="statusdot"></span><span class="mtitle">🚜 '+esc(mc.machineId)+'</span>'+
         (mc.calledUp ? '<span class="sparetag">spare · called up</span>' : '')+

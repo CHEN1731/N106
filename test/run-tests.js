@@ -1078,6 +1078,68 @@ console.log('\nEditable machine fleet (build-80):');
   assert(sandbox.withFleetCap_('2026-10-22', bcCount) === 6, 'no spreadsheet available -> built-in cap (never fails the run)');
 })();
 
+console.log('\nRebar / casting follow-ups on the machine cards (build-81):');
+(function () {
+  function sum(date, bc, rig) { return { date: date, machineStatus: { bcCutters: bc || [], boringRigs: rig || [] } }; }
+  function card(area, els) { return { machineId: 'M', area: area, workingOnElements: els.map(function (e) {
+    return { elementId: e[0], lifecycleStage: e[1] || 'Excavation', area: area }; }) }; }
+  function act(date, section, elementId, text) { return { date: date, area: 'Area 3', section: section, elementId: elementId, activity: text }; }
+  var summaries = [
+    sum('2026-11-06', [card('Area 3', [['DW670']])]),
+    sum('2026-11-04', [card('Area 3', [['DW669'], ['DW1555'], ['DW1536']])], [card('Area 3', [['BP-P157']])]),
+    sum('2026-10-01', [card('Area 3', [['DW700']])])
+  ];
+  var acts = [
+    act('2026-11-05', 'Sec-D/CCL CM', 'DW669', 'DW669 (1.0mx6.0m) Rebar cages lowering & lapping in progress'),
+    act('2026-11-05', 'Sec-D/CCL CM', 'DW700', 'DW700 rebar cage lowering'),
+    act('2026-11-05', 'Sec-D/CCL CM', 'DW999', 'DW999 casting works'),
+    act('2026-11-06', 'Sec-D/CCL CM', 'DW669', 'DW669 (1.0mx6.0m)\nGWT:+6.354mSHD\nConcrete casting\nCasting start :02:59hrs\nCasting finish:11:05hrs\nActual vol;=230.0m³'),
+    act('2026-11-06', 'Sec-D/CCL CM', 'DW670', 'DW670 1st bite excavation 12.5m; rebar cage fabrication'),
+    act('2026-11-06', 'Sec-D', 'DW1555', 'DW1555 & DW1556 premix and concrete hacking in progress.'),
+    act('2026-11-06', 'Sec-A/TMC', 'DW1536', 'DW 1536,1537&1538 Precast deck wall, Inspected rebar H16@150 c/c'),
+    act('2026-11-06', 'Sec D/OPP SJII', 'BP-P157', 'BP-P157(Dia;1.2m) Casting work - tremie pipes lowering completed'),
+    act('2026-11-06', 'Sec-D/EI12', 'BP-P157', 'BP-P157(Dia;1.2m) -LSS (type 1) backfilling commenced & in progress.'),
+    act('2026-11-07', 'Sec-D/CCL CM', 'DW669', 'DW669 casting record submitted')
+  ];
+  var fu = sandbox.machineFollowUps_(summaries, acts);
+  function ids(d) { return (fu[d] || []).map(function (f) { return f.elementId + ':' + f.lifecycleStage; }).sort().join(', '); }
+  assert(ids('2026-11-05') === 'DW669:Rebar', 'Nov 5: DW669 (dug Nov 4) is back on a card at Rebar; DW700 (dug 5 weeks ago) and DW999 (never dug) are not');
+  assert(ids('2026-11-06') === 'BP-P157:Concreting, DW669:Completed',
+    'Nov 6: DW669 casting finished -> Completed; BP-P157 tremie lowering -> Concreting (not "completed")');
+  assert(!/DW1555|DW1556|DW1536|DW670/.test(ids('2026-11-06')),
+    'concrete hacking / inspected rebar are not follow-ups; DW670 is already on a machine that day');
+  assert(!fu['2026-11-07'], 'once Completed, a later "casting record" mention does not bring it back');
+  var dw = fu['2026-11-06'].filter(function (f) { return f.elementId === 'DW669'; })[0];
+  assert(dw.family === 'bc' && dw.area === 'Area 3' && dw.location === 'Sec-D/CCL CM' && dw.followUp === true,
+    'follow-up carries the machine family it was dug by + its own Area / location');
+  assert(fu['2026-11-06'].filter(function (f) { return f.elementId === 'BP-P157'; })[0].family === 'rig', 'a BP follows its Boring Rig');
+
+  assert(sandbox.followUpStageFor_('P157: - casting - clear materials - lss casting') === 'Concreting', 'an LSS casting clause is ignored, the real casting is kept');
+  assert(sandbox.followUpStageFor_('slope protection lean concrete casting in progress') === '', 'lean-concrete casting is not a follow-up');
+  assert(sandbox.followUpStageFor_('casting started 02:59 and finished 11:05 (230m3)') === 'Completed', 'AI wording "casting ... finished" -> Completed');
+  var segs = sandbox.elementSegments_('DW670 1st bite 12.5m, DW669 casting in progress; DW1555 & DW1556 hacking');
+  assert(segs.length === 3 && /bite/.test(segs[0].text) && !/casting/.test(segs[0].text) && /casting/.test(segs[1].text)
+    && segs[2].ids.length === 2, 'one row is split per element; "DW1555 & DW1556" share their text');
+
+  // AI per-location rows: the element first, then the other works there, comma-separated.
+  var aiFu = sandbox.machineFollowUps_([sum('2026-11-04', [card('Area 3', [['DW669'], ['DW670']])])], [
+    act('2026-11-05', 'Sec-D/CCL CM', 'DW670', 'DW670 (1.0x6.0m), 2nd bite excavation progressing then done (21.0 to 30.5m), ' +
+      'DW669 rebar cage lowering done, drain top slab casting with GR40, guide wall GW642/643 casting'),
+    act('2026-11-06', 'Sec-D/CCL CM', 'DW669', 'DW669 (1.0mx6.0m), GWT +6.354mSHD, concrete casting started 02:59hrs and finished ' +
+      '11:05hrs (230.0/230m3), PU grouting at Section Ub base slab, slab rebar installation')]);
+  assert((aiFu['2026-11-05'] || []).map(function (f) { return f.elementId + ':' + f.lifecycleStage; }).join() === 'DW669:Rebar',
+    'AI row: DW669 cage -> Rebar; the drain-slab / guide-wall casting after it is not DW669\'s pour');
+  assert((aiFu['2026-11-06'] || []).map(function (f) { return f.elementId + ':' + f.lifecycleStage; }).join() === 'DW669:Completed',
+    'AI row: "concrete casting started … and finished" -> Completed');
+
+  // The stage history includes the follow-ups, so each day's badge is frozen at that day's stage.
+  var h = sandbox.elementStageHistory_(summaries.concat(Object.keys(fu).map(function (d) {
+    return { date: d, machineStatus: { bcCutters: [{ workingOnElements: fu[d] }], boringRigs: [] } }; })));
+  assert(JSON.stringify(h.DW669) === JSON.stringify([{ date: '2026-11-04', stage: 'Excavation' },
+    { date: '2026-11-05', stage: 'Rebar' }, { date: '2026-11-06', stage: 'Completed' }]),
+    'DW669 history: Excavation (Nov 4) -> Rebar (Nov 5) -> Completed (Nov 6)');
+})();
+
 console.log('\nAI one-row-per-location activities (build-77; mocked Messages API):');
 (function () {
   var props = { ANTHROPIC_API_KEY: 'test-key' };

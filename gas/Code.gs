@@ -90,7 +90,7 @@ function debugGetReport() {
 
 // Bump this on every deploy so the running version is visible in the browser —
 // if the Viewer doesn't show this string, the deployed code is stale/wrong.
-var APP_VERSION = 'build-80 · editable machine fleet (count + home Area, from a date)';
+var APP_VERSION = 'build-81 · dug elements stay on the machine card through rebar / casting';
 
 /**
  * Route:
@@ -673,7 +673,12 @@ function getReport() {
   // Per-day lifecycle history (id -> [{date, stage}]) from the daily machine snapshots, so the
   // machine cards show each element's tracked stage AS OF the day being viewed. ElementTracker
   // only holds the latest stage, which made older days show today's stage (build-79).
-  var elementStageLog = elementStageHistory_(summaries);
+  // Follow-ups (build-81): a dug element's rebar cage / casting days, shown back on its machine
+  // card. They also feed the per-day stage history, so those days read Rebar / Concreting.
+  var machineFollowUps = machineFollowUps_(summaries, activities);
+  var elementStageLog = elementStageHistory_(summaries.concat(Object.keys(machineFollowUps).map(function (d) {
+    return { date: d, machineStatus: { bcCutters: [{ workingOnElements: machineFollowUps[d] }], boringRigs: [] } };
+  })));
 
   // Fleet changes made in the Viewer (⚙ Edit fleet), each applying from its date onward.
   var fleetRosters = fleetRostersFromRows_(readTable_(ss, TABS.fleetRoster));
@@ -707,6 +712,7 @@ function getReport() {
     productivity: prod,
     summaries: summaries,
     elementStageLog: elementStageLog,
+    machineFollowUps: machineFollowUps,
     fleetRosters: fleetRosters,
     excavationProgress: excavationProgress,
     excavationDaily: excavationDaily,

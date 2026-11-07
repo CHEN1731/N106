@@ -1013,6 +1013,114 @@ function elementStageHistory_(summaries) {
   return byId;
 }
 
+// Follow-up work on an element a machine already dug (build-81): its rebar cage / concrete pour.
+// Stricter than lifecycleStageFor_ so "concrete hacking", "slab rebar installation", "exposed
+// rebars cutting" are not read as the panel's own cage or pour, and a clause that casts something
+// else (LSS, lean concrete, a slab / deck / drain / kerb / beam, the guide wall) is ignored.
+var FOLLOWUP_CAST_RE = /\bcast(?:ing|ed)?\b|\bpour(?:ing|ed)?\b|\btremie\b/i;
+var FOLLOWUP_CAST_DONE_RE = /\bcast(?:ing)?\b[^\n.;]{0,40}\b(?:complete|completed|finish|finished|done)\b|\b(?:complete|completed|finished|done)\b[^\n.;]{0,15}\bcast/i;
+var FOLLOWUP_CAGE_RE = /\bcages?\b/i;
+var FOLLOWUP_NOT_RE = /\blss\b|back\s*fill|lean\s*conc|blinding|slope\s*protection|\bslabs?\b|\bdecks?\b|\bdrains?\b|\bkerbs?\b|\bbeams?\b|guide\s*wall|\bGW\s*\d|precast|haunch|plinth/i;
+var FOLLOWUP_WINDOW_DAYS = 14;   // a cage / pour this long after the last dig still belongs to it
+
+/** Follow-up stage from an element's own text: 'Rebar' | 'Concreting' | 'Completed' | ''. */
+function followUpStageFor_(text) {
+  var kept = String(text == null ? '' : text).split(/\s*(?:\n|;|,|\s-\s|\.\s)\s*/)
+    .filter(function (c) { return !FOLLOWUP_NOT_RE.test(c); }).join('\n');
+  if (FOLLOWUP_CAST_RE.test(kept)) return FOLLOWUP_CAST_DONE_RE.test(kept) ? 'Completed' : 'Concreting';
+  if (FOLLOWUP_CAGE_RE.test(kept)) return 'Rebar';
+  return '';
+}
+
+/**
+ * Split an activity into per-element pieces: each element id owns the text up to the next id
+ * (the text before the first id goes to the first). Ids joined only by "&" / "," / "and"
+ * ("DW1555 & DW1556 casting") share the text after them. " | " (separate works joined into one
+ * location row) is a hard break: a work naming no element belongs to none. -> [{ ids: [...], text }]
+ */
+function elementSegments_(text) {
+  var parts = String(text == null ? '' : text).split(/\s+\|\s+/);
+  if (parts.length > 1) return [].concat.apply([], parts.map(elementSegments_));
+  var s = parts[0], re = new RegExp(ELEMENT_RE.source, 'gi'), m, groups = [];
+  while ((m = re.exec(s))) {
+    var g = groups[groups.length - 1];
+    if (g && /^[\s,&\/+]*(?:and)?[\s,&\/+]*$/i.test(s.slice(g.end, m.index))) {
+      g.ids.push(m[0]); g.end = m.index + m[0].length;
+    } else {
+      groups.push({ ids: [m[0]], start: m.index, end: m.index + m[0].length });
+    }
+  }
+  return groups.map(function (g, i) {
+    return { ids: g.ids, text: s.slice(i === 0 ? 0 : g.start, i + 1 < groups.length ? groups[i + 1].start : s.length) };
+  });
+}
+
+/**
+ * Machine follow-ups (build-81). Rebar cage / casting are not machine triggers, so a DW / BP drops
+ * off the machine cards once its bite / drilling ends. This puts it back, as a follow-up, on the
+ * days its own report shows its cage or pour — when a machine worked it within the last
+ * FOLLOWUP_WINDOW_DAYS (counting earlier follow-ups) and it hasn't already shown Completed.
+ * Built at read time from the saved days, so already-saved days need no re-Save.
+ * -> { 'yyyy-mm-dd': [{ elementId, family: 'bc'|'rig', area, location, lifecycleStage, followUp: true }] }
+ */
+function machineFollowUps_(summaries, activities) {
+  function day(d) { var p = String(d).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5; }
+  var onMachine = {}, actsByDate = {}, dates = {};
+  (summaries || []).forEach(function (s) {
+    if (!s || !s.date) return;
+    dates[s.date] = true;
+    var m = s.machineStatus || {}, day0 = onMachine[s.date] || (onMachine[s.date] = {});
+    [['bc', m.bcCutters], ['rig', m.boringRigs]].forEach(function (f) {
+      (f[1] || []).forEach(function (x) {
+        (x && Array.isArray(x.workingOnElements) ? x.workingOnElements : []).forEach(function (e) {
+          var n = normElId_(e && e.elementId);
+          if (n) day0[n] = { family: f[0], area: (e.area || x.area || ''), stage: clampLifecycle_(e.lifecycleStage) };
+        });
+      });
+    });
+  });
+  (activities || []).forEach(function (a) {
+    if (!a || !a.date) return;
+    (actsByDate[a.date] = actsByDate[a.date] || []).push(a);
+    dates[a.date] = true;
+  });
+
+  var last = {}, out = {};   // normId -> { day, family, area, stage } of its last machine / follow-up appearance
+  Object.keys(dates).sort().forEach(function (date) {
+    var today = onMachine[date] || {}, d = day(date), found = {};
+    (actsByDate[date] || []).forEach(function (a) {
+      var segs = elementSegments_(a.activity);
+      var rowId = normElId_(a.elementId);
+      if (rowId && !segs.some(function (sg) { return sg.ids.some(function (id) { return normElId_(id) === rowId; }); })) {
+        segs.push({ ids: [a.elementId], text: a.activity });
+      }
+      segs.forEach(function (sg) {
+        var stage = followUpStageFor_(sg.text);
+        if (!stage) return;
+        sg.ids.forEach(function (id) {
+          var n = normElId_(id), prev = last[n];
+          if (!n || today[n] || !prev || prev.stage === 'Completed' || d - prev.day > FOLLOWUP_WINDOW_DAYS) return;
+          var f = found[n];
+          if (f) { f.lifecycleStage = elementStageForward_(f.lifecycleStage, stage); return; }
+          found[n] = { elementId: id.toUpperCase().replace(/\s+/g, ''), family: prev.family,
+            area: areaFromSection_(a.section) || normAreaName_(a.area) || prev.area || '',
+            location: String(a.section || '').trim(), lifecycleStage: elementStageForward_(prev.stage, stage), followUp: true };
+        });
+      });
+    });
+    Object.keys(today).forEach(function (n) {
+      last[n] = { day: d, family: today[n].family, area: today[n].area,
+        stage: elementStageForward_(last[n] && last[n].stage, today[n].stage || 'Excavation') };
+    });
+    var list = Object.keys(found).map(function (n) {
+      last[n] = { day: d, family: found[n].family, area: found[n].area, stage: found[n].lifecycleStage };
+      return found[n];
+    });
+    if (list.length) out[date] = list;
+  });
+  return out;
+}
+
 /** Machine's own state from evidence: Maintenance on a maintenance keyword, else Active. */
 function machineStateFor_(text) { return MAINT_RE.test(String(text == null ? '' : text)) ? 'Maintenance' : 'Active'; }
 
@@ -1841,6 +1949,9 @@ if (typeof module !== 'undefined' && module.exports) {
     lifecycleStageFor_: lifecycleStageFor_,
     elementStageForward_: elementStageForward_,
     elementStageHistory_: elementStageHistory_,
+    machineFollowUps_: machineFollowUps_,
+    followUpStageFor_: followUpStageFor_,
+    elementSegments_: elementSegments_,
     clampLifecycle_: clampLifecycle_,
     machineEvidence_: machineEvidence_,
     normalizeExcavation_: normalizeExcavation_,

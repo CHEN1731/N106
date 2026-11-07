@@ -124,6 +124,14 @@ with them (the Area KPIs, charts, and activity table stay below):
   work and don't count. **Rebar cage / casting are NOT
   triggers** — an element with only rebar cage or casting (no bite/depth) is not shown or
   counted; they only refine the stage of an element already logged via bite/depth.
+  **Follow-ups (build-81):** once a machine has dug / bored an element, that element comes back
+  on a card of the same machine type in its Area on the days its **own** report shows its
+  **rebar cage** (🔵 Rebar) or **casting** (🟠 Concreting, 🟢 Completed when the casting is
+  finished / done), under *Rebar / casting (dug earlier)*. It must have been on a machine within
+  the last 14 days and stops after Completed. It never makes a machine Active — with no bite/depth
+  work in that Area the card stays Idle. Clauses that cast or reinforce something else (LSS,
+  lean concrete, slab / deck / drain / kerb / beam, guide wall) and "concrete hacking" don't
+  count. Built when the Viewer loads (`machineFollowUps_`), so already-saved days need no re-Save.
   The panel shows the **whole fleet — 6 BC Cutters + 4 Boring Rigs**: machines doing bite/depth
   work are **Active**; a machine reported under **maintenance / change / breakdown / repair /
   servicing** is **Maintenance** (red); a machine reported **moving / shifting / relocating / on
